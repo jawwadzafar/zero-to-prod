@@ -496,3 +496,13 @@ jobs:
           test "$(docker ps --format '{{.Names}}' | grep -c snip-tf-worker)" = 2
           terraform destroy -auto-approve -input=false
           test -z "$(docker ps -aq --filter name=snip-tf-)"
+      - name: The AWS configuration is valid (validated, never applied — it costs money)
+        working-directory: snip/infra/aws
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+      - name: Misconfiguration scan of all infrastructure code (report only, chapter 12.6)
+        working-directory: snip
+        run: |
+          docker run --rm -v "$PWD:/src:ro" aquasec/trivy:0.74.0 \
+            config --severity HIGH,CRITICAL --exit-code 0 /src/infra /src/deploy
