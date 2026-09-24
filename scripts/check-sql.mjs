@@ -28,11 +28,22 @@ function propValue(tag, name, consts) {
   return undefined;
 }
 
+// Evaluate the chapter's `export const` block (MDX ESM between the front
+// matter and the first heading) as JavaScript, so expressions like
+// `bigSetup + \`…\`` resolve exactly as they do on the site.
+function evalExports(src) {
+  const body = src.replace(/^---[\s\S]*?---\n/, '');
+  const esm = body.split(/\n#\s/)[0];
+  const names = [...esm.matchAll(/export const (\w+)/g)].map((m) => m[1]);
+  if (!names.length) return {};
+  const code = esm.replace(/export const /g, 'const ') + `\nreturn {${names.join(', ')}};`;
+  return new Function(code)();
+}
+
 let failures = 0, checked = 0;
 for (const file of mdxFiles(path.join(root, 'docs'))) {
   const src = fs.readFileSync(file, 'utf8');
-  const consts = {};
-  for (const m of src.matchAll(/export const (\w+) = `([\s\S]*?)`;/g)) consts[m[1]] = m[2];
+  const consts = evalExports(src);
   const tags = [...src.matchAll(/<SqlPlayground[\s\S]*?\/>/g)].map((m) => m[0]);
   for (const [i, tag] of tags.entries()) {
     const setup = propValue(tag, 'setup', consts) ?? '';
