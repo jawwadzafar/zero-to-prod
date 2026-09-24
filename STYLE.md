@@ -264,6 +264,9 @@ A full answer that explains the *why* and names the rule to keep.
 - A bare `<` or `{` in prose is parsed as JSX. Put it in backticks
   (`` `a < b` ``) or write "less than". Inside code blocks it's fine.
 - Comments are `{/* like this */}`, not `<!-- this -->`.
+- Inside HTML/JSX tags (`<summary>`, `<code>`), `{` starts JavaScript even
+  though backtick code in normal Markdown is safe. Wrap such text as a JS
+  string: `<code>{'${VAR:-default}'}</code>`.
 - Inside `<Quiz questions={[…]}>`, strings are JavaScript: use single quotes
   and escape apostrophes (`it\'s`) or use double-quoted strings.
 - Leave a blank line inside `<details>` before and after Markdown content.
