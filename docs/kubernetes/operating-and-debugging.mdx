@@ -173,7 +173,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
    ```
    Clean up with `kubectl -n snip delete deploy greedy`.
 
-4. **Look inside a shell-less container**, using the `kubectl debug` command from "Debugging a container with no shell".
+4. **Look inside a shell-less container**, using the `kubectl debug` command from "Debugging a container with no shell". Run `kubectl -n snip get pods` first: right after the rollouts above, some old Pods may still be `Terminating`, and a debug container can't join a Pod that's shutting down. Wait until only two API Pods are listed. (snip's CI hit exactly this: its first version of this step failed now and then, for this reason.)
 
 5. **Turn on metrics** and watch the autoscaler's view:
    ```bash
