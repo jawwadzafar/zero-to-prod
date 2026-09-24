@@ -1,0 +1,25 @@
+# Chapter 12.4 lab: see what's inside a GitHub Actions OIDC token — the
+# identity a cloud checks before handing out short-lived credentials.
+# Prints the claims only, never the token itself. Run it from the Actions tab.
+name: OIDC claims (lab)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # allows this job to request an OIDC token
+
+jobs:
+  claims:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request a token and print its claims
+        run: |
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$TOKEN"
+          # A JWT is header.payload.signature, each base64url-encoded (chapter 7.2).
+          PAYLOAD=$(echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+')
+          while [ $(( ${#PAYLOAD} % 4 )) -ne 0 ]; do PAYLOAD="$PAYLOAD="; done
+          echo "$PAYLOAD" | base64 -d | jq '{iss, aud, sub, repository, ref, workflow, event_name, exp, iat}'
