@@ -1,0 +1,345 @@
+---
+title: "12.5 Terraform from zero"
+sidebar_label: "12.5 Terraform from zero"
+description: "Infrastructure as code with Terraform: why describe infrastructure in files, HCL's building blocks (providers, resources, data sources, variables, locals, outputs), the init → plan → apply → destroy workflow, the dependency graph, state, idempotency and drift, count and for_each — by building snip's whole stack on your own Docker, free."
+---
+
+# 12.5 Terraform from zero
+
+Parts 12.2–12.4 described snip's cloud setup: a VPC, subnets, security groups, a database, a cache, containers, roles. You could create all of that by clicking through a web console. Doing it once is tedious; doing it again for staging and production, identically, is error-prone; and six months later, nobody can say exactly what was clicked. **Infrastructure as code** (IaC) solves this the way everything else in this handbook has: describe the desired state in files, keep the files in Git, and let a tool make reality match (the same idea as Compose, Kubernetes and GitOps). **Terraform** is the most widely used IaC tool, and it works with every major cloud and hundreds of other services. This chapter teaches it from zero with snip's own stack on **your local Docker**: real Terraform, real state, real plans, at zero cost. Chapter 12.6 then applies the same skills to real clouds.
+
+## What you'll learn
+
+- Why **infrastructure as code** beats clicking, and what Terraform does.
+- HCL's building blocks: **providers**, **resources**, **data sources**, **variables**, **locals**, **outputs**.
+- The workflow: **init → plan → apply → destroy**, and reading a plan.
+- **State**, the **dependency graph**, **idempotency** and **drift**.
+- Creating many things: **count** and **for_each**.
+
+---
+
+## Why code, not clicks
+
+| Clicking in a console | Infrastructure as code |
+|---|---|
+| Undocumented: "what did we set?" | The files *are* the documentation |
+| Hard to repeat exactly (staging ≠ production) | Same code, different variables, same result |
+| No review | Changes go through pull requests like application code |
+| No history | `git log` shows who changed what, when and why |
+| Hard to tear down (forgotten resources cost money) | `terraform destroy` removes everything it created |
+| Recovery from disaster means remembering | Recovery means running the code again |
+
+:::note[Everyday anchor]
+A recipe versus cooking from memory. From memory, each attempt comes out a little different, and when you're ill nobody else can make the dish. A written recipe (in version control, with notes on every change) lets anyone produce the same dish, in any kitchen, and lets you see exactly when "a pinch more salt" was added.
+:::
+
+**Terraform** reads `.tf` files written in **HCL** (HashiCorp Configuration Language), talks to APIs through **providers** (plugins for AWS, Azure, Google Cloud, Kubernetes, GitHub, Docker and hundreds more), and makes the real resources match the files. **OpenTofu** is an open-source fork of Terraform with the same language and commands, maintained by the Linux Foundation. Everything in this chapter works with either.
+
+---
+
+## The building blocks, in snip's local stack
+
+snip's local stack (`snip/infra/local/`) runs Postgres, Redis, the API and the worker as Docker containers, like Compose did in chapter 9.3, but with Terraform. Four files:
+
+### Providers: who Terraform talks to
+
+```hcl title="versions.tf"
+terraform {
+  required_version = ">= 1.9"
+  required_providers {
+    docker = { source = "kreuzwerker/docker", version = "~> 3.9" }
+    random = { source = "hashicorp/random", version = "~> 3.7" }
+  }
+}
+
+provider "docker" {}   # talks to your local Docker daemon
+```
+
+`version = "~> 3.9"` allows 3.9, 3.10 and so on, but not 4.0 (a new major version may break things, chapter 11.1). `terraform init` downloads the providers and records their exact versions and checksums in **`.terraform.lock.hcl`**, which you commit, so everyone and CI get identical providers.
+
+### Resources: the things to create
+
+```hcl title="main.tf (excerpt)"
+resource "docker_network" "snip" {
+  name = "snip-tf"
+}
+
+resource "random_password" "db" {
+  length  = 24
+  special = false
+}
+
+resource "docker_container" "postgres" {
+  name  = "snip-tf-postgres"
+  image = docker_image.postgres.image_id
+  env = [
+    "POSTGRES_USER=snip",
+    "POSTGRES_PASSWORD=${random_password.db.result}",
+    "POSTGRES_DB=snip",
+  ]
+  networks_advanced {
+    name = docker_network.snip.id
+  }
+  # … volume, healthcheck, wait = true
+}
+```
+
+A **resource** block has a **type** (`docker_container`, defined by the provider), a **local name** (`postgres`, how you refer to it in the code) and **arguments**. Resources refer to each other's **attributes**: `docker_network.snip.id`, `random_password.db.result`. Those references are how Terraform learns the order to create things in (below).
+
+### Variables, locals and outputs: the interface
+
+```hcl title="variables.tf (excerpt)"
+variable "api_port" {
+  description = "Port on your machine where snip's API is published."
+  type        = number
+  default     = 8080
+  validation {
+    condition     = var.api_port >= 1024 && var.api_port <= 65535
+    error_message = "Use an unprivileged port between 1024 and 65535."
+  }
+}
+```
+
+```hcl title="main.tf (excerpt)"
+locals {
+  snip_env = [
+    "SNIP_DATABASE_URL=postgres://snip:${random_password.db.result}@${docker_container.postgres.name}:5432/snip?sslmode=disable",
+    "SNIP_REDIS_ADDR=${docker_container.redis.name}:6379",
+    "SNIP_LOG_LEVEL=${var.log_level}",
+  ]
+}
+```
+
+```hcl title="outputs.tf (excerpt)"
+output "url" {
+  value = "http://localhost:${var.api_port}"
+}
+
+output "database_password" {
+  value     = random_password.db.result
+  sensitive = true   # hidden in output, but still stored in the state file (chapter 12.6)
+}
+```
+
+- **Variables** are the inputs: `var.api_port`, set with `-var api_port=9090`, a `.tfvars` file, or `TF_VAR_api_port`. Validation rejects bad values before anything happens.
+- **Locals** are named expressions, to avoid repeating yourself: `local.snip_env` is used by both the API and the worker.
+- **Outputs** are the results you want to see or pass on, like the URL.
+- **Data sources** (`data "…"`) *read* existing things without managing them. The AWS network module uses `data "aws_availability_zones"` to find the region's zones.
+
+---
+
+## The workflow
+
+```bash
+terraform init       # download providers (and modules); set up the state backend
+terraform plan       # show what would change, without changing anything
+terraform apply      # show the plan again, ask for "yes", then make the changes
+terraform destroy    # plan and apply the removal of everything in the state
+```
+
+**`plan` is the heart of Terraform.** It compares three things: your **code** (desired state), the **state** (what Terraform created last time), and **reality** (refreshed from the provider's API). Then it lists the actions needed. On a fresh machine, snip's stack plans:
+
+```text
+Plan: 10 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + create_key        = "docker exec snip-tf-api snip keys create me"
+  + database_password = (sensitive value)
+  + url               = "http://localhost:8080"
+```
+
+Each resource in the plan is marked `+` create, `~` update in place, `-` destroy, or `-/+` **destroy and then create a replacement**. Read every `-/+` carefully: some changes can't be made in place (renaming a database, changing a disk type), and replacing means **the old one, and its data, is deleted**. The plan warns you *before* anything happens, and that's the whole point of reading it.
+
+:::warning[What can go wrong]
+- **Applying without reading the plan**: the classic cause of Terraform disasters is a `-/+` on a database or a `-` on something important, approved on autopilot. In teams, CI posts the plan on the pull request so reviewers read it too.
+- **Changing things by hand after Terraform created them**: the next plan will "fix" your change back (drift, below), or fail confusingly.
+- **Two people applying at once** to the same state: without **state locking** (chapter 12.6), they can corrupt it.
+- **Treating `destroy` casually**: it does what it says. For production, protect critical resources (`prevent_destroy`, deletion protection).
+:::
+
+### The dependency graph
+
+You never tell Terraform the order. It builds a **graph** from the references: the Postgres container refers to the network, so the network comes first. `local.snip_env` refers to the Postgres and Redis containers, so the API waits for them. Independent resources (the network, the volume, the images, the password) are created **in parallel**. When a dependency isn't visible in a reference, you add it explicitly: the worker has `depends_on = [docker_container.api]`, because the API runs the database migrations and the worker must not start first. `terraform graph` prints the graph.
+
+### State, idempotency and drift
+
+After `apply`, Terraform writes **state** (`terraform.tfstate`, a JSON file by default): the mapping from `docker_container.postgres` in your code to the real container's ID, plus every attribute it knows. State is how Terraform knows what it manages, and what to change or destroy.
+
+Two properties follow:
+
+- **Idempotency**: running `apply` again with no code changes does **nothing**. The plan says `No changes. Your infrastructure matches the configuration.` It's safe to run as often as you like, which is what makes it automatable.
+- **Drift detection**: if reality changes behind Terraform's back, the next plan notices. snip's CI proves both on every push. It applies, checks that a second plan changes nothing, then deletes a container by hand (`docker rm -f snip-tf-worker-0`) and requires the next plan to report:
+  ```text
+  Plan: 1 to add, 0 to change, 0 to destroy.
+  ```
+  An `apply` puts it back: the same reconciliation idea as Kubernetes (chapter 10.1), but run when you ask, not continuously.
+
+:::info[If you've written code]
+`terraform plan -detailed-exitcode` exits with **0** for no changes, **2** for changes, and **1** for errors. That makes drift detection scriptable: a scheduled CI job can run it nightly and alert when production has drifted from Git. snip's CI uses exactly this, and its first version had a classic shell bug: `terraform plan … | tee plan.txt; CODE=$?` stored **tee's** exit code (always 0), not Terraform's. In bash, a pipeline's status is its *last* command's. The fix is `${PIPESTATUS[0]}` (or `set -o pipefail`), a reminder that pipes hide failures (chapter 2.3).
+:::
+
+---
+
+## Many things from one block: count and for_each
+
+```hcl
+resource "docker_container" "worker" {
+  count      = var.workers                 # 0, 1, 2 … containers
+  name       = "snip-tf-worker-${count.index}"
+  image      = docker_image.snip.image_id
+  entrypoint = ["/usr/local/bin/snip-worker"]
+  env        = local.snip_env
+}
+```
+
+`count` creates N copies, addressed as `docker_container.worker[0]`, `[1]`… Change `workers` from 1 to 2 and the plan adds one. Change it back and the plan destroys one. The AWS network module uses `count` to create one subnet per availability zone.
+
+`for_each` creates one per item in a **map or set**, addressed by key instead of index:
+
+```hcl
+resource "docker_volume" "backups" {
+  for_each = toset(["daily", "weekly"])
+  name     = "snip-backups-${each.key}"
+}
+```
+
+Prefer `for_each` when items have natural names. With `count`, removing an item from the middle of a list renumbers everything after it, and Terraform wants to replace them all.
+
+---
+
+## Lab
+
+Free, on your computer with Docker. Every step runs in snip's CI on every push.
+
+1. **Install Terraform** (or OpenTofu): macOS `brew install terraform`; Linux/WSL: follow [developer.hashicorp.com/terraform/install](https://developer.hashicorp.com/terraform/install) (a package repository or a single binary). Check with `terraform version`.
+
+2. **Read, then initialise.**
+   ```bash
+   cd ~/code/zero-to-prod/snip/infra/local
+   terraform fmt -check       # is the code formatted? (fmt without -check fixes it)
+   terraform init             # downloads the docker and random providers
+   terraform validate
+   ```
+
+3. **Plan, apply, and use it.**
+   ```bash
+   terraform plan             # 10 to add
+   terraform apply            # type "yes"
+   terraform output
+   curl localhost:8080/healthz
+   KEY=$(docker exec snip-tf-api snip keys create me | grep -o 'snip_[A-Za-z0-9]*')
+   SNIP_API_KEY="$KEY" ../../scripts/smoke.sh http://localhost:8080          # [smoke] PASS
+   ```
+   (If you still have the Compose stack from chapter 9.3 running, stop it first: both use port 8080. Or pass `-var api_port=9090`.)
+
+4. **Idempotency and drift.**
+   ```bash
+   terraform plan                        # No changes.
+   docker rm -f snip-tf-worker-0         # change reality behind Terraform's back
+   terraform plan                        # 1 to add
+   terraform apply
+   ```
+
+5. **Change the desired state.**
+   ```bash
+   terraform apply -var workers=2        # one more worker
+   terraform state list                  # everything Terraform manages
+   terraform output -raw database_password; echo     # sensitive, but readable by whoever holds the state
+   ```
+
+6. **Destroy**, then check nothing is left: `terraform destroy`, then `docker ps -a --filter name=snip-tf-`.
+
+## Self-check
+
+<Quiz
+  id="cloud-terraform-from-zero"
+  questions={[
+    {
+      q: 'What does terraform plan compare to decide what to do?',
+      options: [
+        'Only your code',
+        'Your code (desired), the state (what Terraform created) and reality (refreshed from the provider)',
+        'Only the cloud console',
+        'Two Git branches',
+      ],
+      answer: 1,
+      explain: 'The plan is the difference between desired and actual, computed before anything changes.',
+    },
+    {
+      q: 'A plan shows -/+ for your database. What does that mean?',
+      options: [
+        'A small in-place update',
+        'The database will be destroyed and a new one created: its data will be lost unless you intervene',
+        'It will be backed up',
+        'Nothing will happen',
+      ],
+      answer: 1,
+      explain: 'Some changes force replacement. Read every -/+ before approving.',
+    },
+    {
+      q: 'You run terraform apply twice with no code changes. What does the second one do?',
+      options: [
+        'Creates everything again',
+        'Nothing: the plan shows no changes, because state and reality already match the code (idempotency)',
+        'Destroys everything',
+        'Fails',
+      ],
+      answer: 1,
+      explain: 'Idempotency is what makes IaC safe to automate and re-run.',
+    },
+    {
+      q: 'How does Terraform know to create the Docker network before the containers that use it?',
+      options: [
+        'Alphabetical order',
+        'The containers reference docker_network.snip.id, so the dependency graph orders them; depends_on covers hidden dependencies',
+        'The order in the file',
+        'It guesses',
+      ],
+      answer: 1,
+      explain: 'References build the graph. Independent resources are created in parallel.',
+    },
+    {
+      q: 'Why commit .terraform.lock.hcl?',
+      options: [
+        'It contains the state',
+        'It pins exact provider versions and checksums so everyone and CI use identical providers',
+        'It holds secrets',
+        'Terraform requires it for destroy',
+      ],
+      answer: 1,
+      explain: 'Like go.sum or package-lock.json: reproducible, verified dependencies. (The state file is never committed.)',
+    },
+    {
+      q: 'Why can for_each be safer than count for a list of named things?',
+      options: [
+        'It’s faster',
+        'Items are addressed by key, so removing one doesn’t renumber and replace the others',
+        'count is deprecated',
+        'for_each creates backups',
+      ],
+      answer: 1,
+      explain: 'With count, deleting item 1 of 3 shifts item 2 into slot 1, and Terraform replaces it.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Your teammate changed a security group rule in the AWS console "just for a test". What happens next with Terraform, and what should the team do?</summary>
+
+The next `terraform plan` detects **drift**: the rule in reality differs from the code, so the plan proposes to change it back (or, if Terraform doesn't manage that rule, it silently persists outside the code, which is worse). If someone applies without reading carefully, the "test" change vanishes, possibly breaking whatever the teammate was testing, or the reverse: an unsafe manual rule stays forever.
+
+What to do: decide whether the change should exist. If yes, **put it in code**, via a PR, reviewed, applied through the normal pipeline. If no, let Terraform revert it. To prevent a repeat, restrict console write access in production (read-only for humans, changes through CI), and run a scheduled `plan -detailed-exitcode` that alerts on drift.
+
+</details>
+
+<details>
+<summary>Compare Terraform with Kubernetes manifests and GitOps. Aren't they the same idea?</summary>
+
+The same **idea**, applied differently:
+- All three are **declarative**: describe desired state, and a tool works out the steps.
+- **Kubernetes** (and GitOps controllers) reconcile **continuously**, inside a running system, and only for Kubernetes objects.
+- **Terraform** reconciles **on demand** (`plan`/`apply`), from outside, for almost anything with an API: cloud networks, databases, DNS, IAM, even Kubernetes clusters themselves. It keeps an explicit **state** file, because most cloud APIs don't have a built-in "desired state" like Kubernetes' `spec`.
+
+In practice they're layered: Terraform creates the cloud foundation (network, cluster, database, IAM roles), and Kubernetes plus GitOps run the applications on top. Some teams also run Terraform continuously (with tools like Atlantis or Terraform Cloud, or operators that manage cloud resources from inside Kubernetes), blurring the line.
+
+</details>
