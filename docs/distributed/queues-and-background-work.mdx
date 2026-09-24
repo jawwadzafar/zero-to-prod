@@ -1,0 +1,305 @@
+---
+title: "8.2 Queues & background work"
+sidebar_label: "8.2 Queues & background work"
+description: "Moving slow and unreliable work off the request path — producers, brokers and consumers, acknowledgements and redelivery, consumer groups, batching, poison messages and dead-letter queues, backpressure, the outbox pattern, and how snip's click queue and worker really work."
+---
+
+# 8.2 Queues & background work
+
+When someone clicks a snip link, two things should happen: they get redirected, and a click is counted. Only the first matters to the visitor — they're waiting for it. Counting could happen a second later and nobody would notice. Yet if counting runs *inside* the redirect, the visitor waits for it, and if the database is slow or briefly down, the redirect is slow or fails too. The fix is one of the most useful patterns in backend engineering: put the slow, non-urgent work on a **queue**, and let a separate **worker** handle it in the background. This chapter explains how queues work, the guarantees they do and don't give, and exactly how snip's click queue and worker operate.
+
+## What you'll learn
+
+- **Why** queues: keeping slow work off the request path, absorbing bursts, and surviving outages.
+- The anatomy: **producer**, **broker**, **consumer**, **acknowledgement** and **redelivery**.
+- **Consumer groups** and **batching** — how several workers share the load efficiently, with snip's Redis Streams code.
+- What goes wrong: **duplicates**, **poison messages** and **dead-letter queues**, **backpressure** and a queue that grows forever.
+- The **dual-write problem** and the **outbox pattern** — and a tour of RabbitMQ, Kafka, SQS and friends.
+
+---
+
+## Why put work on a queue?
+
+A **queue** is a to-do list shared between programs: one side adds tasks, the other takes them off and does them. It gives you four things at once:
+
+1. **Fast responses.** The request handler only has to *record* that work needs doing — a sub-millisecond append — then answer the user.
+2. **Absorbing bursts.** A viral link can produce 5,000 clicks a second. The queue soaks them up; workers process them at whatever steady rate the database can take.
+3. **Surviving outages.** If the database is down for a minute, redirects keep working; click events wait in the queue until workers can store them.
+4. **Independent scaling.** Need more counting throughput? Run more workers. The API doesn't change.
+
+```mermaid
+flowchart LR
+    V["visitor"] -->|"GET /viral"| API["snip API<br/>(producer)"]
+    API -->|"1. redirect now"| V
+    API -->|"2. XADD click event"| Q[("Redis stream<br/>snip:clicks<br/>(broker)")]
+    Q --> W1["snip-worker 1<br/>(consumer)"]
+    Q --> W2["snip-worker 2<br/>(consumer)"]
+    W1 & W2 -->|"batched UPDATE"| DB[("Postgres")]
+```
+
+:::note[Everyday anchor]
+A restaurant doesn't make you stand at the kitchen door while your meal is cooked. The waiter writes your order on a ticket and pins it to the rail (the queue), then goes back to serving. Cooks (workers) take tickets from the rail in order. If a rush arrives, tickets pile up on the rail instead of customers piling up at the door — and on a busy night, you add another cook, not another rail.
+:::
+
+---
+
+## The anatomy of a queue
+
+| Part | Role | In snip |
+|---|---|---|
+| **Producer** | Adds messages (events, jobs) | The API's redirect handler |
+| **Broker** | Stores messages durably until they're handled | Redis, using a **stream** called `snip:clicks` |
+| **Consumer** | Takes messages and does the work | `snip-worker` |
+| **Acknowledgement (ack)** | The consumer telling the broker "done — you can forget this one" | `XACK` |
+
+The acknowledgement is the key to reliability. A broker hands a message to a consumer but **keeps it** until acknowledged. If the consumer crashes before acking, the message is still there to be delivered again. That's how queues give **at-least-once** delivery (chapter 8.1): nothing is lost, at the price of occasional duplicates.
+
+---
+
+## snip's click queue, end to end
+
+### Producing: one fast append
+
+The redirect handler calls `RecordClick`, which appends an event to the Redis stream (`internal/clicks/stream.go`):
+
+```go
+// Record appends one event. XADD is a single fast Redis command, so the
+// redirect barely waits for it.
+func (r *Recorder) Record(ctx context.Context, slug string) error {
+	return r.rdb.XAdd(ctx, &redis.XAddArgs{
+		Stream: StreamKey,              // "snip:clicks"
+		MaxLen: maxLen,                 // 1,000,000
+		Approx: true,
+		Values: map[string]any{"slug": slug, "at": time.Now().UnixMilli()},
+	}).Err()
+}
+```
+
+A **Redis stream** is an append-only log (chapter 6.7): each entry gets an ID based on the time it was added (like `1790284427236-0`), and entries stay in order. `MaxLen` caps the stream at about a million entries, so a stopped worker can't fill Redis's memory forever — a trade-off we'll come back to.
+
+If this append fails (Redis is down), the redirect **still succeeds** — snip logs a warning and counts a `snip_click_record_errors_total` metric (chapter 5.4). Losing a click is better than failing a visitor.
+
+### Consuming: consumer groups
+
+Several workers can read the same stream. To make each event go to **exactly one** of them, they join a **consumer group** — here called `workers`. The group tracks which entries have been delivered to which consumer, and which are still unacknowledged (**pending**).
+
+```mermaid
+flowchart LR
+    S[("snip:clicks<br/>e1 e2 e3 e4 e5 e6")] --> G{"consumer group<br/>'workers'"}
+    G -->|"e1, e3, e5"| W1["worker A"]
+    G -->|"e2, e4, e6"| W2["worker B"]
+```
+
+The worker's main step, `ProcessOnce`, reads a batch with `XREADGROUP`, sums the clicks per slug, writes the sums, then acknowledges the batch (`internal/clicks/stream.go`, trimmed):
+
+```go
+// First re-claim our own events that were delivered but never acked
+// (e.g. we crashed mid-batch), then read new ones (">").
+for _, start := range []string{"0", ">"} {
+	streams, err := c.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    Group,             // "workers"
+		Consumer: c.name,            // unique per worker process
+		Streams:  []string{StreamKey, start},
+		Count:    c.batch,           // up to 500 events at a time
+		Block:    c.blockFor(start), // wait up to 2s for new events
+	}).Result()
+	// … collect messages …
+
+	counts := map[string]int64{}
+	for _, m := range msgs {
+		counts[m.Values["slug"].(string)]++          // aggregate: 500 clicks → a few UPDATEs
+	}
+	for slug, n := range counts {
+		dst.AddClicks(ctx, slug, n)                   // atomic: clicks = clicks + n (chapter 6.5)
+	}
+	c.rdb.XAck(ctx, StreamKey, Group, ids...)          // only now: "done"
+}
+```
+
+Three design choices worth noticing:
+
+- **Batching.** 500 click events for the same viral link become **one** `UPDATE … SET clicks = clicks + 500`, not 500 separate writes. Queues make this kind of aggregation natural, and it dramatically reduces database load.
+- **Ack after the work.** Events are acknowledged only after Postgres has the counts. A crash in between means the batch is redelivered — at-least-once.
+- **Re-claiming pending events.** On each pass, the worker first asks for its **own** pending entries (start ID `"0"`), i.e. ones it received before a crash but never acknowledged, then for new ones (`">"`). Nothing gets stuck.
+
+### Workers are just a loop
+
+`cmd/snip-worker/main.go` runs `ProcessOnce` in a loop until it's told to stop (chapter 4.5's signal context), with **exponential backoff** when processing fails (chapter 8.1). You can run one worker or ten; the consumer group divides the work.
+
+---
+
+## What can go wrong with queues
+
+### Duplicates
+
+At-least-once means a message can be processed twice. For snip's counts, the code accepts a rare small overcount — and says so in a comment. When duplicates matter, make processing **idempotent** (chapter 8.1): record each processed message ID in the database in the same transaction as the work, and skip IDs already seen.
+
+### Poison messages and dead-letter queues
+
+A **poison message** is one that can never be processed — malformed data, a bug triggered by one specific input. If the worker retries it forever, it blocks everything behind it (or burns CPU endlessly). The standard answer is a **dead-letter queue** (DLQ): after N failed attempts, move the message aside for a human to inspect, and carry on.
+
+snip handles the most likely case directly — clicks on a link deleted in the meantime are simply skipped (`links.ErrNotFound` isn't an error worth retrying). A production version would add a retry count per message (Redis tracks delivery counts; `XPENDING` shows them) and a dead-letter stream for anything beyond it.
+
+### Backpressure and unbounded queues
+
+If producers add messages faster than consumers process them, the queue **grows**. Brief growth is the point — that's absorbing a burst. Sustained growth means you need more workers, faster processing, or to shed load. Two numbers to watch (chapter 13.2):
+
+- **Queue depth / lag** — how many messages are waiting (`XLEN`, and the group's `lag` in `XINFO GROUPS`).
+- **Oldest message age** — how far behind the consumers are.
+
+And a queue must have a **bound**. snip's `MaxLen` caps the stream at about a million events: if workers are down long enough to exceed it, the **oldest** clicks are trimmed and lost. That's a deliberate trade-off — for click counts, protecting Redis's memory (and therefore snip's cache and rate limits) matters more than perfect counts during a long outage. For orders or payments, you'd choose a durable broker with much larger storage and alert long before any limit.
+
+---
+
+## The dual-write problem and the outbox pattern
+
+A common need: *"when a link is created, save it to Postgres **and** publish a `link.created` event"* (for a search index, analytics, or an email). The obvious code writes to both:
+
+```go
+store.Create(ctx, link)        // 1. write to Postgres
+queue.Publish("link.created")  // 2. publish to the queue — what if this fails? Or we crash between the two?
+```
+
+If the process crashes between the two lines, the database has the link but the event is never sent — or, reversing the order, the event goes out for a link that was never saved. Two systems, no shared transaction: that's the **dual-write problem** (chapter 6.8 warned about it).
+
+The **outbox pattern** fixes it using what you already have — a database transaction (chapter 6.5):
+
+1. In the **same transaction** as the business change, insert the event into an **`outbox`** table.
+2. A separate **relay** process reads unsent rows from `outbox`, publishes them to the queue, and marks them sent.
+
+```mermaid
+flowchart LR
+    A["snip API"] -->|"BEGIN; INSERT link; INSERT outbox event; COMMIT"| DB[("Postgres<br/>links + outbox")]
+    R["relay"] -->|"read unsent events"| DB
+    R -->|"publish"| Q[("queue")]
+    R -->|"mark sent"| DB
+```
+
+The link and its event are now committed together or not at all. The relay may publish an event twice (if it crashes after publishing but before marking it sent) — at-least-once again — so consumers stay idempotent. Tools that stream the database's change log directly (**change data capture**, e.g. Debezium) are a heavier-duty version of the same idea.
+
+---
+
+## A tour of brokers
+
+snip uses Redis Streams because Redis is already there and the needs are modest. The main alternatives:
+
+| Broker | Model | Strengths | Typical use |
+|---|---|---|---|
+| **Redis Streams** | Append-only log with consumer groups | Simple, very fast, already in many stacks | Moderate-volume events and jobs |
+| **RabbitMQ** | Classic message queues with routing | Flexible routing, per-message acks, mature | Task queues, workflows between services |
+| **Apache Kafka** (and Redpanda) | Distributed, partitioned, replayable log | Enormous throughput, long retention, replay history | Event streaming, analytics pipelines, change data capture |
+| **Amazon SQS** (and Google Pub/Sub) | Fully managed queue / pub-sub | No servers to run; scales automatically; built-in DLQs | Cloud-native job queues and fan-out |
+| **NATS** | Lightweight messaging (+ JetStream for persistence) | Tiny, fast, simple | Service messaging, edge systems |
+
+Two shapes to recognise: a **job queue** (each message is a task done once by one worker, then gone — RabbitMQ, SQS) and an **event log** (messages are facts retained for a period that many different consumers can read and even replay — Kafka, Redis Streams). Many teams also use a database-backed job library (for Go, **River** uses Postgres) until volume demands a dedicated broker.
+
+:::warning[What can go wrong]
+- **Doing slow work in the request path** — the user waits, and a dependency blip becomes a user-facing error.
+- **Acking before the work is done** — a crash loses the message (at-most-once by accident).
+- **Non-idempotent consumers** — at-least-once delivery turns into double emails, double charges.
+- **No dead-letter queue** — one poison message blocks or burns the whole pipeline.
+- **Unbounded queues, unmonitored lag** — memory runs out, or users see results hours late without anyone noticing.
+- **Dual writes** — database and queue drift apart. Use an outbox.
+:::
+
+---
+
+## Lab
+
+Free, on your own computer, with Postgres and Redis running (chapters 6.6 and 6.7 labs).
+
+1. **Start the API without a worker, and make a link go viral.**
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   export SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable" SNIP_REDIS_ADDR=localhost:6379
+   KEY=$(go run ./cmd/snip keys create queue-lab | grep -o 'snip_[A-Za-z0-9]*')
+   go run ./cmd/snip &
+   sleep 3
+   curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"viral"}' >/dev/null
+   for i in $(seq 1 50); do curl -s -o /dev/null localhost:8080/viral; done    # 50 clicks
+   ```
+
+2. **Look at the queue and the counts.**
+   ```bash
+   docker exec snip-redis redis-cli XLEN snip:clicks                  # 50 events waiting
+   docker exec snip-redis redis-cli XRANGE snip:clicks - + COUNT 2    # what an event looks like
+   curl -s localhost:8080/api/links/viral -H "Authorization: Bearer $KEY" | jq .clicks   # 0 — nobody has counted yet
+   ```
+   Every redirect worked instantly; the counting simply hasn't happened.
+
+3. **Start the worker and watch it drain.**
+   ```bash
+   go run ./cmd/snip-worker &
+   sleep 5
+   curl -s localhost:8080/api/links/viral -H "Authorization: Bearer $KEY" | jq .clicks   # 50
+   docker exec snip-redis redis-cli XINFO GROUPS snip:clicks          # lag 0, pending 0
+   ```
+   All 50 counted — as a handful of batched `UPDATE`s, not 50.
+
+4. **Scale out.** Start a second worker (`go run ./cmd/snip-worker &`), send another 200 clicks, and check `XINFO CONSUMERS snip:clicks workers`: both consumers took a share. Stop everything with `kill %1 %2 %3`.
+
+## Self-check
+
+<Quiz
+  id="distributed-queues-and-background-work"
+  questions={[
+    {
+      q: 'Why does snip count clicks through a queue instead of updating Postgres inside the redirect?',
+      options: [
+        'Postgres cannot count',
+        'The visitor gets an instant redirect, bursts are absorbed, and a database blip doesn’t break redirects',
+        'Queues make counts exact',
+        'Redis is the source of truth for clicks',
+      ],
+      answer: 1,
+      explain: 'Slow, non-urgent work moves off the request path. The queue buffers bursts and outages; workers catch up at their own pace.',
+    },
+    {
+      q: 'Why does the worker acknowledge (XACK) events only after writing the counts?',
+      options: [
+        'Redis requires it',
+        'So a crash before the write means the events are redelivered instead of lost (at-least-once)',
+        'To make the worker faster',
+        'Acking first would count clicks twice',
+      ],
+      answer: 1,
+      explain: 'Ack after the work, and a crash leads to redelivery (possible duplicates) rather than loss. Ack before the work gives at-most-once: losses on crashes.',
+    },
+    {
+      q: 'What is the outbox pattern for?',
+      options: [
+        'Sending email faster',
+        'Making a database change and its event commit together, by writing the event to an outbox table in the same transaction and publishing it later',
+        'Deleting old queue messages',
+        'Encrypting messages',
+      ],
+      answer: 1,
+      explain: 'It solves the dual-write problem: two systems cannot share a transaction, but a table in the same database can.',
+    },
+    {
+      q: 'A queue’s depth keeps growing for hours. What does it tell you?',
+      options: [
+        'Everything is healthy',
+        'Consumers can’t keep up with producers — add workers, speed up processing, or shed load, before the queue’s limit or memory is reached',
+        'The broker is too fast',
+        'Messages are being duplicated',
+      ],
+      answer: 1,
+      explain: 'Short growth absorbs bursts; sustained growth is backpressure you must act on. Monitor depth and oldest-message age.',
+    },
+  ]}
+/>
+
+<details>
+<summary>How does batching in snip's worker reduce database load? Give numbers.</summary>
+
+Without batching, 5,000 clicks per second on a viral link would mean 5,000 `UPDATE` statements per second, all fighting over **the same row's lock** (chapter 6.5) — slow and contended. snip's worker reads up to 500 events at a time and **sums them per slug** first, so a batch of 500 clicks on one link becomes **one** `UPDATE links SET clicks = clicks + 500`. At 5,000 clicks per second that's about 10 updates per second instead of 5,000 — a 500× reduction in writes and lock contention, for a delay of at most a couple of seconds in the displayed count.
+
+</details>
+
+<details>
+<summary>snip's stream is capped at about a million events. When is that a good trade-off, and when would it be unacceptable?</summary>
+
+It's good for **click counts**: if workers are down so long that more than a million clicks pile up, losing the oldest ones slightly undercounts some links — but protects Redis's memory, and with it snip's cache and rate limiting, which keep the actual product working. It would be **unacceptable** for anything where every message matters — orders, payments, audit events. Those need a broker with durable, larger storage (Kafka, SQS), a much longer retention period, and alerts on lag well before any limit is reached.
+
+</details>
