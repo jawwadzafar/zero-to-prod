@@ -92,8 +92,8 @@ jobs:
       - name: Both api copies serve traffic, and /metrics is blocked at the edge
         run: |
           KEY=$(docker compose exec -T api snip keys create ci2 | grep -o 'snip_[A-Za-z0-9]*')
-          curl -fsS -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"lb"}'
-          for i in $(seq 1 10); do curl -s -o /dev/null localhost:8080/lb; done
+          curl -fsS -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"lbtest"}'
+          for i in $(seq 1 10); do curl -s -o /dev/null localhost:8080/lbtest; done
           COPIES=$(docker compose logs api | grep '"route":"GET /{slug}"' | cut -d'|' -f1 | sort -u | wc -l)
           echo "api copies that served redirects: $COPIES"; test "$COPIES" -eq 2
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/metrics)" = 403
