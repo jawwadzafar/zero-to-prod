@@ -228,6 +228,17 @@ The everyday commands:
 
 Set a default namespace to save typing: `kubectl config set-context --current --namespace=snip`.
 
+:::warning[What can go wrong]
+The first time snip's manifests ran in CI, **no snip Pod ever started**. `kubectl describe pod` showed `CreateContainerConfigError` and this event:
+
+```text
+Error: container has runAsNonRoot and image has non-numeric user (nonroot),
+cannot verify user is non-root
+```
+
+snip's Pods set `runAsNonRoot: true`, a promise the kubelet must check before starting the container. The image's `USER nonroot` is a *name*, and the kubelet can't look up names inside the image, so it refuses rather than guess. The fix is to state the numeric user ID in the Pod's `securityContext` (`runAsUser: 65532`, distroless's `nonroot`), or to use `USER 65532:65532` in the Dockerfile. Two lessons: security settings fail **closed**, which is what you want; and `describe` plus **Events** is where the reason always is.
+:::
+
 :::info[In the real world]
 Production manifests are almost never applied by hand from a laptop. They live in Git, are validated in CI (schema checks like **kubeconform**, policy checks), and are applied by a pipeline or a GitOps controller that continuously reconciles the cluster with the repository (chapter 11.4). Teams also standardise on **Helm** charts (chapter 10.6) or kustomize, and enforce security settings like snip's (non-root, read-only root filesystem, no privilege escalation, all capabilities dropped) cluster-wide with **Pod Security Standards**, where the `restricted` level requires exactly these.
 :::
