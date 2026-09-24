@@ -122,5 +122,22 @@ jobs:
             [ "$N" = 5 ] && exit 0; sleep 1
           done
           echo "clicks = $N, want 5"; docker compose logs worker; exit 1
+      - name: Chapter 9.3 lab — look inside postgres and redis; prometheus finds the api copies
+        run: |
+          docker compose exec -T postgres psql -U snip -c "SELECT slug, clicks FROM links ORDER BY slug" | tee /dev/stderr | grep -q counted
+          docker compose exec -T redis redis-cli XLEN snip:clicks
+          docker compose --profile observability up -d prometheus
+          for i in $(seq 1 30); do
+            N=$(curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.health=="up")] | length')
+            [ "${N:-0}" -ge 2 ] && echo "prometheus targets up: $N" && exit 0; sleep 2
+          done
+          curl -s localhost:9090/api/v1/targets; exit 1
+      - name: Chapter 9.3 lab — data survives down/up (named volume), and is gone after down -v
+        run: |
+          docker compose --profile observability down
+          docker compose up -d --wait
+          docker compose exec -T postgres psql -U snip -tAc "SELECT count(*) FROM links WHERE slug='counted'" | grep -qx 1
+          docker compose down -v
+          test -z "$(docker volume ls -q --filter name=snip_pgdata)"
       - if: failure()
         run: docker compose logs
