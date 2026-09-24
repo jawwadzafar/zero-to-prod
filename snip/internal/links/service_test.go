@@ -145,3 +145,16 @@ func TestRecordClickWithoutQueueCountsDirectly(t *testing.T) {
 		t.Fatalf("clicks = %d, want 3", got.Clicks)
 	}
 }
+
+// Benchmarks (chapter 8.5): go test -bench . -benchmem ./internal/links
+func BenchmarkNewSlug(b *testing.B) {
+	for b.Loop() {
+		links.NewSlug()
+	}
+}
+
+func BenchmarkValidateSlug(b *testing.B) {
+	for b.Loop() {
+		links.ValidateSlug("my-launch-2026")
+	}
+}

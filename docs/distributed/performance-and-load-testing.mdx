@@ -1,0 +1,348 @@
+---
+title: "8.5 Performance & load testing"
+sidebar_label: "8.5 Performance & load testing"
+description: "How fast is fast enough, and how much can one server take? Latency percentiles and why averages lie, throughput and capacity, queueing and Little's law, load-testing types and tools, closed vs open loop and coordinated omission, finding bottlenecks with benchmarks and profiles — measured live against a server with a known capacity."
+---
+
+# 8.5 Performance & load testing
+
+"Is it fast?" is the wrong question. A service that answers in 2 ms for one user can take 2 seconds, or fall over entirely, when a thousand users arrive at once. The questions that matter are **how fast, for how many, and what happens past that point**. This chapter gives you the vocabulary (latency, percentiles, throughput, capacity), the one law of queueing every engineer should know, and the practice of **load testing**: sending controlled traffic at a system to find its limits *before* your users do. You'll build a small load generator, point it at a server whose capacity you know in advance, and watch that server break exactly where the maths says it will.
+
+## What you'll learn
+
+- The three numbers that describe performance: **latency**, **throughput** and **errors**.
+- Why you measure latency in **percentiles** (p50, p99), never averages, and why the **tail** matters more as systems grow.
+- **Capacity**, **utilisation** and **queueing**, and **Little's law**, which connects them.
+- The kinds of load test (**smoke, load, stress, soak, spike**), the tools, and the classic mistake: **coordinated omission**.
+- How to find a bottleneck: **measure first**, with benchmarks, profiles and the USE method.
+
+---
+
+## The three numbers
+
+:::note[Everyday anchor]
+A coffee shop. **Latency** is how long *you* wait from ordering to getting your coffee. **Throughput** is how many coffees the shop serves per hour. **Errors** are the wrong orders and the people who gave up and walked out. A shop can have great throughput and terrible latency (a huge, slow-moving queue), so you need all three to know how it's doing.
+:::
+
+| Number | Question it answers | Unit | snip example |
+|---|---|---|---|
+| **Latency** | How long does one request take? | milliseconds (ms), microseconds (µs) | A redirect takes 0.3 ms |
+| **Throughput** | How many requests are handled per second? | requests per second (req/s, RPS) | 5,000 redirects/s |
+| **Error rate** | What fraction fail? | % | 0.01% return 5xx |
+
+They are connected. Push throughput towards a system's limit and latency rises, then errors appear. **A latency number without the load it was measured at means very little.** "2 ms" at 10 req/s says nothing about 10,000 req/s.
+
+### Percentiles: why averages lie
+
+Suppose 100 requests take 10 ms each, except one that takes 5 seconds. The **average** is about 60 ms, a number that describes *no request that actually happened*. Nobody waited 60 ms: 99 people waited 10 ms and one waited 5 seconds.
+
+A **percentile** says "this fraction of requests were at least this fast":
+
+- **p50** (the median): half of requests were faster than this. The *typical* experience.
+- **p90**: 90% were faster; 1 in 10 was slower.
+- **p99**: 99% were faster; **1 in 100** was slower. The *tail*.
+- **max**: the single worst request. Noisy, but worth a glance.
+
+In the example: p50 = 10 ms, p99 = 10 ms, max = 5 s. That tells the real story.
+
+:::info[If you've written code]
+To compute p99 from raw samples: sort them and take the value 99% of the way along. That's exactly what this chapter's load generator does. Monitoring systems can't keep every sample, so they use **histograms** (counts per latency bucket) and estimate percentiles from those. snip's Prometheus metrics do this, and chapter 13.2 covers them. Note that you **can't average percentiles**: the average of each server's p99 is not the fleet's p99.
+:::
+
+### Why the tail matters more as you grow
+
+"Only 1 in 100 requests is slow" sounds fine, until one *page* makes many requests. If loading a dashboard calls 100 backend services in parallel and waits for all of them, the page is slow whenever *any* of them is slow:
+
+```text
+chance that all 100 calls are fast = 0.99 ^ 100 ≈ 0.37
+so ≈ 63% of page loads hit at least one p99-slow call
+```
+
+Your p99 becomes your users' **typical** experience. This is **tail latency amplification**, and it's why large companies obsess over p99 and p99.9 rather than averages. The more services a request touches (chapter 8.1), the more the tail matters.
+
+---
+
+## Capacity and queueing
+
+Every server has a **capacity**: the most requests per second it can finish. Capacity is set by its scarcest resource, the **bottleneck**. That might be CPU, database connections, disk, network, or a lock that only one request can hold at a time.
+
+The fraction of capacity in use is the **utilisation**. At 50% utilisation, requests rarely wait for each other. As utilisation approaches 100%, requests increasingly arrive while others are still being served, and they **queue**.
+
+:::note[Everyday anchor]
+A supermarket with four checkouts, each taking one minute per customer, can serve **4 customers a minute**. If 2 arrive a minute, queues are short. At 3.8 a minute, any small burst forms a queue that barely drains. At 4.2 a minute, **the queue grows forever**: every minute, 0.2 more people join than leave. No checkout operator got slower; there's simply more arriving than leaving.
+:::
+
+The key insight: **waiting time doesn't grow steadily with load. It stays low, then shoots up near capacity.** Queueing theory gives a rule of thumb: waiting grows roughly with `1 / (1 − utilisation)`.
+
+| Utilisation | `1 / (1 − u)` | Relative wait |
+|---|---|---|
+| 50% | 2 | low |
+| 80% | 5 | noticeable |
+| 90% | 10 | high |
+| 95% | 20 | very high |
+| 99% | 100 | a crisis |
+
+This curve has a **knee**. That's why experienced teams plan to run servers well below full utilisation, often at 50–70%. The spare capacity isn't waste: it absorbs bursts without long queues.
+
+### Little's law
+
+One simple, remarkably general law ties the numbers together:
+
+```text
+requests in the system = arrival rate × time each spends in the system
+            L          =      λ       ×        W
+```
+
+It holds for supermarkets, coffee shops and servers alike, over any stable period. Uses:
+
+- A service handles **500 req/s** with **20 ms** latency → on average `500 × 0.020 =` **10 requests** are in flight at once. So a pool of 10 database connections is just barely enough, and 20 gives headroom.
+- A load test keeps **40 requests** in flight and the server finishes **375 per second** → each must be taking `40 ÷ 375 ≈` **107 ms**. You'll confirm this exact number in the lab.
+- Latency doubles at the same traffic → twice as many requests in flight → twice as many goroutines, connections and buffers held. **Slowness costs memory**, which is how a slow dependency can crash a service (chapter 8.4).
+
+---
+
+## Load testing
+
+A **load test** sends controlled, realistic traffic at a system and measures latency, throughput and errors as the load changes. It answers "how many users can we handle?" and "what breaks first?" before the answer arrives on launch day.
+
+### Kinds of test
+
+| Test | What you do | What it finds |
+|---|---|---|
+| **Smoke** | A tiny load for a minute | "Does the test itself work?" Always start here |
+| **Load** | Expected peak traffic, for 10–30 min | Does it meet its latency goals at normal peak? |
+| **Stress** | Keep raising load past the expected peak | Where's the limit, and **how** does it fail: gracefully, with 429s and 503s (chapter 8.4), or by falling over? |
+| **Spike** | Jump from low to very high traffic suddenly | Do autoscaling, caches and connection pools cope with a sudden burst? |
+| **Soak** | Moderate load for hours | Slow problems: memory leaks, filling disks, connection leaks, growing queues |
+
+### Closed loop vs open loop, and coordinated omission
+
+There are two ways to generate load, and the difference matters more than any tool choice.
+
+- **Closed loop**: *N* virtual users each send a request, **wait for the answer**, then send the next. Simple, and what many tools do by default.
+- **Open loop**: requests **arrive on a schedule**, say 400 per second, whether or not earlier ones have finished. This is how real users behave: a thousand strangers don't wait for each other's pages to load before clicking.
+
+The trap with closed loop: when the server slows down, **the load generator slows down with it**. Each virtual user sends fewer requests, so the server is never pushed past its limit and the queue never grows. The test "politely" backs off at exactly the moment real users wouldn't, and the latency it reports looks calm. This error is called **coordinated omission**: the tool coordinates with the server and omits the slow requests that real users would have suffered.
+
+The fix: generate load open loop, and measure each request's latency from **when it was supposed to start**, not from when the busy tool finally got round to sending it. The lab's load generator does both, and you'll see the two modes tell very different stories about the same server.
+
+### Tools
+
+You don't need to build a load generator for real work (we build a tiny one to understand them). Popular choices:
+
+| Tool | Style | Good for |
+|---|---|---|
+| **k6** | Tests written in JavaScript; open-loop "arrival rate" mode; thresholds that fail CI | Scripted, realistic scenarios; running in CI |
+| **vegeta** | Command line; constant rate (open loop) | Quick, honest HTTP rate tests |
+| **wrk2** / **oha** / **hey** | Command line | Quick throughput checks (wrk2 and oha can do constant rate) |
+| **Locust** | Tests written in Python | Complex user journeys; teams that live in Python |
+
+A taste of k6, for reference:
+
+```js
+// k6: 400 requests per second for 2 minutes, and fail if p99 > 50 ms
+import http from 'k6/http';
+export const options = {
+  scenarios: { steady: { executor: 'constant-arrival-rate', rate: 400, timeUnit: '1s',
+                         duration: '2m', preAllocatedVUs: 100 } },
+  thresholds: { http_req_duration: ['p(99)<50'] },
+};
+export default function () { http.get('https://staging.example.com/healthz'); }
+```
+
+### Rules for honest load tests
+
+- **Test something production-like.** A laptop, an empty database, or a tiny staging box gives numbers that don't transfer. Data volume matters: a query that's instant on 100 rows may crawl on 10 million (chapter 6.4).
+- **Test realistic traffic.** For snip, that's mostly redirects (reads), some creations (writes), a mix of popular and rare slugs (so caches behave realistically), and a few bad requests.
+- **Warm up first**, then measure. Cold caches, fresh connection pools and a just-started runtime make the first seconds unrepresentative.
+- **Watch the load generator too.** If *it* runs out of CPU, connections or ports, you're measuring the tool, not the server. Run it on a separate machine for serious tests.
+- **Record the load alongside every result**: "p99 = 12 ms **at 350 req/s**, 2 copies, 1 vCPU each".
+
+:::danger
+**Only load-test systems you own or have explicit permission to test.** Sending heavy traffic at someone else's service is indistinguishable from a denial-of-service attack. It may break their terms of service or the law, and your cloud provider may shut down your account. Also tell your own team before stress-testing shared environments. "The staging database fell over" is a bad way for colleagues to find out.
+:::
+
+---
+
+## Finding the bottleneck: measure first
+
+When something is slow, the tempting move is to guess and start "optimising". Resist it. **Measure first.** Most code isn't on the hot path, and speeding up code that accounts for 2% of the time can save at most 2%. (This is **Amdahl's law**: the speed-up from improving one part is limited by how much of the total time that part takes.)
+
+A good order of investigation:
+
+1. **Where does the time go across the system?** Which service, which dependency? Tracing (chapter 13.3) and per-route latency metrics answer this. In web services the answer is usually **the database or another network call**, not your code.
+2. **Is a resource saturated?** Use the **USE method** for every resource (CPU, memory, disk, network, connection pools): its **U**tilisation (how busy?), **S**aturation (is work queueing for it?) and **E**rrors. A connection pool with 20 of 20 connections busy and 300 requests waiting is your bottleneck, however idle the CPU looks.
+3. **Is the database doing too much work?** `EXPLAIN ANALYZE` the slow queries (chapter 6.4). Look for missing indexes, and for the **N+1 pattern**: one query to fetch a list, then one more query *per item*, in a loop. A page with 100 items making 101 queries is a classic.
+4. **Only then, profile the code.** A **profiler** samples what the CPU is doing, many times a second, and reports which functions it's in most. Go has one built in (`pprof`), and so does almost every language.
+
+:::info[If you've written code]
+Go gives you two tools for step 4. **Benchmarks** are functions named `BenchmarkXxx` in `_test.go` files. They run a piece of code many times and report nanoseconds and memory allocations per operation (`go test -bench . -benchmem`). **Profiles**: add `-cpuprofile cpu.out` to a benchmark, or import `net/http/pprof` into a running server to profile it live. Then run `go tool pprof -top cpu.out` to see where the time went. If you add `net/http/pprof` to a service, serve it on a **separate, private port**, never on the public one, because profiles reveal internals and can be expensive to collect.
+:::
+
+### Common fixes, roughly in order of payoff
+
+| Symptom | Usual fix | Chapter |
+|---|---|---|
+| Slow queries | Add the right index; fix N+1 with a join or a batch query | 6.4 |
+| Same data read over and over | Cache it (cache-aside), with a sensible TTL | 6.7 |
+| Slow work on the request path | Move it to a queue and a worker | 8.2 |
+| Connection pool exhausted | Size the pool (Little's law), make queries shorter, add timeouts | 6.6, 8.1 |
+| Too many round trips | Batch requests; reuse connections (keep-alive) | 5.4 |
+| CPU-bound hot function | Profile it, then reduce allocations or pick a better algorithm | this chapter |
+| Everything is efficient and it's still not enough | Add capacity: bigger machines, or more of them | 8.6 |
+
+:::warning[What can go wrong]
+- **Optimising without measuring**: hours spent making a 1 µs function take 0.5 µs, while each request waits 30 ms on an unindexed query.
+- **Benchmarking the wrong thing**: a benchmark on a laptop with a warm cache and 10 rows, trusted as a production prediction.
+- **Reporting averages**: "average latency 40 ms" hides that 1 in 50 users wait 3 seconds.
+- **Closed-loop tests that hide queueing** (coordinated omission), giving a confident capacity number that real traffic will blow past.
+- **Running at 95% utilisation "because it's efficient"**, so the first burst of traffic becomes an outage.
+:::
+
+:::info[In the real world]
+Teams that do this well load-test **before big launches and seasonal peaks**, keep a small **performance test in CI** that fails the build if a key endpoint's p99 regresses badly, and turn results into a **capacity plan**: "one copy handles about 800 req/s at our latency goal, we expect 3,000 at peak, so we run 6 copies (with headroom) and alert at 70% utilisation". The next chapter is about adding those copies.
+:::
+
+---
+
+## Lab
+
+Free, on your own computer. The numbers you see will differ a little from these (they depend on your machine), but the *shape* will be the same.
+
+1. **Start a server with a known capacity.** `examples/slowserver` works on at most 4 requests at a time, and each takes 10 ms. So its capacity is `4 ÷ 0.010 s = 400 req/s` in theory.
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   go run ./examples/slowserver
+   ```
+
+2. **Load it open loop, below and past capacity.** In a second terminal, use `examples/loadgen` (about 130 lines; read `main.go`):
+   ```bash
+   go run ./examples/loadgen -url http://localhost:9090/ -rate 200 -d 5s
+   go run ./examples/loadgen -url http://localhost:9090/ -rate 350 -d 5s
+   go run ./examples/loadgen -url http://localhost:9090/ -rate 390 -d 5s
+   go run ./examples/loadgen -url http://localhost:9090/ -rate 420 -d 5s
+   ```
+   A run on a test machine gave:
+   ```text
+   rate 200:  200 req/s   p50 11.3ms   p99 12.6ms
+   rate 350:  349 req/s   p50 11.5ms   p99 12.5ms
+   rate 390:  378 req/s   p50 98.6ms   p99 162.7ms
+   rate 420:  373 req/s   p50 323.7ms  p99 632.7ms
+   ```
+   Latency is flat, then explodes: the knee. It happens *below* 400, because each request really takes about 10.6 ms (the sleep plus overhead), so real capacity is about `4 ÷ 0.0106 ≈ 377 req/s`. Theory gives you the shape; only measurement gives you the number. Run the 420 test for `-d 20s`: latency keeps growing, because the queue grows every second.
+
+3. **Now closed loop, and see coordinated omission.**
+   ```bash
+   go run ./examples/loadgen -url http://localhost:9090/ -c 4  -d 5s
+   go run ./examples/loadgen -url http://localhost:9090/ -c 40 -d 5s
+   ```
+   ```text
+   c=4:   372 req/s   p50 10.7ms   p99 11.6ms
+   c=40:  374 req/s   p50 106.8ms  p99 108.2ms
+   ```
+   Check Little's law: 40 in flight ÷ 374 per second ≈ 107 ms. ✓ Notice that the closed-loop test at c=40 reports a steady, bounded 108 ms, while the open-loop test at a similar throughput showed latency growing without limit. Which one describes what real users would experience? (Open loop: real users keep arriving whether or not the server keeps up.)
+
+4. **Benchmark and profile real snip code.**
+   ```bash
+   go test -run xxx -bench . -benchmem ./internal/links
+   ```
+   ```text
+   BenchmarkNewSlug-4        1234360    975.5 ns/op    336 B/op   22 allocs/op
+   BenchmarkValidateSlug-4   3613339    331.4 ns/op      0 B/op    0 allocs/op
+   ```
+   Then profile slug generation:
+   ```bash
+   go test -run xxx -bench NewSlug -cpuprofile /tmp/cpu.out ./internal/links
+   go tool pprof -top -nodecount=10 /tmp/cpu.out
+   ```
+   Almost all the time is in `crypto/rand.Int`, which uses big-number maths and allocates. It could be made several times faster. **Should it be?** A slug is made once per link creation, which also does a database insert taking around a millisecond. 1 µs is about 0.1% of that. Leave it alone. That's the judgment this chapter is really about.
+
+5. **Load-test snip itself.** Start snip in memory mode (`go run ./cmd/snip`), then:
+   ```bash
+   go run ./examples/loadgen -url http://localhost:8080/healthz -c 1  -d 3s
+   go run ./examples/loadgen -url http://localhost:8080/healthz -c 50 -d 3s
+   ```
+   On a 4-core test machine, `-c 1` gave about 7,000 req/s at a p50 of 135 µs, and `-c 50` about 51,000 req/s at a p50 of 0.7 ms. Here the load generator and snip share the same CPU, so you're partly measuring your laptop. That's rule 4 from "Rules for honest load tests" in action. Create a link and load-test its redirect (`-url http://localhost:8080/yourslug`) too.
+
+## Self-check
+
+<Quiz
+  id="distributed-performance-and-load-testing"
+  questions={[
+    {
+      q: 'Why report latency as percentiles (p50, p99) rather than an average?',
+      options: [
+        'Percentiles are faster to compute',
+        'An average can describe no real request and hides the slow tail; percentiles show both the typical and the worst-affected experience',
+        'Averages are always higher than p99',
+        'Prometheus cannot compute averages',
+      ],
+      answer: 1,
+      explain: 'Ninety-nine 10 ms requests and one 5 s request average about 60 ms, a number nobody experienced. p50 = 10 ms and max = 5 s tell the truth.',
+    },
+    {
+      q: 'A service handles 500 req/s with an average latency of 20 ms. By Little’s law, about how many requests are in flight at once?',
+      options: ['25', '10', '500', '10,000'],
+      answer: 1,
+      explain: 'L = λ × W = 500 × 0.020 = 10. Useful for sizing connection pools and worker counts.',
+    },
+    {
+      q: 'Why do teams run servers at 50–70% utilisation rather than 95%?',
+      options: [
+        'To save electricity',
+        'Waiting time rises sharply near full utilisation (roughly 1/(1−u)), so spare capacity keeps queues short and absorbs bursts',
+        'Servers overheat above 70%',
+        'Cloud providers forbid higher utilisation',
+      ],
+      answer: 1,
+      explain: 'At 95% utilisation, a small burst creates a long queue. Headroom is what keeps latency low under real, bursty traffic.',
+    },
+    {
+      q: 'What is coordinated omission?',
+      options: [
+        'Two load tests running at once',
+        'A closed-loop load generator slowing down along with the server, so it never builds the queue real users would, and under-reports latency',
+        'Omitting error responses from results',
+        'A database locking bug',
+      ],
+      answer: 1,
+      explain: 'Real users keep arriving whether or not the server keeps up. Open-loop tests, measuring from each request’s scheduled start, show that honestly.',
+    },
+    {
+      q: 'A page calls 100 services in parallel and waits for all of them. Each is slow 1% of the time. Roughly how often is the page slow?',
+      options: ['1% of the time', 'About 63% of the time', '100% of the time', '10% of the time'],
+      answer: 1,
+      explain: '0.99^100 ≈ 0.37 chance all are fast, so ≈ 63% of page loads hit a slow call. Fan-out turns your p99 into the typical case.',
+    },
+    {
+      q: 'An endpoint is slow. What should you do first?',
+      options: [
+        'Rewrite the hottest-looking function in a faster language',
+        'Measure: find where the time actually goes (tracing, metrics, EXPLAIN, a profile) before changing anything',
+        'Add more servers',
+        'Increase every timeout',
+      ],
+      answer: 1,
+      explain: 'Most time in web services is usually spent in the database or network calls. Amdahl’s law: speeding up a part that takes 2% of the time saves at most 2%.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Explain in your own words why latency stays flat and then shoots up as load approaches capacity.</summary>
+
+While arrivals are well below capacity, a new request usually finds a free "slot" (CPU, connection, worker) and is served straight away, so latency is just the work itself. As utilisation rises, it becomes more likely that all slots are busy when a request arrives, so it waits. And since arrivals are bursty, short queues form and take longer to drain. Near 100%, there's almost no spare capacity to drain a queue once it forms, so waits grow very fast, roughly with `1 / (1 − utilisation)`. Past 100%, more arrives than leaves every second, and the queue, and with it latency, grows without limit until something (a timeout, a full buffer, memory) fails.
+
+</details>
+
+<details>
+<summary>You're asked to prove snip can handle 3,000 redirects per second at p99 under 50 ms. Outline the load test.</summary>
+
+- **Environment**: production-like: the same instance sizes, number of copies, Postgres and Redis setup, and a realistic amount of data (millions of links, not ten).
+- **Traffic**: open loop at a constant arrival rate (k6's `constant-arrival-rate`, or vegeta), mostly redirects across a realistic mix of popular and rare slugs so the cache hit rate is realistic, plus some creations and a few 404s.
+- **Procedure**: smoke test first; warm up; then step up, e.g. 1,000 → 2,000 → 3,000 → 4,000 req/s for several minutes each, recording p50/p99/errors at each step; then a spike and an hour-long soak at 3,000.
+- **Watch**: snip's own metrics, Postgres and Redis (connections, CPU, slow queries), and the load generators themselves, run from separate machines.
+- **Pass criteria**: p99 under 50 ms and errors under an agreed rate at 3,000 req/s, with headroom, i.e. still healthy at a step above. Plus know **what fails first** past that, and that it fails gracefully (429/503, not crashes).
+- **Permission**: tell the team, and never point it at systems you don't own.
+
+</details>
