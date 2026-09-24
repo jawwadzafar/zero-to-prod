@@ -1,0 +1,275 @@
+---
+title: "13.3 Tracing with OpenTelemetry"
+sidebar_label: "13.3 Tracing"
+description: "Seeing where the time goes inside a request: traces, spans and context propagation (W3C traceparent), OpenTelemetry's API, SDK and exporters, automatic vs manual instrumentation, sampling, the collector, and linking traces with logs — with snip's real OpenTelemetry instrumentation and a cache miss and hit side by side in Jaeger."
+---
+
+# 13.3 Tracing with OpenTelemetry
+
+Metrics told you snip's p99 latency went up (chapter 13.2). Logs told you which requests were slow (chapter 13.1). Neither tells you **where the time went** inside a request: waiting for Redis? For Postgres? For another service three hops away? A **trace** answers that. It records a request's whole journey as a tree of timed steps, across every service it touches, so you can see at a glance that 380 of the 400 milliseconds were one database query. This chapter explains traces and spans, how a trace follows a request across services, the **OpenTelemetry** standard that makes it portable, and the trade-offs of sampling. snip is instrumented with OpenTelemetry: each redirect produces a trace showing the cache lookup, the database query on a miss, and the click being recorded. You'll run it with **Jaeger** and compare a cache miss with a cache hit.
+
+## What you'll learn
+
+- **Traces** and **spans**: the anatomy of a request's timeline.
+- **Context propagation**: how a trace crosses service boundaries (W3C `traceparent`).
+- **OpenTelemetry**: API, SDK, exporters, the collector, and automatic vs manual instrumentation.
+- **Sampling**: why not every request is traced, and the options.
+- **Linking** traces with logs and metrics.
+
+---
+
+## Traces and spans
+
+A **trace** is the record of one request (or one job) through a system. It's made of **spans**: each span is one timed operation (handling the HTTP request, one cache lookup, one database query) with a name, a start time, a duration, a status and **attributes** (key/value details). Spans nest: a span's **parent** is the operation that caused it. Together they form a tree, drawn as a **waterfall**.
+
+A real trace of snip serving a redirect whose link wasn't in the cache yet, as exported to Jaeger (durations in microseconds):
+
+```text
+GET /{slug}                  758 µs   ─ the whole request (server span)
+└─ links.Resolve             467 µs
+   ├─ cache.GetURL           266 µs   cache.hit = false
+   ├─ store.Get               22 µs   the database lookup
+   └─ cache.SetURL           147 µs   fill the cache for next time
+└─ links.RecordClick         104 µs   queue the click for the worker
+```
+
+And the next redirect to the same link, a cache hit:
+
+```text
+GET /{slug}                  710 µs
+└─ links.Resolve             286 µs
+   └─ cache.GetURL           269 µs   cache.hit = true   (no database call at all)
+└─ links.RecordClick         306 µs
+```
+
+Two traces make the cache-aside pattern of chapter 6.7 visible: the first request pays for the database and fills the cache; the second never touches the database.
+
+:::note[Everyday anchor]
+A parcel's tracking history: "collected 09:02, sorting centre 11:40, out for delivery 07:15, delivered 13:08". One tracking number (the **trace ID**) follows the parcel through many companies' depots (services), and each scan is a **span** with a time. When a parcel is late, you don't guess: you look at which leg took too long.
+:::
+
+---
+
+## Crossing service boundaries: context propagation
+
+Within one program, the current span travels in memory. In Go, it rides in the `context.Context` that every function already receives, which is one reason snip passes `ctx` everywhere (chapter 4.5). Between services, it must travel **with the request**. The standard is **W3C Trace Context**: a `traceparent` HTTP header carrying the trace ID and the caller's span ID:
+
+```text
+traceparent: 00-960b80508a17736595d01c82a1415d90-9f5dc13dc0eee6e4-01
+             │  └─ trace ID (16 bytes, hex) ────┘ └─ parent span ─┘ └ sampled
+             └ version
+```
+
+When service A calls service B, A's instrumentation adds the header; B's reads it and makes its spans children of A's. The result is **one trace across both services**. snip sets this up on start-up:
+
+```go
+otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+	propagation.TraceContext{}, propagation.Baggage{}))
+```
+
+So if a proxy or another service calls snip with a `traceparent`, snip's spans join that trace instead of starting a new one. The same idea works through queues. A producer can put the trace context in a message's metadata so the consumer's spans link back. That's how a trace can follow a click from snip's API through Redis to the worker. (snip doesn't do that last step yet: a good exercise.)
+
+---
+
+## OpenTelemetry
+
+**OpenTelemetry** (OTel) is the vendor-neutral standard for producing traces, metrics and logs, backed by the CNCF and supported by practically every observability vendor. It has three layers:
+
+| Layer | What it does | In snip |
+|---|---|---|
+| **API** | What your code calls to create spans: `tracer.Start(ctx, "name")` | `internal/links/service.go` |
+| **SDK** | Collects spans, samples, batches them, and hands them to exporters | Configured in `internal/tracing/tracing.go` |
+| **Exporter** | Sends data out, usually as **OTLP** (the OpenTelemetry protocol) over HTTP or gRPC | `otlptracehttp`, pointed at `OTEL_EXPORTER_OTLP_ENDPOINT` |
+
+Because the API is separate from the SDK, libraries can be instrumented without choosing a backend, and if no SDK is configured, every span is a cheap **no-op**. snip relies on that: tracing is **off** unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and the code runs the same either way.
+
+```go
+// internal/tracing/tracing.go (abridged)
+if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
+	return noop, false, nil                    // tracing off: spans cost almost nothing
+}
+exporter, err := otlptracehttp.New(ctx)        // endpoint and headers from OTEL_* variables
+tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res))
+otel.SetTracerProvider(tp)
+```
+
+### Automatic and manual instrumentation
+
+- **Automatic** (or library) instrumentation creates spans for common frameworks without changing your code. snip wraps its HTTP handler with **`otelhttp`**, which creates the server span for every request, reads incoming `traceparent` headers, and records method, status and timing. Similar wrappers exist for database drivers, Redis clients, gRPC and message queues.
+- **Manual** instrumentation adds spans for *your* logic, where the interesting decisions are:
+
+```go
+func (s *Service) Resolve(ctx context.Context, slug string) (ResolveResult, error) {
+	ctx, span := tracer.Start(ctx, "links.Resolve")
+	defer span.End()
+
+	if s.cache != nil {
+		cctx, cspan := tracer.Start(ctx, "cache.GetURL")
+		u, ok, err := s.cache.GetURL(cctx, slug)
+		cspan.SetAttributes(attribute.Bool("cache.hit", err == nil && ok))
+		cspan.End()
+		// …
+```
+
+Two small but important details: the child spans are created from the `ctx` returned by the parent's `tracer.Start`, which is what makes them children; and errors are **recorded** on spans (`span.RecordError(err)`, `span.SetStatus(codes.Error, …)`) so failing traces are easy to find. snip also names each request span by its **route** (`GET /{slug}`) rather than the raw path, for the same cardinality reason as metric labels (chapter 13.2).
+
+### The collector
+
+In production, services rarely send traces straight to a backend. They send OTLP to an **OpenTelemetry Collector** (a separate process, often one per node or a central fleet), which can **batch**, **filter**, **redact** attributes, **sample**, and **fan out** to one or more backends. Swapping backends then means changing the collector's configuration, not every service. Popular backends include **Jaeger** and **Grafana Tempo** (open source), and the commercial observability platforms. snip's lab sends directly to Jaeger, which accepts OTLP itself.
+
+---
+
+## Sampling
+
+Tracing every request of a busy service produces enormous volumes. So traces are **sampled**:
+
+- **Head sampling**: decide at the start of a trace ("keep 10%"), usually by hashing the trace ID so every service makes the same decision. It's cheap and simple, but it drops the rare slow or failed request just as readily as the boring ones. The decision travels in `traceparent`'s last field (`01` = sampled).
+- **Tail sampling**: collect all spans, and decide *after* the trace completes, keeping every error and every slow trace plus a small share of normal ones. It keeps the interesting traces, but needs a collector that buffers whole traces.
+
+snip's SDK follows the standard `OTEL_TRACES_SAMPLER` variable (default: sample everything, and respect a caller's decision), so production could set `OTEL_TRACES_SAMPLER=parentbased_traceidratio` and `OTEL_TRACES_SAMPLER_ARG=0.1` without a code change.
+
+---
+
+## Linking the three signals
+
+The signals are most useful together. snip puts the **trace ID in every request log line** when tracing is on:
+
+```json
+{"level":"INFO","msg":"request","request_id":"e175f03b58204971","route":"GET /{slug}","path":"/traced","status":302,"duration_ms":0,"trace_id":"960b80508a17736595d01c82a1415d90"}
+```
+
+That's the same `960b8050…` as the trace above. From an error in the logs you jump to its trace, and from a slow span in a trace you search the logs for everything that happened in that request. Metrics connect too: a latency spike on a dashboard can link to example traces from that moment (**exemplars**). The workflow you'll use most in chapter 13.6: **metrics** to notice, **traces** to locate, **logs** to explain.
+
+:::warning[What can go wrong]
+- **Broken propagation**: one service in the chain doesn't forward `traceparent` (a proxy that strips headers, a queue without context), and every trace ends there. Test propagation end to end.
+- **Spans that aren't ended**: a missing `span.End()` (use `defer`) leaks memory and produces incomplete traces.
+- **Sensitive data in attributes**: request bodies, tokens and personal data in span attributes are exported to another system. Treat attributes like logs (chapter 13.1).
+- **High-cardinality span names**: naming spans by full URL (`GET /abc123`) instead of route makes traces hard to group and search.
+- **Tracing everything at full rate** on a busy system: cost and overhead. Sample.
+:::
+
+:::info[In the real world]
+Most teams adopt tracing through OpenTelemetry's automatic instrumentation first (HTTP servers and clients, database drivers), which gives cross-service traces with little code, then add manual spans around important business logic. Traces are sampled at the edge, with tail sampling in collectors to keep errors and slow requests. The biggest wins come in systems of many services, where a single slow dependency three hops away is otherwise nearly impossible to find.
+:::
+
+---
+
+## Lab
+
+Free, on your computer with Docker. The trace check runs in snip's CI on every push.
+
+1. **Start the stack with tracing on.** The `observability` profile includes Jaeger. Setting the endpoint turns snip's tracing on:
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d --build --wait
+   docker compose logs api | grep -m1 "tracing enabled"
+   ```
+
+2. **Make a cache miss, then a hit.**
+   ```bash
+   KEY=$(docker compose exec -T api snip keys create tracing | grep -o 'snip_[A-Za-z0-9]*')
+   curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"traced"}'
+   curl -s -o /dev/null localhost:8080/traced      # miss: goes to Postgres
+   curl -s -o /dev/null localhost:8080/traced      # hit: Redis only
+   ```
+
+3. **Look at the traces.** Open Jaeger at [localhost:16686](http://localhost:16686), choose the service **snip-api**, and **Find Traces**. Open the two `GET /{slug}` traces and compare them: which spans appear only on the miss? Click `cache.GetURL` to see its `cache.hit` attribute.
+
+4. **Jump from a log to a trace.** Find a request log line with a trace ID, and paste the ID into Jaeger's search box:
+   ```bash
+   docker compose logs api | grep '"route":"GET /{slug}"' | grep -o '"trace_id":"[0-9a-f]*"' | tail -1
+   ```
+
+5. **Propagate a trace in.** Send a request that claims to be part of an existing trace:
+   ```bash
+   curl -s -o /dev/null -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" localhost:8080/traced
+   ```
+   Search Jaeger for trace ID `4bf92f3577b34da6a3ce929d0e0e4736`: snip's spans joined that trace, as children of a parent span that snip never saw. (The exact parent is simply missing from Jaeger, since no other service reported it.)
+
+## Self-check
+
+<Quiz
+  id="observability-tracing"
+  questions={[
+    {
+      q: 'What is a span?',
+      options: [
+        'A log line',
+        'One timed operation within a trace, with a name, duration, status, attributes and a parent',
+        'A metric',
+        'A Kubernetes object',
+      ],
+      answer: 1,
+      explain: 'Spans nest into a tree; the trace is the whole tree for one request.',
+    },
+    {
+      q: 'How does a trace continue from service A into service B?',
+      options: [
+        'Both services share memory',
+        'A’s instrumentation adds a traceparent header with the trace ID and its span ID; B reads it and makes its spans children',
+        'The load balancer merges them',
+        'B guesses from timestamps',
+      ],
+      answer: 1,
+      explain: 'W3C Trace Context propagation. Any hop that drops the header breaks the trace.',
+    },
+    {
+      q: 'In snip’s two traces, what shows the request was a cache hit?',
+      options: [
+        'It was slower',
+        'There was no store.Get or cache.SetURL span, and cache.GetURL had cache.hit = true',
+        'The status code',
+        'The trace ID',
+      ],
+      answer: 1,
+      explain: 'Traces make code paths visible: you can see exactly which steps ran.',
+    },
+    {
+      q: 'Why can snip leave tracing code in place even when tracing is off?',
+      options: [
+        'It isn’t compiled',
+        'Without a configured SDK, the OpenTelemetry API returns no-op spans that cost almost nothing',
+        'Go removes unused code at runtime',
+        'Tracing is always on',
+      ],
+      answer: 1,
+      explain: 'The API/SDK split lets code be instrumented once and turned on by configuration.',
+    },
+    {
+      q: 'What is the advantage of tail sampling over head sampling?',
+      options: [
+        'It is cheaper',
+        'The keep/drop decision is made after the trace completes, so all errors and slow traces can be kept',
+        'It needs no collector',
+        'It samples fewer traces',
+      ],
+      answer: 1,
+      explain: 'Head sampling decides blindly at the start; tail sampling decides with the whole trace in hand.',
+    },
+    {
+      q: 'What links a snip log line to its trace?',
+      options: [
+        'The timestamp',
+        'The trace_id field in the log line, the same ID as the trace in Jaeger',
+        'The route',
+        'The status code',
+      ],
+      answer: 1,
+      explain: 'Shared IDs let you jump between logs and traces during an investigation.',
+    },
+  ]}
+/>
+
+<details>
+<summary>A user reports that some redirects take over a second, but snip's p99 on the dashboard is 5 ms. How would tracing help?</summary>
+
+The p99 across all traffic hides a small group of slow requests (maybe one slug, one customer, or one API copy). With tracing on and sampling that keeps slow traces (tail sampling, or a high rate during the investigation): search Jaeger for `snip-api` traces with duration over 500 ms. Open a few and look for the long span. Is it `store.Get` (a slow query, or a lock: chapters 6.4 and 6.5), `cache.GetURL` (Redis slow or timing out: chapter 8.1), or `links.RecordClick` (the queue blocking the redirect)? Check the attributes and the trace ID, and jump to that request's logs. Traces turn "some requests are slow" into "this step, under these conditions".
+
+</details>
+
+<details>
+<summary>How would you extend snip's traces to follow a click through the queue to the worker?</summary>
+
+When the API records a click (`links.RecordClick` → `clicks.Record`), **inject** the current trace context into the Redis Stream message, adding the `traceparent` value as a field alongside `slug`, using the global propagator's `Inject` with a map carrier. In the worker, for each message, **extract** the context from that field and start a span (`worker.ProcessClick`) with it. Since a batch mixes many clicks, the worker's span usually **links** to each click's context (span links) rather than having one parent. Then Jaeger shows the redirect, and separately the worker's processing, connected: you can see how long a click waited in the queue. Also set `OTEL_EXPORTER_OTLP_ENDPOINT` for the worker, and call `tracing.Setup` in `cmd/snip-worker`.
+
+</details>
