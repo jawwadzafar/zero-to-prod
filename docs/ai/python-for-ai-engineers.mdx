@@ -1,0 +1,483 @@
+---
+title: "14.1 Python for AI engineers"
+sidebar_label: "14.1 Python for AI engineers"
+description: "Enough Python to build real AI features, taught by comparison with the Go you already know: the interpreter and REPL, dynamic typing with type hints checked by mypy, pydantic for validating data at the edges, exceptions, virtual environments and uv, pytest, ruff — with snipai, a typed client for snip's API that you'll extend all through Part 14."
+---
+
+# 14.1 Python for AI engineers
+
+Welcome to Part 14. Everything so far has been built in Go, and Go is a great language for services like snip. But nearly the whole AI world runs on **Python**: every model provider's official library, the numerical tools (NumPy), the machine learning frameworks (PyTorch), the notebooks researchers share their work in, and most examples you'll find online. So AI engineers read and write Python every day, and most teams end up with both: services in Go (or Java, or TypeScript) and AI work in Python. That's exactly what we'll do. Part 14's code lives in a new folder, **`ai/`**, a Python project called **snipai** that adds AI features to snip, starting in this chapter with a typed client for snip's API.
+
+You already know how to program from Part 4. So this chapter doesn't start from zero. It teaches Python by **comparison with Go**, and spends its time on the things that are genuinely different, and the tools that keep a Python project healthy.
+
+## What you'll learn
+
+- How Python runs your code, and the **REPL**.
+- Python next to Go: the same ideas, different spelling.
+- **Type hints** checked by **mypy**, and **pydantic** for validating data at runtime.
+- **Virtual environments**, `pyproject.toml`, lock files, and **uv**.
+- Testing with **pytest**, linting and formatting with **ruff**.
+
+---
+
+## Python runs your file, line by line
+
+:::note[Everyday anchor]
+Go is like a translated book: the whole thing is translated before anyone reads it, and translation errors are caught up front. Python is like a live interpreter at a conference: they translate each sentence as it's spoken. You can start immediately and change your mind mid-speech, but a mistake in sentence 40 isn't noticed until sentence 40 is reached.
+:::
+
+Go is **compiled**: `go build` turns your whole program into a machine-code binary first, and refuses if anything doesn't type-check. Python is **interpreted**: the `python` program (the **interpreter**) reads your `.py` file and executes it statement by statement. There's no separate build step, which makes Python fast to experiment with. The price is that many mistakes are found only when the faulty line actually runs.
+
+The interpreter also has an interactive mode, the **REPL** (read–evaluate–print loop). Type an expression, see the result immediately:
+
+```text
+$ python3
+>>> 7 * 6
+42
+>>> "snip".upper()
+'SNIP'
+>>> len("https://go.dev")
+14
+>>> exit()
+```
+
+The REPL is where Python shines for AI work: load some data, try a prompt, inspect the result, try again, without writing a program first.
+
+:::info[In the real world]
+Researchers and data scientists often work in **Jupyter notebooks**: documents that mix code cells, their output (tables, charts) and notes, run in a browser. They're wonderful for exploring. They're also easy to get into a confusing state, because cells can run in any order and the notebook remembers everything from earlier runs. The usual practice: explore in a notebook if you like, then move anything you want to keep into ordinary `.py` files with tests. This handbook uses plain files throughout.
+:::
+
+---
+
+## Python next to Go: same ideas, different spelling
+
+Here's snip's slug rule, in Go (`snip/internal/links/link.go`) and in Python (`ai/src/snipai/slugs.py`):
+
+```go
+var slugPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
+
+var reserved = map[string]bool{"api": true, "healthz": true, "readyz": true, "metrics": true}
+
+func ValidateSlug(s string) error {
+	if !slugPattern.MatchString(s) || reserved[strings.ToLower(s)] {
+		return ErrInvalidSlug
+	}
+	return nil
+}
+```
+
+```python
+SLUG_PATTERN = re.compile(r"^[A-Za-z0-9_-]{3,32}$")
+
+RESERVED = {"api", "healthz", "readyz", "metrics"}
+
+def validate_slug(slug: str) -> None:
+    """Raise InvalidSlugError unless slug is an acceptable custom slug."""
+    if not SLUG_PATTERN.match(slug) or slug.lower() in RESERVED:
+        raise InvalidSlugError(f"invalid slug: {slug!r}")
+```
+
+Same logic, line for line. The differences you can see:
+
+| Idea | Go | Python |
+|---|---|---|
+| Blocks | `{ }` | **Indentation** (4 spaces). It's part of the syntax, not style |
+| Variables | `x := 1`, fixed type | `x = 1`; the variable can later hold anything |
+| Naming | `ValidateSlug` (capital = exported) | `validate_slug` (snake_case); a leading `_` means "private, by convention" |
+| No value | `nil` | `None` |
+| Slices, maps | `[]string{...}`, `map[string]int{...}` | `["a", "b"]` (list), `{"a": 1}` (dict), `{"a", "b"}` (set) |
+| Structs | `type Link struct {...}` | `class Link:`, usually a `@dataclass` or pydantic `BaseModel` |
+| Errors | returned values: `if err != nil` | **exceptions**: `raise`, and `try` / `except` |
+| Cleanup | `defer f.Close()` | `with open(...) as f:` (a **context manager**) |
+| String formatting | `fmt.Sprintf("%q", s)` | f-strings: `f"invalid slug: {slug!r}"` |
+| Docs | a comment above the function | a **docstring**: a string as the first line of the function |
+
+Two of these deserve a closer look.
+
+**Exceptions instead of returned errors.** In Go, a function that can fail returns an `error`, and the caller checks it on the next line. In Python, a failing function **raises an exception**, which travels up the call stack until some caller **catches** it with `try`/`except`, or the program crashes with a **traceback** (Python's stack trace, chapter 13.6). Less typing, but you can't see from a function's signature whether it can fail, so read docstrings, and catch specific exceptions rather than everything:
+
+```python
+def is_valid_slug(slug: str) -> bool:
+    try:
+        validate_slug(slug)
+    except InvalidSlugError:      # only the failure we expect
+        return False
+    return True
+```
+
+**Context managers instead of defer.** `with` guarantees cleanup when the block ends, even if an exception is raised inside it. You'll use it for files, network clients, and database connections:
+
+```python
+with SnipClient("http://localhost:8080", key) as snip:
+    link = snip.create("https://go.dev", slug="go")
+# here, snip's connections are closed, whatever happened inside
+```
+
+:::warning[What can go wrong]
+The most famous Python trap: **default arguments are created once**, when the function is defined, not each time it's called. So a mutable default (a list or dict) is *shared between calls*:
+
+```python
+def add_tag(tag, tags=[]):
+    tags.append(tag)
+    return tags
+
+add_tag("go")       # ['go']
+add_tag("python")   # ['go', 'python']  ← the list from the first call!
+```
+
+Use `tags: list[str] | None = None`, and create the list inside the function. Linters (ruff's `B006` rule, which snipai enables) catch this for you.
+:::
+
+---
+
+## Type hints: Go's safety net, if you ask for it
+
+Python is **dynamically typed**: a variable's type is whatever it currently holds, and nothing checks types before the program runs. Since Python 3.5 you can add **type hints**: `slug: str`, `-> bool`, `list[Link]`. On their own, they do **nothing** at runtime. They're documentation that a separate tool, a **type checker**, can verify. snipai uses **mypy** in its strictest mode.
+
+Here's a file with two type mistakes:
+
+```python
+from snipai.slugs import is_valid_slug
+
+label: str = is_valid_slug("abc")
+is_valid_slug(42)
+```
+
+Python itself runs line 3 without complaint (`label` quietly becomes `True`) and only crashes on line 4, deep inside the function:
+
+```text
+TypeError: expected string or bytes-like object, got 'int'
+```
+
+mypy finds both before anything runs:
+
+```text
+$ uv run mypy --strict typo.py
+typo.py:3: error: Incompatible types in assignment (expression has type "bool", variable has type "str")  [assignment]
+typo.py:4: error: Argument 1 to "is_valid_slug" has incompatible type "int"; expected "str"  [arg-type]
+Found 2 errors in 1 file (checked 1 source file)
+```
+
+That's the Go compiler's job, done by a separate tool that you run yourself (snip's CI runs it on every push). For code that will live longer than an afternoon, write the hints and run the checker. Your editor uses them for autocomplete too.
+
+### pydantic: checking data you don't control
+
+Type hints check *your code*. They can't check *data arriving from outside* (an API response, a file, a model's output), because that only exists at runtime. For that, AI engineers lean heavily on **pydantic**: you describe the shape of the data as a class, and pydantic **validates** and **converts** incoming data to match, or raises a clear error. Here's snipai's `Link`, matching the JSON snip returns:
+
+```python
+class Link(BaseModel):
+    """One short link, exactly as snip's API returns it."""
+
+    slug: str
+    url: str
+    clicks: int
+    created_at: datetime
+    short_url: str
+```
+
+Give it bad data and you get every problem at once, with the field names:
+
+```text
+>>> Link.model_validate({"slug": "go", "url": "https://go.dev", "clicks": "lots", "created_at": "yesterday"})
+3 validation errors for Link
+clicks
+  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='lots', input_type=str]
+created_at
+  Input should be a valid datetime or date, input is too short [type=datetime_from_date_parsing, input_value='yesterday', input_type=str]
+short_url
+  Field required [type=missing, ...]
+```
+
+And good data comes out as real Python types: `created_at` becomes a `datetime`, not a string. This will matter a lot in chapter 14.6, where the data you're validating is a language model's output, which is *often* not quite what you asked for.
+
+---
+
+## Environments: a separate toolbox for every project
+
+:::note[Everyday anchor]
+Imagine every carpenter in a workshop sharing one toolbox. One of them swaps the drill bits for a different size, and everyone else's jobs break. The fix is obvious: each job gets its own toolbox, with a list of exactly what's in it, so anyone can rebuild it identically.
+:::
+
+Go downloads dependencies into a shared cache, but each project's `go.mod` and `go.sum` pin exactly which versions *that project* uses. Python's traditional default is worse: `pip install` puts packages into one place for the whole Python installation, so project A's upgrade can break project B, and "works on my machine" is the norm. The fix has three parts:
+
+- A **virtual environment** (a `.venv` folder inside the project): a private copy of the Python setup with its own installed packages. Each project gets its own toolbox.
+- **`pyproject.toml`**: the project's description and the dependencies it needs, with minimum versions (like `go.mod`).
+- A **lock file** (`uv.lock`): the *exact* version of every package, including dependencies of dependencies, with hashes (like `go.sum`, and like Terraform's lock file in chapter 12.5). Committed to Git, so everyone and CI install the identical set.
+
+The tool that manages all three is **uv**. It's newer than the classic `pip` + `venv` combination, much faster, and it can install Python itself. snipai's `pyproject.toml`:
+
+```toml
+[project]
+name = "snipai"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28",      # HTTP client: talks to snip's API (chapter 14.1)
+    "pydantic>=2.11",   # data validation and typed models (chapters 14.1, 14.6)
+]
+
+[dependency-groups]
+dev = ["pytest>=8.4", "ruff>=0.13", "mypy>=1.18"]
+```
+
+The day-to-day commands:
+
+| You want to | Run | Go equivalent |
+|---|---|---|
+| Create `.venv` and install exactly what `uv.lock` says | `uv sync` | `go mod download` |
+| Add a dependency (updates `pyproject.toml` and `uv.lock`) | `uv add httpx` | `go get` |
+| Run something inside the project's environment | `uv run pytest`, `uv run python` | `go run`, `go test` |
+| Fail if the lock file doesn't match `pyproject.toml` (CI) | `uv sync --locked` | `go mod tidy -diff` |
+
+You don't need to "activate" the environment: `uv run` always uses the project's `.venv`.
+
+:::warning[What can go wrong]
+- **`pip install` with the system Python**, often with `sudo`, mixes your packages into the operating system's own Python, which system tools depend on. Recent Linux distributions refuse (`externally-managed-environment`) for exactly this reason. Always work inside a project environment.
+- **Committing `.venv/`**. It's big, and specific to your machine. Commit `pyproject.toml` and `uv.lock`, and put `.venv/` in `.gitignore` (snipai does).
+- **Forgetting the lock file.** Without it, `uv sync` next month may install newer versions, and your working code breaks without a single change of your own.
+:::
+
+---
+
+## A real client for snip's API
+
+snipai's first module, `ai/src/snipai/client.py`, is a Python client for the API you built in Part 5. It uses **httpx**, a modern HTTP library. Here's the core of it:
+
+```python
+class SnipClient:
+    def __init__(self, base_url: str, api_key: str, *, timeout: float = 5.0,
+                 transport: httpx.BaseTransport | None = None) -> None:
+        self._http = httpx.Client(
+            base_url=base_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=timeout,  # never wait forever (chapter 8.1)
+            transport=transport,
+        )
+
+    def create(self, url: str, slug: str | None = None) -> Link:
+        body: dict[str, str] = {"url": url}
+        if slug:
+            body["slug"] = slug
+        return Link.model_validate(self._request("POST", "/api/links", json=body))
+
+    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        res = self._http.request(method, path, **kwargs)
+        if res.status_code == 204:
+            return None
+        if res.is_error:
+            try:
+                err = res.json()["error"]
+                raise SnipError(res.status_code, err["code"], err["message"])
+            except (ValueError, KeyError, TypeError):
+                # Not snip's error format (a proxy's HTML error page, say).
+                raise SnipError(res.status_code, "http_error", res.text[:200]) from None
+        return res.json()
+```
+
+Things to notice, all of them Python habits worth copying:
+
+- **`*` in the parameter list** means everything after it must be passed **by name**: `SnipClient(url, key, timeout=2)`, never `SnipClient(url, key, 2)`. Call sites stay readable.
+- **One place turns HTTP errors into exceptions** (`_request`), carrying snip's own error `code` from chapter 5.3, so callers can write `except SnipError as e: if e.code == "slug_taken": ...`.
+- **Never trust the error body's shape.** If something between you and snip (nginx, a load balancer) answers with an HTML page, `res.json()` fails. The code catches that and still raises a useful `SnipError`.
+- **A timeout by default.** httpx's default is 5 seconds; we make it explicit, and configurable. You learned why in chapter 13.5.
+
+Using it feels like this, against a running snip:
+
+```text
+>>> from snipai.client import SnipClient, SnipError
+>>> snip = SnipClient("http://localhost:8080", "snip_...")
+>>> link = snip.create("https://www.python.org", slug="python")
+>>> link
+Link(slug='python', url='https://www.python.org', clicks=0, created_at=datetime.datetime(2026, 9, 24, 23, 42, 26, 320843, tzinfo=TzInfo(0)), short_url='http://localhost:8080/python')
+>>> snip.create("https://example.com", slug="api")
+snipai.client.SnipError: 400 invalid_slug: slug must be 3-32 letters, digits, '-' or '_', and not a reserved word
+```
+
+---
+
+## Tests and tidiness: pytest and ruff
+
+**pytest** is Python's standard test runner. Tests are plain functions whose names start with `test_`, using the ordinary `assert` statement. One feature you'll use constantly is **parametrize**: one test, many inputs. It's the Python version of Go's table-driven tests (chapter 4.4), and snipai's slug test uses exactly the same cases as snip's Go test:
+
+```python
+@pytest.mark.parametrize(
+    ("slug", "ok"),
+    [
+        ("abc", True),
+        ("my-launch_2026", True),
+        ("ab", False),       # too short
+        ("api", False),      # reserved
+        ("Healthz", False),  # reserved, whatever the case
+        ...
+    ],
+)
+def test_is_valid_slug(slug: str, ok: bool) -> None:
+    assert is_valid_slug(slug) is ok
+```
+
+To test the client **without a running snip**, the tests hand httpx a **mock transport**: a plain function that receives each request and returns a made-up response. It's the same trick as Go's `httptest` (chapter 4.4), from the other side: a fake server, not a real one:
+
+```python
+def fake_snip(request: httpx.Request) -> httpx.Response:
+    if request.headers.get("Authorization") != "Bearer good-key":
+        return httpx.Response(401, json={"error": {"code": "unauthorized", "message": "bad key"}})
+    ...
+
+SnipClient("http://snip.test", "good-key", transport=httpx.MockTransport(fake_snip))
+```
+
+A separate test (`tests/test_live.py`) runs the same round trip against a **real** snip when you set `SNIP_URL` and `SNIP_API_KEY`, and skips itself otherwise. CI starts snip and runs it on every push.
+
+**ruff** is the linter and formatter, in one very fast tool: `ruff format` is Python's `gofmt`, and `ruff check` is `go vet` plus much more (unused imports, the mutable-default trap, outdated syntax). Together with mypy, that's snipai's full check, the same trio CI runs:
+
+```bash
+uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
+```
+
+---
+
+## Lab
+
+Free, on your own computer. You'll install Python's tools, run snipai's checks, use the client against a real snip, and watch the type checker and pydantic catch mistakes.
+
+1. **Install uv** (it can install Python for you too). On macOS or Linux (and WSL on Windows):
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+   (Or `brew install uv` on macOS.) Piping a script from the internet into `sh` runs it with your permissions. It's a common way to install developer tools (chapter 0.2 installed Docker the same way), but it's worth opening the URL in your browser first to see what it does. Open a new terminal, then check: `uv --version`.
+
+2. **Set up snipai and run every check:**
+   ```bash
+   cd ~/code/zero-to-prod/ai
+   uv sync
+   uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
+   ```
+   `uv sync` downloads a suitable Python if you don't have one, creates `.venv`, and installs exactly what `uv.lock` lists. **What to notice:** one test is `skipped`. That's the live test, waiting for a real snip.
+
+3. **Run the live test against a real snip.** In a second terminal, start snip in memory mode (chapter 5.1); it prints a development API key:
+   ```bash
+   cd ~/code/zero-to-prod/snip && go run ./cmd/snip serve
+   ```
+   Then, back in the `ai` terminal (paste the key):
+   ```bash
+   SNIP_URL=http://localhost:8080 SNIP_API_KEY=snip_... uv run pytest -v
+   ```
+   Now all tests pass, none skipped.
+
+4. **Use the client from the REPL.** `uv run python`, then:
+   ```python
+   from snipai.client import SnipClient, SnipError
+   snip = SnipClient("http://localhost:8080", "snip_...")
+   link = snip.create("https://www.python.org", slug="python")
+   link.created_at.year           # a real datetime, not a string
+   [l.slug for l in snip.list()]  # a list comprehension
+   snip.create("https://example.com", slug="api")
+   ```
+   The last line raises `SnipError` with snip's own error code. Try catching it: `try: ... except SnipError as e: print(e.code)`.
+
+5. **Let mypy catch a bug.** Create `typo.py` in the `ai` folder with the four lines from "Type hints" above. Run `uv run python typo.py` (it crashes on line 4, but only on line 4), then `uv run mypy --strict typo.py` (both mistakes, before running anything). Delete the file afterwards.
+
+6. **Break a test on purpose.** In `tests/test_slugs.py`, change `("ab", False)` to `("ab", True)` and run `uv run pytest`. Read the failure: pytest shows the exact input and what `assert` compared. Put it back.
+
+## Self-check
+
+<Quiz
+  id="ai-python-for-ai-engineers"
+  questions={[
+    {
+      q: 'You add type hints to a Python function and pass it a value of the wrong type. What happens when the program runs?',
+      options: [
+        'Python refuses to start',
+        'Nothing special: hints aren’t checked at runtime. A separate type checker like mypy has to be run to catch it',
+        'Python converts the value automatically',
+        'It prints a warning and continues',
+      ],
+      answer: 1,
+      explain: 'Hints are documentation that tools can verify. At runtime, Python only fails if the wrong value actually causes an error somewhere.',
+    },
+    {
+      q: 'What problem does a virtual environment solve?',
+      options: [
+        'It makes Python faster',
+        'Each project gets its own installed packages, so one project’s upgrades can’t break another',
+        'It runs Python in a container',
+        'It encrypts your code',
+      ],
+      answer: 1,
+      explain: 'A separate toolbox per project. Together with a lock file, anyone can rebuild the exact same environment.',
+    },
+    {
+      q: 'Why is uv.lock committed to Git, but .venv/ isn’t?',
+      options: [
+        'Git can’t store folders',
+        'The lock file is a small, exact list of versions everyone should install; .venv is the big, machine-specific result of installing them',
+        '.venv contains secrets',
+        'uv.lock is generated by Git',
+      ],
+      answer: 1,
+      explain: 'Commit the recipe, not the cooked meal. `uv sync` rebuilds .venv from the lock file anywhere.',
+    },
+    {
+      q: 'What does pydantic do that type hints alone don’t?',
+      options: [
+        'Makes code run faster',
+        'Validates and converts data at runtime (from an API, a file or a model’s output), raising clear errors when it doesn’t match',
+        'Replaces mypy',
+        'Formats code',
+      ],
+      answer: 1,
+      explain: 'Type hints check your code; pydantic checks data from outside, which only exists at runtime.',
+    },
+    {
+      q: 'Why does add_tag("python") return [\'go\', \'python\'] in the chapter’s example?',
+      options: [
+        'A bug in Python',
+        'The default list is created once, when the function is defined, and shared by every call that uses the default',
+        'Lists are always global in Python',
+        'Because "go" was a global variable',
+      ],
+      answer: 1,
+      explain: 'Use None as the default and create the list inside the function. ruff’s B006 rule flags the mistake.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Translate this Go snippet from snip into idiomatic Python.</summary>
+
+```go
+links, err := store.List(ctx, ownerID, 50)
+if err != nil {
+	return nil, err
+}
+var slugs []string
+for _, l := range links {
+	if l.Clicks > 0 {
+		slugs = append(slugs, l.Slug)
+	}
+}
+```
+
+```python
+links = store.list(owner_id, limit=50)   # raises if it fails; no err to check
+slugs = [link.slug for link in links if link.clicks > 0]
+```
+
+- **No error check**: in Python, a failure raises an exception, which carries on up to whoever can handle it. If *this* function should handle it, wrap the call in `try`/`except` with the specific exception.
+- **The loop becomes a list comprehension**: `[expression for item in iterable if condition]`. It's idiomatic for "build a list by filtering and transforming". For anything more complicated than one condition and one expression, a plain `for` loop is clearer.
+- **Naming**: `owner_id`, `limit=50` as a keyword argument, so the call says what 50 means.
+- **No `ctx`**: Python has no standard equivalent of Go's `context` for cancellation in ordinary code. Timeouts are usually set on the client (like `SnipClient(timeout=...)`). Async code (chapter 14.4) has its own cancellation.
+
+</details>
+
+<details>
+<summary>A teammate's script works on their laptop but fails in CI with "ModuleNotFoundError: No module named 'pydantic'". What are the likely causes, and how does snipai's setup avoid them?</summary>
+
+The code ran in a Python environment where `pydantic` wasn't installed. Likely causes:
+
+- They installed pydantic **globally** on their laptop (`pip install pydantic`) and never added it to the project's dependencies, so CI's fresh environment doesn't have it.
+- CI ran `python script.py` with the system Python instead of the project's environment.
+- The dependency was added to `pyproject.toml` but the **lock file wasn't updated or committed**, so CI installed from an old lock.
+
+snipai avoids all three: dependencies are only added with `uv add` (which updates both `pyproject.toml` and `uv.lock`), everything runs through `uv run` (always the project's `.venv`), and CI runs `uv sync --locked`, which **fails** if the lock file doesn't match `pyproject.toml` instead of quietly installing something different.
+
+</details>

@@ -18,3 +18,4 @@ uv run ruff check . && uv run mypy   # lint and type-check
 | Module | What it does | Chapter |
 |---|---|---|
 | `snipai.client` | A typed client for snip's REST API | 14.1 |
+| `snipai.slugs` | snip's slug rules, in Python | 14.1 |
