@@ -1,0 +1,8 @@
+# A first, naive Dockerfile (chapter 9.2). It works, but the image carries the
+# whole Go toolchain, runs as root, and rebuilds everything on any change.
+FROM golang:1.25-alpine
+WORKDIR /app
+COPY . .
+RUN go build -o server .
+EXPOSE 8080
+CMD ["./server"]

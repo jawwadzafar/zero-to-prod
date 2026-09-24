@@ -1,0 +1,443 @@
+---
+title: "9.2 Writing Dockerfiles"
+sidebar_label: "9.2 Writing Dockerfiles"
+description: "From a first Dockerfile that works to one that's production-ready: instructions, the build context and .dockerignore, layer caching and instruction order, multi-stage builds (448 MB → 14 MB), choosing a base image, running as non-root, exec vs shell form and PID 1 signals, and keeping secrets out of images — measured on a real build, then applied to snip's Dockerfile."
+---
+
+# 9.2 Writing Dockerfiles
+
+Chapter 9.1 showed what an image *is*: layers of files plus settings. This chapter is about making one. A **Dockerfile** is the recipe: a short text file of instructions that `docker build` follows, step by step, to produce an image. Writing one that *works* takes five minutes. Writing one that's **small, fast to rebuild, secure and well-behaved** takes knowing a handful of rules. Each rule exists because breaking it caused real pain somewhere. You'll write a naive Dockerfile, measure what's wrong with it, and fix it step by step until the image is **32 times smaller**, rebuilds in no time, runs as a non-root user and shuts down cleanly. Then you'll read snip's real Dockerfile line by line.
+
+## What you'll learn
+
+- The core **instructions**: `FROM`, `WORKDIR`, `COPY`, `RUN`, `ENV`, `ARG`, `USER`, `EXPOSE`, `CMD`, `ENTRYPOINT`.
+- The **build context** and why `.dockerignore` matters (speed *and* secrets).
+- How **layer caching** works, and how instruction order makes rebuilds fast or slow.
+- **Multi-stage builds**, and how to choose a **base image**.
+- **Non-root** users, **exec form vs shell form**, and why PID 1 must handle signals.
+- Why **secrets must never be baked into images**, shown with a real leak.
+
+---
+
+## A Dockerfile is a recipe
+
+:::note[Everyday anchor]
+A Dockerfile is a recipe card, and `docker build` is a cook who follows it exactly, one line at a time. "Start from this base" (FROM), "go to this counter" (WORKDIR), "bring in these ingredients" (COPY), "do this step" (RUN), "when served, do this" (CMD). The cook also takes a **photo after each step** (a layer). Next time, if the recipe and ingredients up to some step haven't changed, the cook reuses the photos instead of redoing the work. That's the build cache.
+:::
+
+| Instruction | Does | Example |
+|---|---|---|
+| `FROM` | Start from a base image | `FROM golang:1.25-alpine` |
+| `WORKDIR` | Set (and create) the directory later steps run in | `WORKDIR /app` |
+| `COPY` | Copy files from the build context into the image | `COPY go.mod ./` |
+| `RUN` | Run a command at **build** time; its file changes become a layer | `RUN go build -o server .` |
+| `ENV` | Set an environment variable (build time and run time) | `ENV PORT=8080` |
+| `ARG` | A build-time variable, passed with `--build-arg` | `ARG VERSION` |
+| `USER` | The user later steps, and the container, run as | `USER nonroot` |
+| `EXPOSE` | *Document* the port the program listens on (it doesn't publish it) | `EXPOSE 8080` |
+| `ENTRYPOINT` | The program the container runs | `ENTRYPOINT ["/server"]` |
+| `CMD` | Default arguments for it, or the command if there's no ENTRYPOINT | `CMD ["serve"]` |
+
+**`RUN` happens when you build; `CMD`/`ENTRYPOINT` happen when you run.** Mixing these up is the most common beginner mistake: putting `RUN ./server` in a Dockerfile makes the *build* start your server and hang forever.
+
+---
+
+## A first Dockerfile
+
+`snip/examples/dockerlab` is a tiny web server that uses only Go's standard library. It prints its hostname, a `VERSION` from the environment, and the user ID it runs as, and it shuts down gracefully on SIGTERM. Here's the obvious first Dockerfile for it (`Dockerfile.naive`):
+
+```dockerfile
+FROM golang:1.25-alpine
+WORKDIR /app
+COPY . .
+RUN go build -o server .
+EXPOSE 8080
+CMD ["./server"]
+```
+
+```bash
+cd ~/code/zero-to-prod/snip/examples/dockerlab
+docker build -f Dockerfile.naive -t dockerlab:naive .
+docker run --rm -p 8080:8080 dockerlab:naive
+curl localhost:8080          # in another terminal
+```
+
+```text
+hello from 9c5c0af17ec6 (version dev, running as uid 0)
+```
+
+It works. Three problems are hiding in it:
+
+1. **Size.** `docker images` says **448 MB**. The image contains the entire Go toolchain, a compiler that's needed to *build* the program and never to *run* it.
+2. **Root.** `uid 0` is root. If an attacker finds a bug in the server, they're root inside the container, one step closer to the host (chapter 9.1).
+3. **Slow rebuilds.** Change *any* file, even the README, and the `go build` runs again. You'll see why in a moment.
+
+The last line of `docker build` is `.`: the **build context**, which is next.
+
+---
+
+## The build context and .dockerignore
+
+`docker build ... .` sends the directory `.` (the **build context**) to the builder. Only files in the context can be `COPY`ed. `COPY . .` copies **all** of it, which means:
+
+- A big `node_modules`, `.git` history, or build output makes every build slower.
+- **Anything secret in the directory ends up in the image**: `.env` files, keys, credentials. Anyone who can pull the image can extract them.
+
+A **`.dockerignore`** file lists what never to send, with the same patterns as `.gitignore`. snip's:
+
+```text title="snip/.dockerignore"
+# Only what the build needs goes to Docker — faster builds, no secrets leaked.
+.git
+*.test
+coverage.out
+deploy/
+README.md
+bin/
+```
+
+The safer habit is to also **copy only what you need** (`COPY go.mod ./`, `COPY *.go ./`) instead of `COPY . .`. Then a stray file can't sneak in even if `.dockerignore` misses it.
+
+---
+
+## Layer caching: order matters
+
+Each instruction produces a layer, and the builder **caches** each one. On the next build, it reuses a cached layer if the instruction is the same **and** everything it depends on is unchanged. For `COPY`, that means the copied files' contents. The moment one step misses the cache, **every step after it is rebuilt**.
+
+In the naive Dockerfile, `COPY . .` copies the README too. Edit the README, and that `COPY` misses the cache, so `go build` after it runs again. From a real build after editing only `README.md`:
+
+```text
+naive:  [2/4] WORKDIR /app                 CACHED
+        [3/4] COPY . .                     DONE 0.0s   ← README changed
+        [4/4] RUN go build -o server .     DONE 9.4s   ← rebuilt for nothing
+good:   [build 4/5] COPY *.go ./           CACHED
+        [build 5/5] RUN ... go build ...   CACHED      ← nothing to do
+```
+
+**The rule: order instructions from least to most frequently changing.** The classic application is dependencies. They change rarely; your code changes constantly. So copy the dependency list and download dependencies *first*, in their own layer, and copy the code *after*:
+
+```dockerfile
+COPY go.mod go.sum ./          # changes rarely
+RUN go mod download            # cached until go.mod/go.sum change: no re-downloading
+COPY . .                       # changes every commit
+RUN go build ./cmd/snip        # only this reruns on a code change
+```
+
+Every ecosystem has the same pattern: `COPY package.json package-lock.json` then `RUN npm ci` for Node, `COPY requirements.txt` then `RUN pip install -r requirements.txt` for Python. Get it wrong and every one-line code change re-downloads the world.
+
+---
+
+## Multi-stage builds: build big, ship small
+
+A **multi-stage build** uses several `FROM`s in one Dockerfile. Early stages have the heavy tools and do the building. The final stage starts from a small base and copies in only the finished result with `COPY --from=`. Everything else is thrown away. Here is `examples/dockerlab/Dockerfile`:
+
+```dockerfile
+# syntax=docker/dockerfile:1
+
+# ---- build stage: has the Go toolchain ----
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+COPY *.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/server .
+
+# ---- runtime stage: only the finished program ----
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/server /server
+USER nonroot:nonroot
+EXPOSE 8080
+ENTRYPOINT ["/server"]
+```
+
+```text
+dockerlab:naive   448MB
+dockerlab:good    14.2MB
+```
+
+The same program is **32 times smaller**. That means faster pulls on every deploy and every new machine (chapter 8.6's autoscaling waits on this), less disk, and far less software that could contain vulnerabilities.
+
+:::info[If you've written code]
+Go is ideal for this: `CGO_ENABLED=0` produces a **static binary** that needs no C libraries at run time, so it runs on a base with nothing in it. `-trimpath` removes your local file paths from the binary, and `-ldflags="-s -w"` strips debug symbols (smaller, but profiles and stack traces lose some detail). Interpreted languages can't drop the runtime: a Python image must contain Python. They still benefit from multi-stage builds, by installing compilers and build-only packages in the first stage and copying only the installed packages into a slim final stage.
+:::
+
+### Choosing a base image
+
+| Base | Size | Has a shell and package manager? | Good for |
+|---|---|---|---|
+| `ubuntu`, `debian` | 30–80 MB | Yes | Familiar; needs lots of system packages |
+| `debian:*-slim`, `python:*-slim` | 25–50 MB+ | Yes, trimmed | Most interpreted-language apps: a good default |
+| `alpine` | ~8 MB | Yes (`apk`) | Small images; beware **musl** (below) |
+| `distroless` | 2–20 MB | **No** | Static binaries and runtimes (Java, Python, Node variants exist); production |
+| `scratch` | 0 MB | Nothing at all | Fully static binaries that don't need CA certificates, users or timezone data |
+
+Alpine uses **musl** instead of the usual **glibc** C library. Most things work, but some precompiled software (Python wheels, some Node modules, anything expecting glibc) breaks or behaves subtly differently: DNS resolution, performance, locales. If you hit strange errors on Alpine only, that's the first suspect. snip uses **distroless** rather than `scratch` because it needs CA certificates (to call HTTPS services), timezone data and a non-root user entry, which distroless provides and `scratch` doesn't.
+
+---
+
+## Run as non-root
+
+By default, a container's process runs as **root** (UID 0). Namespaces make that a *contained* root, but a kernel bug or a misconfiguration (a mounted host directory, the Docker socket, `--privileged`) can turn it into real root on the host. So always set a non-root `USER` in the final stage (chapter 7.4's least privilege):
+
+- distroless images ship a `nonroot` user (UID 65532): `USER nonroot:nonroot`.
+- On Debian or Alpine bases, create one: `RUN adduser -D -u 10001 app` (Alpine) and then `USER app`.
+- Non-root processes can't bind ports below 1024, so listen on 8080 (as snip does) and let port mapping or a proxy expose 80/443.
+
+```text
+naive:  hello from 9c5c0af17ec6 (version dev, running as uid 0)
+good:   hello from 0b3db0d8b67b (version 1.0, running as uid 65532)
+```
+
+---
+
+## ENTRYPOINT, CMD, and PID 1
+
+Both `CMD` and `ENTRYPOINT` come in two forms:
+
+```dockerfile
+ENTRYPOINT ["/server", "--port", "8080"]   # exec form: runs /server directly
+ENTRYPOINT /server --port 8080             # shell form: runs /bin/sh -c "/server --port 8080"
+```
+
+This matters because of **signals**. `docker stop` (and Kubernetes, when it replaces a pod) sends **SIGTERM** to the container's **PID 1**, waits (10 seconds by default), then sends **SIGKILL** (chapter 1.2). Your program only gets the chance to shut down gracefully (finish requests, close database connections, chapter 5.4) if **it** is PID 1 and handles SIGTERM.
+
+With shell form, PID 1 can be the shell instead, and a shell running a command doesn't forward SIGTERM to it. Some shells hand off (`exec`) to a *single simple* command, so `CMD ./server` may happen to work. But anything more (a pipe, `&&`, a script) leaves the shell in charge. Measured with `CMD ./server | cat`:
+
+```text
+PID   COMMAND
+5559  /bin/sh -c ./server | cat     ← PID 1 is the shell
+5576  ./server
+
+time docker stop …   10.14s          ← SIGTERM ignored; killed after the timeout
+logs:  "dockerlab dev listening on :8080"   (no "shutting down", no "bye")
+```
+
+With exec form: `docker stop` took **0.19 s** and the logs show `signal received, shutting down` and `bye`. In-flight requests were finished; nothing was cut off.
+
+The rules:
+
+- **Use exec form** (the JSON array) for `ENTRYPOINT` and `CMD`.
+- If you must use a startup script, end it with **`exec "$@"`** or `exec /server`, so the program *replaces* the shell as PID 1.
+- **`ENTRYPOINT` is the program, `CMD` its default arguments.** With `ENTRYPOINT ["/usr/local/bin/snip"]`, `docker run snip:dev keys create me` runs `snip keys create me`, which is how earlier labs created API keys.
+- Your program must actually **handle SIGTERM**. Go's `signal.NotifyContext` does it in a few lines (see `dockerlab/main.go` and snip's `cmd/snip/main.go`).
+
+---
+
+## Keep secrets out of images
+
+Images are **not** a safe place for secrets. They're copied to registries, laptops and servers, and every layer and its metadata can be read back. That includes `ENV`, `ARG`, and files deleted in a later layer (the earlier layer still contains them). A real test:
+
+```dockerfile
+FROM alpine:3.22
+ARG API_TOKEN
+RUN echo "using token" && test -n "$API_TOKEN"
+```
+
+```bash
+docker build --build-arg API_TOKEN=super-secret-123 -t secretdemo .
+docker history secretdemo --no-trunc --format '{{.CreatedBy}}'
+```
+
+```text
+RUN |1 API_TOKEN=super-secret-123 /bin/sh -c echo "using token" && ...
+ARG API_TOKEN=super-secret-123
+```
+
+The token is in the image, readable by anyone who can pull it. Instead:
+
+- **Runtime secrets** (database passwords, API keys) go in at **run** time, as environment variables or mounted files from a secrets manager (chapter 7.6). They never enter the image. snip's image contains no configuration at all.
+- **Build-time secrets** (a token to download private dependencies) use BuildKit **secret mounts**, which are available to one `RUN` step and never written to a layer:
+  ```dockerfile
+  RUN --mount=type=secret,id=npm_token NPM_TOKEN=$(cat /run/secrets/npm_token) npm ci
+  ```
+  ```bash
+  docker build --secret id=npm_token,env=NPM_TOKEN .
+  ```
+
+:::danger
+If a secret has ever been built into an image that was pushed anywhere, treat it as **leaked**: rotate it (chapter 7.6). Deleting the tag doesn't un-leak it. Someone may already have pulled it, and caches keep layers.
+:::
+
+---
+
+## snip's Dockerfile, line by line
+
+```dockerfile title="snip/Dockerfile"
+# syntax=docker/dockerfile:1
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/snip ./cmd/snip && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/snip-worker ./cmd/snip-worker
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/snip /out/snip-worker /usr/local/bin/
+USER nonroot:nonroot
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/snip"]
+```
+
+- **Two stages**: the Go toolchain builds; distroless runs.
+- **Dependencies first** (`go.mod`, `go.sum`, `go mod download`) for caching; then the code (`COPY . .`, filtered by `.dockerignore`).
+- **Two programs, one image**: the API and the worker. Compose runs the worker by overriding the entrypoint (`entrypoint: ["/usr/local/bin/snip-worker"]`, chapter 9.3).
+- **Non-root**, **exec-form** `ENTRYPOINT`, and no configuration or secrets inside: everything comes from `SNIP_*` environment variables at run time.
+
+CI builds this image and checks that it starts and answers `/healthz` on every push (the `snip-image` job in `.github/workflows/ci.yml`).
+
+:::warning[What can go wrong]
+- **`RUN` vs `CMD` confusion**: starting the server with `RUN`, so the build hangs.
+- **`COPY . .` before installing dependencies**: every code change re-downloads everything.
+- **No `.dockerignore`**: `.env` files and `.git` shipped inside the image.
+- **Shell-form `CMD` with a pipe or `&&`**: SIGTERM never reaches the program, so every deploy waits 10 seconds and then kills it mid-request.
+- **`latest` as a base** (`FROM golang:latest`): builds change underneath you. Pin a version (chapter 9.4).
+- **Package-manager caches left in the image**: `apt-get update && apt-get install ... && rm -rf /var/lib/apt/lists/*` must be **one** `RUN`. Deleting files in a later layer doesn't shrink the earlier one.
+:::
+
+:::info[In the real world]
+Teams **lint** Dockerfiles with **hadolint**, which catches most of this chapter's mistakes automatically. They **scan** images for known vulnerabilities (chapter 9.4), use BuildKit **cache mounts** (`RUN --mount=type=cache,target=/root/.cache/go-build`) to keep compiler caches between builds, and often generate images **without a Dockerfile at all**: tools like `ko` (Go), Jib (Java) and Cloud Native Buildpacks produce well-built images directly from source. Knowing what a good Dockerfile looks like is how you judge what those tools give you.
+:::
+
+---
+
+## Lab
+
+Free, on your own computer with Docker.
+
+1. **Build both versions and compare.**
+   ```bash
+   cd ~/code/zero-to-prod/snip/examples/dockerlab
+   docker build -f Dockerfile.naive -t dockerlab:naive .
+   docker build -t dockerlab:good .
+   docker images | grep dockerlab                       # naive ≈ 448MB, good ≈ 14MB
+   docker run --rm dockerlab:naive go version           # the whole toolchain is in there
+   ```
+
+2. **Run the good one, and prove it's non-root and configurable.**
+   ```bash
+   docker run -d --name dl -p 8080:8080 -e VERSION=1.0 dockerlab:good
+   curl localhost:8080                                  # ... version 1.0, running as uid 65532
+   ```
+
+3. **Graceful shutdown.**
+   ```bash
+   time docker stop dl                                  # well under a second
+   docker logs dl                                       # "signal received, shutting down" … "bye"
+   docker rm dl
+   ```
+   Now break it. Create `Dockerfile.shell` containing two lines, `FROM dockerlab:naive` and `CMD ./server | cat`, then:
+   ```bash
+   docker build -f Dockerfile.shell -t dockerlab:shell .
+   docker run -d --name dls dockerlab:shell
+   docker top dls                                       # sh -c … is PID 1
+   time docker stop dls                                 # ≈ 10 s: SIGTERM ignored, then SIGKILL
+   docker logs dls; docker rm dls
+   ```
+
+4. **Watch the cache.** Edit `README.md` (add a line), then rebuild both with `docker build --progress=plain ...`. The naive build reruns `go build` and the good one is entirely `CACHED`. Now edit a comment in `main.go` and rebuild the good one: which steps rerun? (The `COPY *.go` and everything after it.)
+
+5. **See a secret leak**, then delete the evidence. Build the `API_TOKEN` example from "Keep secrets out of images" and run the `docker history` command. Then `docker rmi secretdemo`.
+
+6. **Read snip's real Dockerfile** and `.dockerignore`. Why is `deploy/` ignored? (Deployment files like the nginx config and systemd unit aren't needed inside the image. Leaving them out keeps the context small and means editing them doesn't invalidate the cache.)
+
+## Self-check
+
+<Quiz
+  id="containers-writing-dockerfiles"
+  questions={[
+    {
+      q: 'What is the difference between RUN and CMD?',
+      options: [
+        'None; they are aliases',
+        'RUN executes at build time and its changes become a layer; CMD is what the container runs when started',
+        'RUN is for Linux, CMD for Windows',
+        'CMD runs before RUN',
+      ],
+      answer: 1,
+      explain: 'Putting RUN ./server in a Dockerfile makes the build start your server and hang.',
+    },
+    {
+      q: 'Why copy go.mod/go.sum and download dependencies before copying the rest of the code?',
+      options: [
+        'Go requires that order',
+        'So the dependency layer stays cached across code changes: only the steps after the changed files rerun',
+        'It makes the image smaller',
+        'It is required for multi-stage builds',
+      ],
+      answer: 1,
+      explain: 'When one layer misses the cache, every later step rebuilds. Put rarely-changing steps first.',
+    },
+    {
+      q: 'How did a multi-stage build shrink dockerlab from 448 MB to 14 MB?',
+      options: [
+        'By compressing the image',
+        'The final image contains only the compiled binary on a tiny base; the Go toolchain stayed in the discarded build stage',
+        'By deleting files with RUN rm in the last layer',
+        'By using an older Go version',
+      ],
+      answer: 1,
+      explain: 'COPY --from=build takes just the result. Tools needed only to build never reach the runtime image.',
+    },
+    {
+      q: 'CMD ./server | tee app.log makes docker stop take 10 seconds. Why?',
+      options: [
+        'tee is slow',
+        'Shell form makes /bin/sh PID 1; the shell does not forward SIGTERM, so the server never hears it and is SIGKILLed after the timeout',
+        'The image is too big',
+        'docker stop always takes 10 seconds',
+      ],
+      answer: 1,
+      explain: 'Use exec form (a JSON array), or end startup scripts with exec, so your program is PID 1 and can shut down gracefully.',
+    },
+    {
+      q: 'You pass a token with --build-arg and use it in a RUN. Is it safe?',
+      options: [
+        'Yes, build args are never stored',
+        'No: build args used in RUN are recorded in the image history and readable by anyone who can pull it. Use BuildKit secret mounts instead',
+        'Yes, if the image is small',
+        'Only if the Dockerfile is private',
+      ],
+      answer: 1,
+      explain: 'The lab showed API_TOKEN=super-secret-123 in docker history. Runtime secrets belong in the environment at run time, never in the image.',
+    },
+    {
+      q: 'Why does snip use distroless rather than scratch as its runtime base?',
+      options: [
+        'scratch cannot run Go programs',
+        'snip needs CA certificates, timezone data and a non-root user entry, which distroless provides and scratch does not',
+        'distroless includes a shell for debugging',
+        'scratch images cannot be pushed to registries',
+      ],
+      answer: 1,
+      explain: 'scratch is truly empty. distroless adds just those few essentials, and still no shell or package manager.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Review this Dockerfile for a Python app and list what you'd fix.</summary>
+
+```dockerfile
+FROM python:latest
+COPY . /app
+WORKDIR /app
+RUN pip install -r requirements.txt
+ENV DATABASE_URL=postgres://admin:hunter2@db/prod
+CMD python app.py
+```
+
+- **`python:latest`**: unpinned; the build changes when a new Python ships. Pin it, e.g. `python:3.13-slim` (slim, too: the full image is large).
+- **`COPY . /app` before `pip install`**: any code change reinstalls every package. Copy `requirements.txt` first, `RUN pip install --no-cache-dir -r requirements.txt`, then copy the code.
+- **No `.dockerignore`** implied: `.git`, `.env`, `__pycache__` and virtualenvs would be copied in.
+- **A secret in `ENV`**: the database password is baked into the image forever. Pass it at run time and rotate this one, since it has leaked (chapter 7.6).
+- **Root user**: add a user (`RUN useradd -r -u 10001 app`) and `USER app`.
+- **Shell-form `CMD`**: use `CMD ["python", "app.py"]`, and make sure the app handles SIGTERM.
+- Optionally, a multi-stage build if any packages need compilers to install.
+
+</details>
+
+<details>
+<summary>Why must "apt-get install … && rm -rf /var/lib/apt/lists/*" be one RUN, not two?</summary>
+
+Each `RUN` creates a layer, and layers are **added** on top of each other, never edited. If `apt-get update && apt-get install` is one layer and `rm -rf /var/lib/apt/lists/*` is the next, the package lists still exist in full in the first layer. The second layer only records "these files are deleted", so the image is just as big (and the "deleted" files can still be extracted). Doing both in one `RUN` means the files never make it into any layer.
+
+</details>

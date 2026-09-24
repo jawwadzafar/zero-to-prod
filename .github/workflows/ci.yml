@@ -64,6 +64,13 @@ jobs:
           docker run -d --name snip -p 8080:8080 snip:ci
           for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
           docker logs snip; exit 1
+      - name: Chapter 9.2 dockerlab builds, runs as non-root, and stops gracefully
+        run: |
+          docker build -t dockerlab snip/examples/dockerlab
+          docker build -f snip/examples/dockerlab/Dockerfile.naive -t dockerlab:naive snip/examples/dockerlab
+          docker run -d --name dl -p 8081:8080 -e VERSION=ci dockerlab
+          sleep 1; curl -fsS localhost:8081/ | tee /dev/stderr | grep -q 'version ci, running as uid 65532'
+          docker stop -t 5 dl && docker logs dl 2>&1 | grep -q bye
 
   api-contract:
     name: snip OpenAPI contract is valid

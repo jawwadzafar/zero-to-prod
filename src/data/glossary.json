@@ -5,6 +5,11 @@
   "doc": "linux/shell-and-filesystem"
  },
  {
+  "term": ".dockerignore",
+  "def": "A file listing paths to leave out of the build context, for faster builds and so secrets like .env never enter an image.",
+  "doc": "containers/writing-dockerfiles"
+ },
+ {
   "term": ".gitignore",
   "def": "A file listing patterns Git should never track — build output, dependencies, and secrets like .env.",
   "doc": "git/git-mental-model"
@@ -80,6 +85,11 @@
   "doc": "apis/api-contracts"
  },
  {
+  "term": "Base image",
+  "def": "The image a Dockerfile starts FROM: a full distribution, a slim variant, Alpine, distroless or scratch.",
+  "doc": "containers/writing-dockerfiles"
+ },
+ {
   "term": "Base64",
   "def": "A way to write any bytes using only 64 safe text characters. Makes data about 33% bigger. Not encryption — anyone can decode it.",
   "doc": "foundations/bits-bytes-text-formats"
@@ -123,6 +133,16 @@
   "term": "Branch",
   "def": "A named, movable label pointing at the latest commit of a line of work.",
   "doc": "git/branches-merges-conflicts"
+ },
+ {
+  "term": "Build cache",
+  "def": "The builder's reuse of layers from previous builds when an instruction and its inputs haven't changed. One miss rebuilds every later step.",
+  "doc": "containers/writing-dockerfiles"
+ },
+ {
+  "term": "Build context",
+  "def": "The set of files sent to the image builder, usually the directory given to docker build. Only these can be COPYed in.",
+  "doc": "containers/writing-dockerfiles"
  },
  {
   "term": "Bulkhead",
@@ -365,9 +385,19 @@
   "doc": "security/security-literacy"
  },
  {
+  "term": "Distroless",
+  "def": "Minimal base images with no shell or package manager, just the essentials a program needs (CA certificates, timezone data, a user).",
+  "doc": "containers/writing-dockerfiles"
+ },
+ {
   "term": "DNS (Domain Name System)",
   "def": "The internet's phone book: turns names like github.com into IP addresses.",
   "doc": "foundations/networks-from-zero"
+ },
+ {
+  "term": "Dockerfile",
+  "def": "A text file of instructions (FROM, COPY, RUN, CMD…) that docker build follows to produce an image.",
+  "doc": "containers/writing-dockerfiles"
  },
  {
   "term": "Durability",
@@ -393,6 +423,11 @@
   "term": "Eventual consistency",
   "def": "Copies may disagree briefly but converge once updates have spread.",
   "doc": "data/choosing-a-datastore"
+ },
+ {
+  "term": "Exec form",
+  "def": "Writing CMD or ENTRYPOINT as a JSON array (ENTRYPOINT [\"/server\"]) so the program runs directly as PID 1 and receives signals.",
+  "doc": "containers/writing-dockerfiles"
  },
  {
   "term": "Exit code",
@@ -720,6 +755,11 @@
   "doc": "data/designing-schemas"
  },
  {
+  "term": "Multi-stage build",
+  "def": "A Dockerfile with several FROM stages: heavy tools build the program, and only the result is copied into a small final image.",
+  "doc": "containers/writing-dockerfiles"
+ },
+ {
   "term": "Multi-tenancy / tenant",
   "def": "Serving many customers (tenants) from shared infrastructure while keeping their data separate.",
   "doc": "security/authorization-multi-tenancy"
@@ -843,6 +883,11 @@
   "term": "Permissions (rwx)",
   "def": "Read, write and execute rights for a file's owner, its group and everyone else, written like rw-r--r-- or 644.",
   "doc": "linux/users-permissions-processes"
+ },
+ {
+  "term": "PID 1",
+  "def": "The first process in a container. It receives docker stop's SIGTERM, so it must handle it and shut down gracefully.",
+  "doc": "containers/writing-dockerfiles"
  },
  {
   "term": "Pipe",
@@ -1173,6 +1218,11 @@
   "term": "Stateless service",
   "def": "A service where any copy can handle any request, because everything that must be remembered lives in shared storage, not inside one copy.",
   "doc": "distributed/scaling"
+ },
+ {
+  "term": "Static binary",
+  "def": "A compiled program with all its libraries built in, needing nothing from the base image to run. Go with CGO_ENABLED=0 produces them.",
+  "doc": "containers/writing-dockerfiles"
  },
  {
   "term": "Static typing",
