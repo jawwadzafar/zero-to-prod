@@ -26,7 +26,9 @@ declare an incident (chapter 13.5).
    - Postgres: `docker compose exec postgres pg_isready -U snip`
      (k8s: `kubectl -n snip get pods -l app.kubernetes.io/name=postgres`)
    - Redis: `docker compose exec redis redis-cli ping`
-   - snip's readiness: `/readyz` on an API copy reports which dependency failed.
+   - snip's readiness: `/readyz` on an API copy reports each dependency.
+     Postgres down → `"ready": false` (503). Redis down → `"degraded": true`
+     but still 200: snip keeps redirecting from Postgres (chapter 13.5).
 4. **What do the errors say?**
    `docker compose logs api --since 15m | jq -c 'select(.status >= 500)'`
    Take a `trace_id` from a failing line and open it in Jaeger (chapter 13.3).
@@ -46,6 +48,24 @@ declare an incident (chapter 13.5).
    is the HPA at its maximum? (`kubectl -n snip get hpa`)
 4. **Mitigate:** scale out the API if it's CPU-bound; restore Redis if the cache
    is gone; if one link is extremely hot, see chapter 8.6's hot-key answer.
+
+## redis-down
+
+**No dedicated alert**: snip is built to *degrade* without Redis, so you'll see
+it as `"degraded": true` on `/readyz`, a cache hit ratio near 0, a rising
+`snip_click_record_errors_total`, and `click not recorded` warnings in logs.
+**Means:** redirects still work (from Postgres, a little slower); **clicks made
+during the outage are lost**, not delayed (they never reached the stream);
+rate limiting fails open.
+
+1. Confirm: `docker compose exec redis redis-cli ping`
+   (k8s: `kubectl -n snip get pods -l app.kubernetes.io/name=redis`)
+2. Restart it: `docker compose restart redis`
+   (k8s: `kubectl -n snip rollout restart deploy/redis`).
+3. Watch Postgres load while the cache is cold: every redirect is a query until
+   the cache refills (chapter 8.6).
+4. Record the start and end times: the lost clicks are a data gap to mention in
+   the postmortem and to anyone reading click stats for that window.
 
 ## click-backlog
 

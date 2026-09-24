@@ -43,7 +43,7 @@ spec:
           livenessProbe:                    # alive? if this fails, restart the container
             httpGet: { path: /healthz, port: http }
             periodSeconds: 10
-          readinessProbe:                   # ready for traffic? (checks Postgres and Redis)
+          readinessProbe:                   # ready for traffic? (fails only if Postgres is down; Redis down = degraded, still ready)
             httpGet: { path: /readyz, port: http }
             periodSeconds: 5
           lifecycle:

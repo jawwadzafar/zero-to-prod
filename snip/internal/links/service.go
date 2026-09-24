@@ -79,10 +79,15 @@ func (s *Service) Resolve(ctx context.Context, slug string) (ResolveResult, erro
 	ctx, span := tracer.Start(ctx, "links.Resolve")
 	defer span.End()
 
+	cacheBroken := false
 	if s.cache != nil {
 		cctx, cspan := tracer.Start(ctx, "cache.GetURL")
 		u, ok, err := s.cache.GetURL(cctx, slug)
 		cspan.SetAttributes(attribute.Bool("cache.hit", err == nil && ok))
+		if err != nil {
+			cspan.RecordError(err)
+			cacheBroken = true
+		}
 		cspan.End()
 		if err == nil && ok {
 			span.SetAttributes(attribute.Bool("cache.hit", true))
@@ -99,7 +104,9 @@ func (s *Service) Resolve(ctx context.Context, slug string) (ResolveResult, erro
 	if err != nil {
 		return ResolveResult{}, err
 	}
-	if s.cache != nil {
+	// If the cache just failed, don't wait on it a second time: during an
+	// outage every call costs a timeout (chapter 13.5).
+	if s.cache != nil && !cacheBroken {
 		cctx, cspan := tracer.Start(ctx, "cache.SetURL")
 		_ = s.cache.SetURL(cctx, slug, l.URL) // best effort
 		cspan.End()

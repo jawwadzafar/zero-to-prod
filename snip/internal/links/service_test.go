@@ -70,15 +70,24 @@ func TestNewSlugIsRandomAndReadable(t *testing.T) {
 type fakeCache struct {
 	data       map[string]string
 	gets, sets int
+	down       bool // simulates a Redis outage: every call fails
 }
+
+var errCacheDown = errors.New("dial tcp: connection refused")
 
 func (c *fakeCache) GetURL(_ context.Context, slug string) (string, bool, error) {
 	c.gets++
+	if c.down {
+		return "", false, errCacheDown
+	}
 	u, ok := c.data[slug]
 	return u, ok, nil
 }
 func (c *fakeCache) SetURL(_ context.Context, slug, url string) error {
 	c.sets++
+	if c.down {
+		return errCacheDown
+	}
 	c.data[slug] = url
 	return nil
 }
@@ -124,6 +133,26 @@ func TestServiceShortenResolveDelete(t *testing.T) {
 	}
 	if _, err := svc.Resolve(ctx, l.Slug); !errors.Is(err, links.ErrNotFound) {
 		t.Fatalf("resolve after delete = %v, want ErrNotFound (cache must be evicted)", err)
+	}
+}
+
+// With the cache down, redirects still work from the store, and snip
+// doesn't wait on the broken cache a second time to fill it (chapter 13.5).
+func TestResolveWithCacheDown(t *testing.T) {
+	ctx := context.Background()
+	cache := &fakeCache{data: map[string]string{}}
+	svc := links.NewService(memory.New(), cache, nil)
+	l, err := svc.Shorten(ctx, 1, "https://go.dev/doc", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache.down = true
+	r, err := svc.Resolve(ctx, l.Slug)
+	if err != nil || r.URL != "https://go.dev/doc" || r.CacheHit {
+		t.Fatalf("resolve with cache down = %+v, %v", r, err)
+	}
+	if cache.gets != 1 || cache.sets != 0 {
+		t.Fatalf("cache gets=%d sets=%d, want 1 and 0", cache.gets, cache.sets)
 	}
 }
 

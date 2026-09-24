@@ -34,6 +34,7 @@ type Server struct {
 	metrics *metrics.Metrics
 	baseURL string
 	ready   map[string]Pinger
+	soft    map[string]Pinger
 }
 
 // Options configures a Server. Limiter, Metrics and Ready are optional.
@@ -44,7 +45,13 @@ type Options struct {
 	Logger  *slog.Logger
 	Metrics *metrics.Metrics
 	BaseURL string
-	Ready   map[string]Pinger
+	// Ready are hard dependencies: if one is down, this process can't serve
+	// and /readyz says 503. Degradable are soft ones (Redis): snip keeps
+	// working without them, so they're reported but never fail readiness.
+	// Failing readiness on a soft dependency pulls every copy out of the
+	// load balancer at once, turning a degraded service into an outage.
+	Ready      map[string]Pinger
+	Degradable map[string]Pinger
 }
 
 // New builds a Server.
@@ -53,7 +60,7 @@ func New(o Options) *Server {
 		o.Logger = slog.Default()
 	}
 	return &Server{links: o.Links, keys: o.Keys, limiter: o.Limiter, log: o.Logger,
-		metrics: o.Metrics, baseURL: strings.TrimRight(o.BaseURL, "/"), ready: o.Ready}
+		metrics: o.Metrics, baseURL: strings.TrimRight(o.BaseURL, "/"), ready: o.Ready, soft: o.Degradable}
 }
 
 // Handler returns the full HTTP handler with every route and middleware.
@@ -88,12 +95,12 @@ func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
 }
 
 // readyz answers "can this process serve traffic right now?" by pinging each
-// dependency with a short timeout.
+// dependency with a short timeout. Only hard dependencies can make it fail.
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	status := map[string]string{}
-	healthy := true
+	healthy, degraded := true, false
 	for name, p := range s.ready {
 		if err := p.Ping(ctx); err != nil {
 			status[name] = "unavailable"
@@ -102,11 +109,19 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 			status[name] = "ok"
 		}
 	}
+	for name, p := range s.soft {
+		if err := p.Ping(ctx); err != nil {
+			status[name] = "degraded"
+			degraded = true
+		} else {
+			status[name] = "ok"
+		}
+	}
 	code := http.StatusOK
 	if !healthy {
 		code = http.StatusServiceUnavailable
 	}
-	writeJSON(w, code, map[string]any{"ready": healthy, "checks": status})
+	writeJSON(w, code, map[string]any{"ready": healthy, "degraded": degraded, "checks": status})
 }
 
 // redirect is the hot path: look the slug up and send the browser on its way.

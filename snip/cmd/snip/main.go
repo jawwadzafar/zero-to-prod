@@ -149,6 +149,7 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger, st store, p
 
 	m := metrics.New()
 	ready := map[string]httpapi.Pinger{}
+	soft := map[string]httpapi.Pinger{} // reported by /readyz, never fail it (chapter 13.5)
 	if pg != nil {
 		if _, err := pg.Migrate(ctx); err != nil {
 			return fmt.Errorf("migrate on startup: %w", err)
@@ -162,24 +163,38 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger, st store, p
 		limiter   ratelimit.Limiter = ratelimit.NewMemory(cfg.RateLimit, time.Minute)
 	)
 	if cfg.RedisAddr != "" {
-		rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+		// Redis is a cache here: when it's down, failing fast and going to
+		// Postgres beats waiting. go-redis's defaults (3 command retries,
+		// 5 dial attempts, backoff between each) made every redirect take
+		// 3–5 s during a Redis outage (chapter 13.5's game day), so: no
+		// retries, short timeouts.
+		rdb := redis.NewClient(&redis.Options{
+			Addr:          cfg.RedisAddr,
+			MaxRetries:    -1, // -1 disables command retries; 0 means "the default, 3"
+			DialerRetries: 1,  // despite the name, this counts dial *attempts*: 1 = no retry (0 means 5)
+			DialTimeout:   250 * time.Millisecond,
+			ReadTimeout:   100 * time.Millisecond,
+			WriteTimeout:  100 * time.Millisecond,
+			PoolTimeout:   200 * time.Millisecond,
+		})
 		defer rdb.Close()
 		linkCache = cache.NewRedis(rdb, cfg.CacheTTL)
 		recorder = clicks.NewRecorder(rdb)
 		limiter = ratelimit.NewRedis(rdb, cfg.RateLimit, time.Minute)
-		ready["redis"] = redisPinger{rdb}
+		soft["redis"] = redisPinger{rdb} // snip degrades without Redis; it doesn't stop
 	} else {
 		log.Info("SNIP_REDIS_ADDR not set: no cache, clicks counted directly")
 	}
 
 	api := httpapi.New(httpapi.Options{
-		Links:   links.NewService(st, linkCache, recorder),
-		Keys:    st,
-		Limiter: limiter,
-		Logger:  log,
-		Metrics: m,
-		BaseURL: cfg.BaseURL,
-		Ready:   ready,
+		Links:      links.NewService(st, linkCache, recorder),
+		Keys:       st,
+		Limiter:    limiter,
+		Logger:     log,
+		Metrics:    m,
+		BaseURL:    cfg.BaseURL,
+		Ready:      ready,
+		Degradable: soft,
 	})
 
 	srv := &http.Server{

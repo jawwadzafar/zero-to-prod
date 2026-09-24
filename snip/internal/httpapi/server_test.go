@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -198,5 +199,47 @@ func TestRevokedKeyIsRejected(t *testing.T) {
 	}
 	if res := do(t, "GET", ts.URL+"/api/links", key, ""); res.StatusCode != 401 {
 		t.Fatalf("after revoke: %d, want 401", res.StatusCode)
+	}
+}
+
+type pingFunc func(context.Context) error
+
+func (f pingFunc) Ping(ctx context.Context) error { return f(ctx) }
+
+// A soft dependency (Redis) being down must not fail readiness: every copy
+// would leave the load balancer at once, although redirects still work
+// from Postgres. A hard dependency (Postgres) being down must fail it.
+func TestReadyzHardVsDegradable(t *testing.T) {
+	up := pingFunc(func(context.Context) error { return nil })
+	down := pingFunc(func(context.Context) error { return errors.New("connection refused") })
+	cases := []struct {
+		name       string
+		hard, soft httpapi.Pinger
+		want       int
+		degraded   bool
+	}{
+		{"all up", up, up, 200, false},
+		{"redis down", up, down, 200, true},
+		{"postgres down", down, up, 503, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			api := httpapi.New(httpapi.Options{
+				Links:      links.NewService(memory.New(), nil, nil),
+				Keys:       memory.New(),
+				Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+				Ready:      map[string]httpapi.Pinger{"postgres": tc.hard},
+				Degradable: map[string]httpapi.Pinger{"redis": tc.soft},
+			})
+			ts := httptest.NewServer(api.Handler())
+			defer ts.Close()
+			res := do(t, "GET", ts.URL+"/readyz", "", "")
+			if res.StatusCode != tc.want {
+				t.Fatalf("readyz = %d, want %d", res.StatusCode, tc.want)
+			}
+			if got := decode(t, res)["degraded"]; got != tc.degraded {
+				t.Fatalf("degraded = %v, want %v", got, tc.degraded)
+			}
+		})
 	}
 }
