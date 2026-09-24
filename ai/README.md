@@ -20,3 +20,4 @@ uv run ruff check . && uv run mypy   # lint and type-check
 | `snipai.client` | A typed client for snip's REST API | 14.1 |
 | `snipai.slugs` | snip's slug rules, in Python | 14.1 |
 | `snipai.abuse` | A phishing-link classifier, trained from scratch with NumPy | 14.2 |
+| `snipai.tinylm` | A BPE tokenizer and an n-gram language model, trained on this handbook | 14.3 |
