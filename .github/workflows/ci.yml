@@ -130,6 +130,8 @@ jobs:
           SNIP_URL=http://localhost:8080 SNIP_API_KEY="$(grep -o 'snip_[A-Za-z0-9]*' /tmp/snip.log | head -1)" \
             uv run pytest -v | tee /tmp/pytest.txt
           grep -q "test_round_trip_against_real_snip PASSED" /tmp/pytest.txt   # the live test ran, not skipped
+      - name: Chapter 14.2 lab — train the phishing-link classifier from scratch
+        run: uv run python -m snipai.abuse
 
   snip-image:
     name: snip container image builds
