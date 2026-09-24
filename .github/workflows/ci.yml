@@ -244,13 +244,19 @@ jobs:
         run: |
           timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
           kubectl -n snip get endpointslices -l kubernetes.io/service-name=api -o wide
-          kubectl -n snip run dns --rm -i --image=alpine:3.22 --restart=Never -- \
-            sh -c 'nslookup api; nslookup api.snip.svc.cluster.local; wget -qO- http://api/healthz' | tee /tmp/dns.txt
+          kubectl -n snip run dns --image=alpine:3.22 --restart=Never -- \
+            sh -c 'nslookup api.snip.svc.cluster.local; wget -qO- http://api/healthz'
+          timeout 150 kubectl -n snip wait --for=jsonpath='{.status.phase}'=Succeeded pod/dns --timeout=120s || true
+          kubectl -n snip logs dns | tee /tmp/dns.txt
+          kubectl -n snip delete pod dns
           grep -q '"status":"ok"' /tmp/dns.txt
       - name: Chapter 10.3 lab — NetworkPolicies block strangers, allow snip
         run: |
-          kubectl -n snip run intruder --rm -i --image=alpine:3.22 --restart=Never -- \
-            sh -c 'nc -z -w 3 postgres 5432 && echo "postgres: OPEN" || echo "postgres: blocked"; wget -qO- -T 3 http://api/healthz' | tee /tmp/intruder.txt
+          kubectl -n snip run intruder --image=alpine:3.22 --restart=Never -- \
+            sh -c 'nc -z -w 3 postgres 5432 && echo "postgres: OPEN" || echo "postgres: blocked"; wget -qO- -T 3 http://api/healthz'
+          timeout 150 kubectl -n snip wait --for=jsonpath='{.status.phase}'=Succeeded pod/intruder --timeout=120s || true
+          kubectl -n snip logs intruder | tee /tmp/intruder.txt
+          kubectl -n snip delete pod intruder
           grep -q 'postgres: blocked' /tmp/intruder.txt
           grep -q '"status":"ok"' /tmp/intruder.txt
           kubectl -n snip port-forward svc/api 8082:80 > /dev/null 2>&1 &
