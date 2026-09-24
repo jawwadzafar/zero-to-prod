@@ -266,7 +266,7 @@ def main() -> None:
 
     x = np.stack([features(u) for u in urls])
     model = LogisticRegression().fit(x[train], y[train])
-    print("\n2. Logistic regression on 10 hand-made features")
+    print(f"\n2. Logistic regression on {len(FEATURE_NAMES)} hand-made features")
     print(f"   loss: start {model.losses[0]:.3f} -> end {model.losses[-1]:.3f}")
     print("   train:", score(y[train], model.predict(x[train])))
     print("   test: ", score(y[test], model.predict(x[test])))
@@ -283,7 +283,7 @@ def main() -> None:
     print("\n4. Flexible models need more data (4,096 character-trigram features)")
     print("   model                                 train acc   test")
     for label, rows, feats, l2 in [
-        ("10 hand-made features, 40 URLs", 40, x, 0.0),
+        (f"{len(FEATURE_NAMES)} hand-made features, 40 URLs", 40, x, 0.0),
         ("trigrams, 40 URLs", 40, xn, 0.0),
         ("trigrams, 400 URLs", 400, xn, 0.0),
         ("trigrams, all 1,500 URLs", 1500, xn, 0.0),
