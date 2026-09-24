@@ -1,0 +1,23 @@
+# snip on Kubernetes (Part 10). Apply everything with:
+#   kubectl apply -k deploy/k8s/base
+# The image is the one CI publishes (chapter 9.4). To use an image you built
+# yourself in a kind cluster, apply overlays/kind instead.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: snip
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: snip
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - redis.yaml
+  - config.yaml
+  - api.yaml
+  - worker.yaml
+  - pdb.yaml
+  - hpa.yaml
+images:
+  - name: snip
+    newName: ghcr.io/jawwadzafar/snip
+    newTag: main

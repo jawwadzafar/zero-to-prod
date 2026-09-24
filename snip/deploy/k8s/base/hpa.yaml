@@ -1,0 +1,20 @@
+# Autoscale the API between 2 and 6 copies to keep average CPU near 70% of
+# requests (chapter 8.6). Needs metrics-server in the cluster (chapter 10.5).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

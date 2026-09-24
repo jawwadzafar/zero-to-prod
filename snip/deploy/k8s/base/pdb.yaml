@@ -1,0 +1,11 @@
+# Voluntary disruptions (node drains, upgrades) must leave at least one API
+# Pod running (chapter 10.5).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api

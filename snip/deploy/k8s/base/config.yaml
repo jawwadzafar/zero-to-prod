@@ -1,0 +1,19 @@
+# snip's configuration, split by sensitivity (chapter 10.4):
+# ordinary settings in a ConfigMap, the connection string (it contains a
+# password) in a Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: snip-config
+data:
+  SNIP_REDIS_ADDR: redis:6379
+  SNIP_BASE_URL: http://localhost:8080
+  SNIP_LOG_LEVEL: info
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: snip-db
+type: Opaque
+stringData:
+  SNIP_DATABASE_URL: postgres://snip:snip-dev-only@postgres:5432/snip?sslmode=disable

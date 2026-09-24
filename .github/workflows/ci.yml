@@ -166,3 +166,63 @@ jobs:
           test -z "$(docker volume ls -q --filter name=snip_pgdata)"
       - if: failure()
         run: docker compose logs
+
+  snip-k8s:
+    name: snip on Kubernetes (kind) works end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: helm/kind-action@v1
+        with:
+          version: v0.33.0
+          cluster_name: z2p
+      - name: Build snip and load the image into the cluster (chapter 10.2 lab)
+        run: |
+          docker build -t snip:dev snip
+          kind load docker-image snip:dev --name z2p
+      - name: Apply the manifests
+        run: kubectl apply -k snip/deploy/k8s/overlays/kind
+      - name: Wait for every workload to be ready
+        run: |
+          kubectl -n snip rollout status statefulset/postgres --timeout=240s
+          kubectl -n snip rollout status deploy/redis --timeout=180s
+          kubectl -n snip rollout status deploy/api --timeout=240s
+          kubectl -n snip rollout status deploy/worker --timeout=180s
+          kubectl -n snip get pods,svc,pvc
+      - name: Smoke test through the Service
+        run: |
+          kubectl -n snip port-forward svc/api 8080:80 > /tmp/pf.log 2>&1 &
+          sleep 3
+          KEY=$(kubectl -n snip exec deploy/api -- snip keys create ci | grep -o 'snip_[A-Za-z0-9]*')
+          SNIP_API_KEY="$KEY" snip/scripts/smoke.sh http://localhost:8080
+      - name: Self-healing — a deleted Pod is replaced (chapter 10.1 lab)
+        run: |
+          POD=$(kubectl -n snip get pod -l app.kubernetes.io/name=api -o name | head -1)
+          kubectl -n snip delete "$POD" --wait=false
+          sleep 2
+          kubectl -n snip wait --for=condition=Available deploy/api --timeout=120s
+          for i in $(seq 1 60); do
+            R=$(kubectl -n snip get deploy api -o jsonpath='{.status.readyReplicas}')
+            [ "$R" = 2 ] && kubectl -n snip get pods -l app.kubernetes.io/name=api && exit 0; sleep 2
+          done
+          exit 1
+      - name: Rolling update with zero failed requests (chapter 10.2 lab)
+        run: |
+          kubectl -n snip run probe --image=curlimages/curl:8.22.0 --restart=Never --command -- sh -c '
+            ok=0; bad=0; end=$(( $(date +%s) + 45 ))
+            while [ "$(date +%s)" -lt "$end" ]; do
+              if curl -fs -m 2 http://api/healthz > /dev/null; then ok=$((ok+1)); else bad=$((bad+1)); fi
+              sleep 0.1
+            done
+            echo "ok=$ok bad=$bad"'
+          kubectl -n snip wait --for=condition=Ready pod/probe --timeout=60s
+          kubectl -n snip set env deploy/api SNIP_LOG_LEVEL=debug        # changes the Pod template → rollout
+          kubectl -n snip rollout status deploy/api --timeout=180s
+          kubectl -n snip wait --for=jsonpath='{.status.phase}'=Succeeded pod/probe --timeout=120s
+          RESULT=$(kubectl -n snip logs probe); echo "$RESULT"
+          echo "$RESULT" | grep -q ' bad=0$'
+      - if: failure()
+        run: |
+          kubectl -n snip get all,pvc,events --sort-by=.metadata.creationTimestamp || true
+          kubectl -n snip describe pods || true
+          kubectl -n snip logs -l app.kubernetes.io/name=api --tail=50 || true

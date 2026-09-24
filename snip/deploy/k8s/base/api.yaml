@@ -1,0 +1,70 @@
+# The snip API: a Deployment of identical, stateless Pods (chapter 10.2)
+# behind a Service that load-balances across the ready ones (chapter 10.3).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0                     # never drop below 2 ready copies during a rollout
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: snip                       # replaced by kustomize's images: section
+          envFrom:
+            - configMapRef:
+                name: snip-config
+            - secretRef:
+                name: snip-db
+          ports:
+            - name: http
+              containerPort: 8080
+          startupProbe:                     # give migrations time on first start
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:                    # alive? if this fails, restart the container
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          readinessProbe:                   # ready for traffic? (checks Postgres and Redis)
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5                  # let the Service stop routing here before shutdown starts
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  selector:
+    app.kubernetes.io/name: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
