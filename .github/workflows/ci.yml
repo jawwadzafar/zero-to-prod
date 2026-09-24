@@ -103,6 +103,34 @@ jobs:
           grep -q "httpapi.(\*Server).redirect" /tmp/prof.txt
           curl -s "localhost:6060/debug/pprof/goroutine?debug=1" | head -3
 
+  ai:
+    name: ai (Python) — lint, types, tests, live against snip
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: snip/go.mod
+          cache-dependency-path: snip/go.sum
+      - run: uv sync --locked                 # fails if uv.lock is out of date with pyproject.toml
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run mypy
+      - name: Tests, including the live round trip against a real snip (chapter 14.1 lab)
+        run: |
+          (cd ../snip && go build -o /tmp/snip ./cmd/snip)
+          SNIP_HTTP_ADDR=:8080 /tmp/snip serve > /tmp/snip.log 2>&1 &
+          sleep 1
+          set -o pipefail                     # without it, tee would hide a pytest failure (chapter 13.6)
+          SNIP_URL=http://localhost:8080 SNIP_API_KEY="$(grep -o 'snip_[A-Za-z0-9]*' /tmp/snip.log | head -1)" \
+            uv run pytest -v | tee /tmp/pytest.txt
+          grep -q "test_round_trip_against_real_snip PASSED" /tmp/pytest.txt   # the live test ran, not skipped
+
   snip-image:
     name: snip container image builds
     runs-on: ubuntu-latest

@@ -1,0 +1,36 @@
+[project]
+name = "snipai"
+version = "0.1.0"
+description = "The AI Engineering track's code (Part 14): AI features for snip, the handbook's URL shortener."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "httpx>=0.28",      # HTTP client: talks to snip's API (chapter 14.1)
+    "pydantic>=2.11",   # data validation and typed models (chapters 14.1, 14.6)
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "ruff>=0.13",
+    "mypy>=1.18",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]   # errors, pyflakes, imports, bugbear, pyupgrade, simplify
+
+[tool.mypy]
+strict = true
+packages = ["snipai"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
