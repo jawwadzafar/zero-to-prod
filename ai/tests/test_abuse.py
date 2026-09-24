@@ -44,3 +44,9 @@ def test_training_learns_and_beats_the_lazy_baseline() -> None:
     learned = score(y[test], model.predict(x[test]))
     assert learned.accuracy > lazy.accuracy
     assert learned.recall > 0.5  # it catches most phishing, where the lazy one catches none
+
+
+def test_no_url_appears_twice() -> None:
+    # A duplicate could land in both train and test, and flatter the score.
+    urls, _ = make_dataset()
+    assert len(set(urls)) == len(urls)

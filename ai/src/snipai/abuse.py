@@ -36,11 +36,9 @@ SAFE_HOSTS = [
     "developer.mozilla.org", "kubernetes.io", "www.postgresql.org", "www.youtube.com",
     "blog.example.org", "shop.example.com", "www.example.net",
 ]  # fmt: skip
-SAFE_PATHS = [
-    "/", "/doc/", "/wiki/Hash_table", "/questions/11227809", "/watch?v=dQw4w9WgXcQ",
-    "/news/technology-123456", "/abs/1706.03762", "/docs/concepts/", "/blog/2026/09/release",
-    "/en-US/docs/Web/HTTP", "/login", "/account/settings", "/about", "/pricing",
-    "/search?q=url+shortener", "/downloads/", "/item?id=41234567",
+WORDS = [
+    "hash", "table", "release", "notes", "garden", "coffee", "python", "golang", "history",
+    "music", "recipe", "travel", "science", "startup", "weather", "football", "design",
 ]  # fmt: skip
 # Small, legitimate websites (made up): hyphens and plain names are normal.
 SMALL_SITES = [
@@ -75,31 +73,43 @@ def _phishing_url(rng: random.Random) -> str:
 
 def _safe_url(rng: random.Random) -> str:
     token = "".join(rng.choices("abcdef0123456789", k=rng.randint(16, 32)))
+    w1, w2 = rng.choice(WORDS), rng.choice(WORDS)
+    num = rng.randint(10_000, 99_999_999)
     scheme = "http" if rng.random() < 0.1 else "https"  # some real sites still lack https
     host = rng.choice(SAFE_HOSTS + SMALL_SITES)
     path = rng.choice(
-        SAFE_PATHS
-        + [
+        [
+            "/", "/about", "/pricing", "/login", "/account/settings", "/downloads/",
+            f"/wiki/{w1.title()}_{w2}", f"/questions/{num}", f"/news/{w1}-{num}",
+            f"/abs/{rng.randint(1000, 2612)}.{rng.randint(10000, 99999)}", f"/docs/{w1}/",
+            f"/blog/{rng.randint(2019, 2026)}/{rng.randint(1, 12):02d}/{w1}-{w2}",
+            f"/search?q={w1}+{w2}", f"/item?id={num}", f"/watch?v={token[:11]}",
             # Real sites use "suspicious" words and random tokens too.
-            f"/file/d/{token}/view",
-            f"/reset-password?token={token}",
-            "/account/verify-email",
-            "/wp-content/uploads/2026/09/menu.pdf",
+            f"/file/d/{token}/view", f"/reset-password?token={token}", "/account/verify-email",
+            f"/wp-content/uploads/{rng.randint(2019, 2026)}/{rng.randint(1, 12):02d}/{w1}.pdf",
         ]
-    )
+    )  # fmt: skip
     return f"{scheme}://{host}{path}"
 
 
 def make_dataset(
     n: int = 2000, phishing_share: float = 0.1, noise: float = 0.03, seed: int = 7
 ) -> tuple[list[str], NDArray[np.int64]]:
-    """Generate n labelled URLs. `noise` flips that share of labels, like real
-    data, where some reports are simply wrong."""
+    """Generate n distinct labelled URLs. `noise` flips that share of labels,
+    like real data, where some reports are simply wrong."""
     rng = random.Random(seed)
-    urls, labels = [], []
-    for _ in range(n):
+    urls: list[str] = []
+    labels: list[int] = []
+    seen: set[str] = set()
+    while len(urls) < n:
         bad = rng.random() < phishing_share
-        urls.append(_phishing_url(rng) if bad else _safe_url(rng))
+        url = _phishing_url(rng) if bad else _safe_url(rng)
+        # Every URL appears once. Duplicates would land on both sides of the
+        # train/test split and flatter the test score (chapter 14.2's leakage story).
+        if url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
         labels.append(int(bad) ^ int(rng.random() < noise))
     return urls, np.array(labels, dtype=np.int64)
 
@@ -271,25 +281,26 @@ def main() -> None:
     # Overfitting: a flexible model with too little data memorises its examples.
     xn = np.stack([ngram_features(u) for u in urls])
     print("\n4. Flexible models need more data (4,096 character-trigram features)")
-    print("   model                               train acc   test")
+    print("   model                                 train acc   test")
     for label, rows, feats, l2 in [
-        ("10 hand-made features, 150 URLs", 150, x, 0.0),
-        ("trigrams, 150 URLs", 150, xn, 0.0),
-        ("trigrams, 300 URLs", 300, xn, 0.0),
-        ("trigrams, 300 URLs, l2=0.003", 300, xn, 0.003),
+        ("10 hand-made features, 40 URLs", 40, x, 0.0),
+        ("trigrams, 40 URLs", 40, xn, 0.0),
+        ("trigrams, 400 URLs", 400, xn, 0.0),
         ("trigrams, all 1,500 URLs", 1500, xn, 0.0),
+        ("trigrams, all 1,500 URLs, l2=0.01", 1500, xn, 0.01),
     ]:
         part = train[:rows]
         lr, epochs = (0.5, 500) if feats is x else (2.0, 3000)
         m = LogisticRegression(learning_rate=lr, epochs=epochs, l2=l2).fit(feats[part], y[part])
         train_acc = score(y[part], m.predict(feats[part])).accuracy
-        print(f"   {label:<35} {train_acc:9.1%}   {score(y[test], m.predict(feats[test]))}")
+        print(f"   {label:<37} {train_acc:9.1%}   {score(y[test], m.predict(feats[test]))}")
 
     print("\n5. What the hand-feature model gets wrong (test URLs labelled phishing, scored < 50%)")
     p = model.predict_proba(x[test])
-    for i, prob in zip(test, p, strict=True):
-        if y[i] == 1 and prob < 0.5:
-            print(f"   {prob:5.0%}  {urls[i]}")
+    missed = [(prob, urls[i]) for i, prob in zip(test, p, strict=True) if y[i] == 1 and prob < 0.5]
+    for prob, url in missed[:12]:
+        print(f"   {prob:5.0%}  {url}")
+    print(f"   ...{len(missed)} in total")
 
     print("\nTry it:")
     for url in [
