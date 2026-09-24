@@ -1,0 +1,35 @@
+# snip as a systemd service on a plain Linux server (chapter 2.5).
+# Install:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin snip
+#   sudo install -m 0755 snip /usr/local/bin/snip
+#   sudo install -m 0640 -o root -g snip snip.env /etc/snip/snip.env
+#   sudo cp snip.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now snip
+[Unit]
+Description=snip link shortener API
+Documentation=https://jawwadzafar.github.io/zero-to-prod/
+# Start after the network is up (and after Postgres, if it runs on this machine).
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=snip
+Group=snip
+# Settings (SNIP_DATABASE_URL etc.) live in a root-owned file only snip can read.
+EnvironmentFile=/etc/snip/snip.env
+ExecStart=/usr/local/bin/snip serve
+# If snip crashes, start it again after 2 seconds.
+Restart=on-failure
+RestartSec=2
+# systemd sends SIGTERM first; snip shuts down gracefully within 10s.
+TimeoutStopSec=15
+# Raise the open-files limit for many simultaneous connections (chapter 2.2).
+LimitNOFILE=65536
+# Hardening: the service can't gain privileges or write to most of the system.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
