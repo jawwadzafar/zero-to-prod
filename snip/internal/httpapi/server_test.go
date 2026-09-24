@@ -175,6 +175,9 @@ func TestHealthAndMetrics(t *testing.T) {
 	if res.Header.Get("X-Request-ID") == "" {
 		t.Fatal("responses should carry X-Request-ID")
 	}
+	if res.Header.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatal("responses should carry X-Content-Type-Options: nosniff")
+	}
 }
 
 func TestRevokedKeyIsRejected(t *testing.T) {

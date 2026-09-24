@@ -1,0 +1,324 @@
+---
+title: "7.5 The web attacks every backend must stop"
+sidebar_label: "7.5 Web attacks"
+description: "How the most common web attacks actually work and how to stop them — injection, cross-site scripting, cross-site request forgery, server-side request forgery, open redirects and abuse, path traversal, security headers, CORS and resource exhaustion — mapped to the OWASP Top 10 and to snip's real defences."
+---
+
+# 7.5 The web attacks every backend must stop
+
+Every service on the internet is attacked constantly — mostly not by brilliant hackers, but by automated scanners trying the same well-known tricks on millions of sites a day. The good news is that the same small set of attack patterns accounts for most real breaches, and each has a well-understood defence. This chapter walks through them one at a time: how each attack works, in plain words, and exactly what stops it. You'll run one attack yourself against a deliberately vulnerable page, then see how snip — a service whose whole purpose is sending people to URLs strangers typed in — defends itself.
+
+## What you'll learn
+
+- **Injection** (SQL and command injection) — code smuggled in through data.
+- **Cross-site scripting (XSS)** — getting a victim's browser to run the attacker's script — and escaping and CSP.
+- **Cross-site request forgery (CSRF)**, **server-side request forgery (SSRF)**, **open redirects** and **path traversal**.
+- **Security headers**, what **CORS** does (and doesn't) protect, and **resource exhaustion**.
+- The **OWASP Top 10**, and how snip's design shuts each door.
+
+---
+
+## The root of most attacks: data treated as code
+
+Look closely and most classic attacks share one mistake: **untrusted data is mixed into something that gets interpreted** — a SQL query, a shell command, an HTML page, a file path — and the interpreter can't tell where the data ends and the instructions begin. The attacker writes data that *is* instructions.
+
+The universal defence follows: **keep data and code separate**, using the interpreter's own safe mechanism — parameters for SQL, argument lists for commands, context-aware escaping for HTML. Validate input (chapter 5.3), and **encode output** for wherever it's going.
+
+:::note[Everyday anchor]
+Imagine a clerk who follows any instruction written on a form. A customer writes in the "name" box: *"Ada. Also, transfer £1,000 to account 42."* If the clerk can't tell the name field from the instructions, the customer has just given the orders. Safe systems give the clerk forms where the name box can only ever be a name.
+:::
+
+---
+
+## Injection
+
+### SQL injection
+
+Chapter 6.6 showed how gluing input into a query string lets `x' OR '1'='1` rewrite it — reading every row, or worse. **Defence: placeholders, always** (`WHERE slug = $1`). snip never builds SQL from strings.
+
+### Command injection
+
+The same mistake with a shell (chapter 2.1). Suppose a feature takes a hostname and runs `ping`:
+
+```go
+// NEVER: the shell interprets everything in host
+exec.Command("sh", "-c", "ping -c 1 "+host)
+```
+
+Input `example.com; rm -rf /` runs a second command. **Defence:** don't involve a shell at all — pass arguments as a list, so they're only ever arguments:
+
+```go
+exec.Command("ping", "-c", "1", host)  // host is one argument, never interpreted
+```
+
+…and validate `host` against a strict allow-list (chapter 5.3). Better still, avoid running shell commands from request handlers entirely.
+
+---
+
+## Cross-site scripting (XSS)
+
+**XSS** injects the attacker's JavaScript into pages other people view. That script then runs in the victim's browser **as the site**: it can read the page, act as the logged-in user, and send their data elsewhere.
+
+- **Reflected XSS**: input from the URL is echoed into the page — the attacker sends the victim a crafted link.
+- **Stored XSS**: input is saved (a comment, a profile name, a link title) and shown to *everyone* who views it. The most dangerous kind.
+
+You'll try it in the lab with a deliberately vulnerable page (`snip/examples/xss`). The vulnerable version pastes input straight into HTML:
+
+```go
+fmt.Fprintf(w, "<h1>Hello, %s!</h1>", r.URL.Query().Get("name"))
+```
+
+With `?name=<script>alert('hacked')</script>`, the page *contains a script*. The fix uses Go's `html/template`, which **escapes** input for exactly where it appears — `<` becomes `&lt;` — so the browser shows the text instead of running it:
+
+```html
+<h1>Hello, &lt;script&gt;alert(&#39;hacked&#39;)&lt;/script&gt;!</h1>
+```
+
+Defences, in layers:
+
+1. **Context-aware output encoding** — use templates that escape by default (Go's `html/template`, React's JSX, most modern frameworks). Never build HTML with string concatenation.
+2. **Content-Security-Policy (CSP)** header — tells the browser which scripts are allowed to run at all. With `default-src 'self'`, even an injected `<script>` inline is refused.
+3. **HttpOnly cookies** (chapter 7.2), so an injected script at least can't steal the session cookie.
+
+snip's API returns JSON, not HTML, with `Content-Type: application/json` and `X-Content-Type-Options: nosniff`, so browsers won't treat a response as a page. But the moment snip grows a dashboard that displays link titles, stored XSS becomes a real risk — which is why these defences belong in the design from day one.
+
+---
+
+## Cross-site request forgery (CSRF)
+
+Your browser automatically attaches a site's cookies to **every** request to that site — even requests triggered by a *different* site. So an attacker's page can contain:
+
+```html
+<form action="https://bank.example/transfer" method="POST">
+  <input type="hidden" name="to" value="attacker">
+  <input type="hidden" name="amount" value="1000">
+</form>
+<script>document.forms[0].submit()</script>
+```
+
+If you're logged in to the bank, your browser sends your session cookie along, and the bank sees a genuine-looking request from you. That's **CSRF**: tricking a logged-in browser into making requests the user never intended.
+
+**Defences:**
+
+- **`SameSite=Lax` or `Strict` cookies** (chapter 7.2) — browsers don't attach them to most cross-site requests. Modern browsers default to `Lax`, which blocks the classic form-post attack.
+- **CSRF tokens** — a random value embedded in your own forms and checked by the server; another site can't know it.
+- **Never change state with `GET`** (chapter 1.5) — `<img src="https://site/delete?id=1">` is the easiest CSRF of all.
+
+snip's API is **not** vulnerable to classic CSRF because it doesn't use cookies at all: every request needs an `Authorization` header, which browsers never add automatically. Header-based tokens and CSRF don't mix.
+
+---
+
+## Server-side request forgery (SSRF)
+
+Imagine a future snip feature: *"show a preview of the page each link points to"* — snip's server fetches the URL. Now an attacker creates a link to:
+
+```text
+http://169.254.169.254/latest/meta-data/iam/security-credentials/
+```
+
+That address is the **cloud metadata service** — reachable only from *inside* a cloud server, where it hands out the server's own credentials (chapter 12.4). The attacker can't reach it; **snip's server can**. By making the server fetch it, they've turned snip into their proxy into the private network. That's **SSRF**, and it was at the heart of the widely reported 2019 Capital One breach.
+
+**Defences** for any feature where the server fetches user-supplied URLs:
+
+- Resolve the hostname and **refuse private, loopback and link-local addresses** (`10.x`, `172.16–31.x`, `192.168.x`, `127.x`, `169.254.x`, `::1`, …) — and check *after* redirects too.
+- Use a **separate, locked-down fetching service** with no access to internal networks or credentials.
+- On AWS, require **IMDSv2** (session-token-protected metadata), which blocks most SSRF against metadata.
+- Allow only `http`/`https`, limit response sizes and timeouts.
+
+---
+
+## Open redirects, and when your product *is* a redirect
+
+An **open redirect** is an endpoint that sends users wherever a parameter says: `https://trusted.example/login?next=https://evil.example`. Attackers use trusted domains to make phishing links look legitimate. Normally the fix is simple: only redirect to your own paths, or to an allow-list.
+
+snip, though, is an open redirector **by design** — that's the product. Every real link shortener therefore fights **abuse**: people shortening phishing and malware links to hide where they go. Defences shorteners use:
+
+- **Refuse dangerous schemes** — snip only accepts `http` and `https` (chapter 5.3), so no `javascript:` or `data:` links that would run code in a victim's browser.
+- **Check destinations against threat lists** (for example, Google Safe Browsing) when links are created, and periodically after.
+- **Rate limit** link creation (chapter 8.4) and require accounts (snip's API keys), so abuse is slow and attributable.
+- **Report and disable** — a way for anyone to report a bad link, and a way to switch it off quickly.
+- **Interstitial warnings** for suspicious links: "you're leaving snip for …".
+
+Knowing that your product's core feature is also its main abuse vector is exactly the kind of judgment security work needs.
+
+---
+
+## Path traversal
+
+A download endpoint serves files by name: `GET /files?name=report.pdf` → `open("/srv/files/" + name)`. An attacker asks for `../../etc/passwd`. The `..` segments (chapter 2.1) climb out of the intended folder. **Defences:** never build filesystem paths from input; look files up by ID in a database; if you must, clean the path and verify the result is still inside the intended directory (Go 1.24's `os.Root` does this for you).
+
+---
+
+## Security headers
+
+A few HTTP response headers switch on browser protections for free:
+
+| Header | Tells the browser | Stops |
+|---|---|---|
+| `Strict-Transport-Security` (HSTS) | "Only ever use HTTPS for this site" | Downgrade and interception attacks |
+| `Content-Security-Policy` | Which scripts, styles and sources may load | Most XSS |
+| `X-Content-Type-Options: nosniff` | "Trust the declared Content-Type; don't guess" | Files being executed as scripts |
+| `Content-Security-Policy: frame-ancestors 'none'` (or `X-Frame-Options: DENY`) | "Don't show me inside other sites' frames" | Clickjacking |
+| `Referrer-Policy` | How much of the URL to share when navigating away | Leaking private URLs |
+
+snip sets `X-Content-Type-Options: nosniff` on every response (in its `observe` middleware). HSTS and similar site-wide headers are usually set once at the reverse proxy (chapter 8.3).
+
+---
+
+## CORS: what it is — and isn't
+
+Browsers enforce the **same-origin policy**: JavaScript on `https://a.example` can't read responses from `https://b.example`. **CORS** (Cross-Origin Resource Sharing) is how `b.example` *relaxes* that rule for chosen origins, with headers like `Access-Control-Allow-Origin: https://a.example`.
+
+Two common misunderstandings:
+
+- **CORS is not a server-side security control.** It only affects what *browsers* let *scripts* read. `curl`, scripts and servers ignore it entirely. Your API still needs authentication and authorization.
+- **`Access-Control-Allow-Origin: *` with credentials is a mistake** — browsers forbid it, and "reflect whatever Origin was sent" is the insecure workaround people reach for. Allow specific origins.
+
+snip's API sends no CORS headers, so browser scripts on other sites can't read its responses — fine for an API used by servers and CLIs. A browser dashboard on another origin would need a precise allow-list.
+
+---
+
+## Resource exhaustion
+
+Not every attack steals data; some just make the service unusable by consuming its resources (chapter 1.1): huge request bodies, thousands of slow connections, expensive queries, unlimited sign-ups. Most of snip's defences were built in earlier chapters:
+
+| Resource | snip's defence | Chapter |
+|---|---|---|
+| Memory (huge bodies) | `MaxBytesReader`: 16 KiB request bodies | 5.3 |
+| Connections (slow clients) | `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout` | 5.4 |
+| Database (expensive queries) | Indexed queries only; `limit` capped at 100 | 6.4 |
+| Everything (floods) | Per-key rate limiting | 8.4 |
+
+---
+
+## The OWASP Top 10
+
+**OWASP** (the Open Worldwide Application Security Project) publishes widely used lists of the most critical web risks. The main list's 2021 edition, with where each is covered:
+
+| OWASP Top 10 (2021) | In plain words | Where |
+|---|---|---|
+| A01 Broken Access Control | Users acting on things they shouldn't | 7.4 |
+| A02 Cryptographic Failures | Weak or missing encryption and hashing | 7.1 |
+| A03 Injection | Data interpreted as code (SQL, commands, XSS) | 6.6, this chapter |
+| A04 Insecure Design | Missing security thinking in the design itself | throughout, 15.1 |
+| A05 Security Misconfiguration | Debug modes, default passwords, open storage | 7.6, 12.x |
+| A06 Vulnerable and Outdated Components | Unpatched dependencies | 4.3, 11.2 |
+| A07 Identification and Authentication Failures | Weak login, session and credential handling | 7.2 |
+| A08 Software and Data Integrity Failures | Unverified updates, pipelines, dependencies | 9.4, 11.2 |
+| A09 Security Logging and Monitoring Failures | Attacks that go unnoticed | 13.x |
+| A10 Server-Side Request Forgery | The server fetching attacker-chosen URLs | this chapter |
+
+(OWASP updates these lists every few years, and there's a separate **API Security Top 10**, where broken object-level authorization is number one — chapter 7.4.)
+
+:::warning[What can go wrong]
+- **String-built queries, commands, HTML or paths.** The root of injection, XSS and traversal.
+- **Relying on client-side checks, CORS, or hidden fields** as security. They constrain honest browsers, not attackers.
+- **Server-side fetching of user URLs without SSRF protection.** Your server becomes a door into your private network.
+- **Missing limits.** Unbounded bodies, connections, queries and sign-ups turn into outages.
+- **Ignoring abuse.** For products like snip, the misuse of the core feature is the biggest risk.
+:::
+
+---
+
+## Lab
+
+Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
+
+1. **Perform an XSS attack — on yourself.**
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   go run ./examples/xss
+   ```
+   In your browser, open:
+   - `http://127.0.0.1:9100/unsafe?name=Ada` — a normal greeting.
+   - `http://127.0.0.1:9100/unsafe?name=<script>alert('hacked')</script>` — an alert box: **your script ran as the site.** (Some browsers' built-in protections may interfere; try `?name=<img src=x onerror=alert(1)>` if the first doesn't fire.)
+   - `http://127.0.0.1:9100/safe?name=<script>alert('hacked')</script>` — the text is displayed, harmlessly.
+
+   View the page source of the unsafe and safe versions (right-click → View Page Source) and compare the HTML.
+
+2. **Look at the difference with curl.**
+   ```bash
+   curl -s "http://127.0.0.1:9100/unsafe?name=%3Cb%3Ebold%3C%2Fb%3E"; echo
+   curl -s "http://127.0.0.1:9100/safe?name=%3Cb%3Ebold%3C%2Fb%3E"; echo
+   curl -sI "http://127.0.0.1:9100/safe?name=x" | grep -i content-security
+   ```
+
+3. **Probe snip's defences.** With snip running (chapter 5.2 lab setup), try to create links snip should refuse, and predict each response first:
+   ```bash
+   for u in 'javascript:alert(1)' 'data:text/html,<script>alert(1)</script>' 'file:///etc/passwd' 'https://' ; do
+     curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d "{\"url\":\"$u\"}" | jq -c .error.code
+   done
+   curl -sI localhost:8080/healthz | grep -i -E "content-type|nosniff"
+   ```
+
+4. **Check a real site's headers.**
+   ```bash
+   curl -sI https://github.com | grep -i -E "strict-transport|content-security|x-frame|x-content-type|referrer-policy"
+   ```
+   Compare with a small site you know. Free protections, often missing.
+
+## Self-check
+
+<Quiz
+  id="security-web-attacks"
+  questions={[
+    {
+      q: 'What single idea connects SQL injection, command injection and XSS?',
+      options: [
+        'They all need weak passwords',
+        'Untrusted data is mixed into something interpreted as code, and the interpreter cannot tell data from instructions',
+        'They only affect old browsers',
+        'They all use JavaScript',
+      ],
+      answer: 1,
+      explain: 'Keep data and code separate with the interpreter’s safe mechanism: SQL parameters, argument lists for commands, escaping templates for HTML.',
+    },
+    {
+      q: 'Why is snip’s API not vulnerable to classic CSRF?',
+      options: [
+        'It uses HTTPS',
+        'It authenticates with an Authorization header, which browsers never attach automatically to cross-site requests',
+        'It has no POST endpoints',
+        'It sets CORS headers',
+      ],
+      answer: 1,
+      explain: 'CSRF relies on browsers automatically sending cookies. Bearer tokens in headers must be added deliberately by code, so another site cannot forge authenticated requests.',
+    },
+    {
+      q: 'A new snip feature fetches each link’s page to show a preview. What attack must it defend against?',
+      options: [
+        'Clickjacking',
+        'Server-side request forgery — attacker URLs pointing at internal addresses like the cloud metadata service',
+        'Password spraying',
+        'SQL injection',
+      ],
+      answer: 1,
+      explain: 'The server can reach private networks that attackers cannot. Refuse private and link-local addresses (after redirects too), isolate the fetcher, and use IMDSv2 on AWS.',
+    },
+    {
+      q: 'Which statement about CORS is true?',
+      options: [
+        'It prevents curl and scripts from calling your API',
+        'It only controls which origins’ browser scripts may read your responses; it is not server-side access control',
+        'It encrypts responses',
+        'It replaces authentication',
+      ],
+      answer: 1,
+      explain: 'CORS relaxes the browser’s same-origin policy. Non-browser clients ignore it, so your API still needs real authentication and authorization.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Why is escaping on output (in the template) the main XSS defence, rather than stripping "dangerous characters" on input?</summary>
+
+Because what's dangerous depends on **where the data ends up**: inside HTML text, an HTML attribute, a URL, a JavaScript string or CSS, the dangerous characters differ. Stripping characters on input is a deny-list (chapter 5.3) that's easy to bypass and also mangles legitimate data (names with apostrophes, maths with `<`). A context-aware template escapes each value correctly **for the exact place it's inserted**, every time, automatically. Input validation is still useful for data quality — but output encoding is what actually stops XSS.
+
+</details>
+
+<details>
+<summary>snip redirects anywhere by design. List three ways a real link shortener limits abuse.</summary>
+
+Any three of: **refusing dangerous schemes** (`javascript:`, `data:`, `file:`) so links can't run code; **checking destinations against threat intelligence** (like Safe Browsing) at creation and periodically; **requiring accounts and rate-limiting creation**, so abuse is slow and traceable; **a reporting and takedown process** to disable bad links quickly; **interstitial warning pages** for suspicious destinations; and monitoring for unusual patterns (one key creating thousands of links to newly registered domains).
+
+</details>

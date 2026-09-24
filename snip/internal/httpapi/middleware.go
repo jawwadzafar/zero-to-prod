@@ -40,6 +40,9 @@ func (s *Server) observe(next http.Handler) http.Handler {
 			id = newRequestID()
 		}
 		w.Header().Set("X-Request-ID", id)
+		// Browsers must treat responses as the declared type, never "sniff"
+		// JSON into something executable (chapter 7.5).
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
 		r = r.WithContext(ctx)
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
