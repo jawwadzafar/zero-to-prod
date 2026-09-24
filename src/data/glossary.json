@@ -683,5 +683,225 @@
   "term": "Deprecation",
   "def": "Announcing that something will be removed, marking it, and giving clients time to move before removing it.",
   "doc": "apis/api-contracts"
+ },
+ {
+  "term": "Database / DBMS",
+  "def": "An organised collection of data, and the software (like PostgreSQL) that stores it safely and answers questions about it.",
+  "doc": "data/why-databases"
+ },
+ {
+  "term": "Durability",
+  "def": "Once a database confirms a write, it survives crashes and restarts.",
+  "doc": "data/why-databases"
+ },
+ {
+  "term": "Source of truth",
+  "def": "The one place whose data is authoritative; caches and copies are rebuilt from it.",
+  "doc": "data/why-databases"
+ },
+ {
+  "term": "Table / row / column",
+  "def": "A table holds one kind of thing; each row is one item; each column is one typed attribute.",
+  "doc": "data/why-databases"
+ },
+ {
+  "term": "SQL",
+  "def": "Structured Query Language: the declarative language for querying and changing relational databases.",
+  "doc": "data/why-databases"
+ },
+ {
+  "term": "SELECT / WHERE / ORDER BY",
+  "def": "The core of reading data in SQL: which columns, which rows, in what order.",
+  "doc": "data/sql-from-zero"
+ },
+ {
+  "term": "Aggregate / GROUP BY / HAVING",
+  "def": "Aggregates (count, sum, avg) summarise rows; GROUP BY summarises per group; HAVING filters the groups.",
+  "doc": "data/sql-from-zero"
+ },
+ {
+  "term": "JOIN (inner / left)",
+  "def": "Combining rows from two tables that match on a condition. An inner join keeps only matches; a left join keeps every row from the left table.",
+  "doc": "data/sql-from-zero"
+ },
+ {
+  "term": "NULL",
+  "def": "SQL's marker for a missing or unknown value. Test it with IS NULL, never = NULL.",
+  "doc": "data/sql-from-zero"
+ },
+ {
+  "term": "Schema",
+  "def": "The shape of your data: tables, columns, types and the rules the data must obey.",
+  "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Primary key (natural / surrogate)",
+  "def": "A column (or columns) that uniquely identifies each row. Natural keys are real data like a slug; surrogate keys are invented IDs.",
+  "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Foreign key",
+  "def": "A column that must match a row in another table, keeping references valid; ON DELETE decides what happens when the parent goes.",
+  "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Constraint",
+  "def": "A rule in the schema — NOT NULL, UNIQUE, CHECK, foreign keys — that the database enforces on every write.",
+  "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Normalisation",
+  "def": "Storing each fact in exactly one place, so updates can't leave conflicting copies.",
+  "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Join table (many-to-many)",
+  "def": "A table of pairs linking two other tables, such as link_tags between links and tags.",
+  "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Migration",
+  "def": "A numbered, version-controlled change to a database schema, applied in order exactly once everywhere.",
+  "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Expand / contract",
+  "def": "Changing a live schema safely: add the new thing, move data and code over, then remove the old thing later.",
+  "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Index / B-tree",
+  "def": "A sorted lookup structure that finds rows without scanning the whole table. B-trees are Postgres's default index.",
+  "doc": "data/indexes-and-performance"
+ },
+ {
+  "term": "Sequential scan",
+  "def": "Reading every row of a table to answer a query — fine for small tables, slow for big ones.",
+  "doc": "data/indexes-and-performance"
+ },
+ {
+  "term": "EXPLAIN ANALYZE",
+  "def": "A Postgres command that runs a query and shows exactly how it was executed and how long each step took.",
+  "doc": "data/indexes-and-performance"
+ },
+ {
+  "term": "Composite index",
+  "def": "An index on several columns, sorted by the first then the next — column order matters.",
+  "doc": "data/indexes-and-performance"
+ },
+ {
+  "term": "N+1 query problem",
+  "def": "Running one query for a list and then one more per item, instead of fetching everything in one or two queries.",
+  "doc": "data/indexes-and-performance"
+ },
+ {
+  "term": "Transaction",
+  "def": "A group of database statements that succeed or fail together (BEGIN … COMMIT / ROLLBACK).",
+  "doc": "data/transactions"
+ },
+ {
+  "term": "ACID",
+  "def": "Atomicity, Consistency, Isolation, Durability — the four guarantees of database transactions.",
+  "doc": "data/transactions"
+ },
+ {
+  "term": "Isolation level",
+  "def": "How much concurrent transactions can see of each other: Read Committed (Postgres default), Repeatable Read, Serializable.",
+  "doc": "data/transactions"
+ },
+ {
+  "term": "Lost update",
+  "def": "Two transactions read the same value, change it, and write it back — one change disappears.",
+  "doc": "data/transactions"
+ },
+ {
+  "term": "Row lock / SELECT … FOR UPDATE",
+  "def": "Locking rows you're about to change so concurrent transactions wait instead of conflicting.",
+  "doc": "data/transactions"
+ },
+ {
+  "term": "MVCC",
+  "def": "Multi-version concurrency control: Postgres keeps row versions so readers and writers don't block each other.",
+  "doc": "data/transactions"
+ },
+ {
+  "term": "Connection pool",
+  "def": "A small set of database connections opened once and shared by many requests.",
+  "doc": "data/postgres-from-go"
+ },
+ {
+  "term": "Placeholder / parameterised query",
+  "def": "Sending SQL and its values separately ($1, $2) so values can never change the query — the cure for SQL injection.",
+  "doc": "data/postgres-from-go"
+ },
+ {
+  "term": "SQL injection",
+  "def": "An attack where input glued into a SQL string changes the query itself.",
+  "doc": "data/postgres-from-go"
+ },
+ {
+  "term": "SQLSTATE",
+  "def": "Postgres's five-character error codes, e.g. 23505 for a unique violation.",
+  "doc": "data/postgres-from-go"
+ },
+ {
+  "term": "Redis",
+  "def": "An in-memory data store used for caches, counters, rate limits and queues.",
+  "doc": "data/redis-and-caching"
+ },
+ {
+  "term": "Cache-aside",
+  "def": "Check the cache; on a miss read the database and put the answer in the cache.",
+  "doc": "data/redis-and-caching"
+ },
+ {
+  "term": "Cache hit / miss / hit ratio",
+  "def": "A hit is found in the cache; a miss isn't. The hit ratio is hits ÷ all lookups.",
+  "doc": "data/redis-and-caching"
+ },
+ {
+  "term": "Cache invalidation",
+  "def": "Removing or updating a cached copy when the original changes.",
+  "doc": "data/redis-and-caching"
+ },
+ {
+  "term": "Cache stampede",
+  "def": "Many requests missing the cache at once and all hitting the database for the same thing.",
+  "doc": "data/redis-and-caching"
+ },
+ {
+  "term": "OLTP / OLAP",
+  "def": "OLTP systems handle live application reads and writes; OLAP systems scan large data for analytics.",
+  "doc": "data/choosing-a-datastore"
+ },
+ {
+  "term": "Columnar database",
+  "def": "A database storing each column together, making scans and summaries over huge data very fast.",
+  "doc": "data/choosing-a-datastore"
+ },
+ {
+  "term": "Object storage",
+  "def": "Cheap, durable storage for files by key, like Amazon S3.",
+  "doc": "data/choosing-a-datastore"
+ },
+ {
+  "term": "Replication / replica",
+  "def": "Keeping copies of a database on other machines; replicas follow the primary and serve reads.",
+  "doc": "data/choosing-a-datastore"
+ },
+ {
+  "term": "Replication lag",
+  "def": "How far a replica is behind the primary — why a just-saved change may not appear on a replica yet.",
+  "doc": "data/choosing-a-datastore"
+ },
+ {
+  "term": "CAP theorem",
+  "def": "During a network partition, a distributed store must choose between consistency and availability.",
+  "doc": "data/choosing-a-datastore"
+ },
+ {
+  "term": "Eventual consistency",
+  "def": "Copies may disagree briefly but converge once updates have spread.",
+  "doc": "data/choosing-a-datastore"
  }
 ]
