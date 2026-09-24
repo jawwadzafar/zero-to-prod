@@ -124,6 +124,21 @@ func (c *Consumer) ProcessOnce(ctx context.Context, dst Adder) (int, error) {
 	return 0, nil
 }
 
+// Lag reports how many events in the stream have not yet been delivered to
+// the consumer group: the queue's backlog (chapter 13.2).
+func (c *Consumer) Lag(ctx context.Context) (int64, error) {
+	groups, err := c.rdb.XInfoGroups(ctx, StreamKey).Result()
+	if err != nil {
+		return 0, err
+	}
+	for _, g := range groups {
+		if g.Name == Group {
+			return g.Lag, nil
+		}
+	}
+	return 0, fmt.Errorf("consumer group %q not found", Group)
+}
+
 func (c *Consumer) blockFor(start string) time.Duration {
 	if start == "0" {
 		return -1 // don't block when checking our pending list

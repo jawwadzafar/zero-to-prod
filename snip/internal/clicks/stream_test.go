@@ -47,6 +47,9 @@ func TestRecordAndProcess(t *testing.T) {
 	if err := c.EnsureGroup(ctx); err != nil { // calling twice is fine
 		t.Fatal(err)
 	}
+	if lag, err := c.Lag(ctx); err != nil || lag != 4 {
+		t.Fatalf("Lag before processing = %d, %v; want 4 waiting events", lag, err)
+	}
 	dst := &counter{m: map[string]int64{}}
 	n, err := c.ProcessOnce(ctx, dst)
 	if err != nil || n != 4 {
@@ -54,6 +57,9 @@ func TestRecordAndProcess(t *testing.T) {
 	}
 	if dst.m["a"] != 3 || dst.m["b"] != 1 {
 		t.Fatalf("counts = %v", dst.m)
+	}
+	if lag, err := c.Lag(ctx); err != nil || lag != 0 {
+		t.Fatalf("Lag after processing = %d, %v; want 0", lag, err)
 	}
 	pending, err := rdb.XPending(ctx, clicks.StreamKey, clicks.Group).Result()
 	if err != nil || pending.Count != 0 {

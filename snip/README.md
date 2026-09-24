@@ -67,6 +67,7 @@ Errors always look like `{"error": {"code": "invalid_url", "message": "..."}}`.
 | `SNIP_RATE_LIMIT` | `60` | Link creations per key per minute |
 | `SNIP_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `SNIP_LOG_FORMAT` | `json` | `json` or `text` |
+| `SNIP_WORKER_METRICS_ADDR` | `:9091` | The worker's `/metrics` and `/healthz` address |
 
 ## Layout
 

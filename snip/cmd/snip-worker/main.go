@@ -7,11 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/clicks"
@@ -54,7 +56,28 @@ func run() error {
 		return err
 	}
 	m := metrics.New()
-	log.Info("worker started", "stream", clicks.StreamKey, "group", clicks.Group)
+
+	// A small HTTP server so Prometheus can scrape the worker and Kubernetes
+	// can probe it (chapter 13.2).
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", promhttp.HandlerFor(m.Registry, promhttp.HandlerOpts{}))
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"status":"ok"}`)
+	})
+	srv := &http.Server{Addr: cfg.WorkerMetricsAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("metrics server failed", "err", err)
+		}
+	}()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdownCtx)
+	}()
+
+	log.Info("worker started", "stream", clicks.StreamKey, "group", clicks.Group, "metrics_addr", cfg.WorkerMetricsAddr)
 
 	backoff := time.Second
 	for ctx.Err() == nil {
@@ -72,6 +95,9 @@ func run() error {
 			continue
 		}
 		backoff = time.Second
+		if lag, err := consumer.Lag(ctx); err == nil {
+			m.WorkerLag.Set(float64(lag))
+		}
 		if n > 0 {
 			m.ClicksProcessed.Add(float64(n))
 			log.Debug("processed clicks", "events", n)

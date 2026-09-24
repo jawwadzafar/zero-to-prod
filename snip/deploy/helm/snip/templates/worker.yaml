@@ -23,6 +23,11 @@ spec:
           image: {{ include "snip.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/usr/local/bin/snip-worker"]
+          ports:
+            - { name: metrics, containerPort: 9091 }
+          livenessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            periodSeconds: 10
           envFrom:
             - configMapRef: { name: {{ include "snip.fullname" . }}-config }
             - secretRef: { name: {{ include "snip.dbSecret" . }} }

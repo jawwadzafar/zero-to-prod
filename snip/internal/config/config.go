@@ -21,6 +21,8 @@ type Config struct {
 	RateLimit   int           // SNIP_RATE_LIMIT: link creations per key per minute, default 60
 	LogLevel    slog.Level    // SNIP_LOG_LEVEL: debug|info|warn|error, default info
 	LogFormat   string        // SNIP_LOG_FORMAT: json|text, default json
+
+	WorkerMetricsAddr string // SNIP_WORKER_METRICS_ADDR: the worker's /metrics and /healthz, default ":9091"
 }
 
 // Load reads the environment. It returns an error for malformed values
@@ -33,6 +35,8 @@ func Load() (Config, error) {
 		DatabaseURL: os.Getenv("SNIP_DATABASE_URL"),
 		RedisAddr:   os.Getenv("SNIP_REDIS_ADDR"),
 		LogFormat:   env("SNIP_LOG_FORMAT", "json"),
+
+		WorkerMetricsAddr: env("SNIP_WORKER_METRICS_ADDR", ":9091"),
 	}
 	var err error
 	if c.CacheTTL, err = time.ParseDuration(env("SNIP_CACHE_TTL", "1h")); err != nil {

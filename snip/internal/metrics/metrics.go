@@ -15,6 +15,7 @@ type Metrics struct {
 	Redirects       *prometheus.CounterVec   // by cache result: hit | miss
 	ClickErrors     prometheus.Counter       // clicks we failed to record
 	ClicksProcessed prometheus.Counter       // events handled by the worker
+	WorkerLag       prometheus.Gauge         // click events waiting for the worker group (chapter 13.2)
 }
 
 // New registers snip's metrics plus Go runtime and process metrics.
@@ -39,8 +40,11 @@ func New() *Metrics {
 		ClicksProcessed: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "snip_worker_clicks_processed_total", Help: "Click events processed by the worker.",
 		}),
+		WorkerLag: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "snip_worker_lag_events", Help: "Click events in the stream not yet delivered to the worker group.",
+		}),
 	}
-	reg.MustRegister(m.Requests, m.RequestDuration, m.Redirects, m.ClickErrors, m.ClicksProcessed,
+	reg.MustRegister(m.Requests, m.RequestDuration, m.Redirects, m.ClickErrors, m.ClicksProcessed, m.WorkerLag,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m
 }
