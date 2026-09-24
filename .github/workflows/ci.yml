@@ -484,7 +484,7 @@ jobs:
           echo "plan exit code after apply: $CODE (0 = no changes)"; [ "$CODE" = 0 ]
           docker rm -f snip-tf-worker-0
           set +e
-          terraform plan -detailed-exitcode -input=false -no-color | tee /tmp/plan.txt; CODE=$?
+          terraform plan -detailed-exitcode -input=false -no-color | tee /tmp/plan.txt; CODE=${PIPESTATUS[0]}   # plan's code, not tee's
           set -e
           echo "plan exit code after drift: $CODE (2 = changes)"; [ "$CODE" = 2 ]
           grep -q "1 to add" /tmp/plan.txt
