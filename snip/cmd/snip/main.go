@@ -74,6 +74,16 @@ func run(args []string) error {
 	if len(args) > 0 {
 		cmd = args[0]
 	}
+	if cmd == "serve" && pg == nil {
+		// Keys live in memory too, so a separate "snip keys create" process
+		// can't make one for us. Print a development key instead.
+		key, _, err := auth.CreateKey(ctx, st, "dev")
+		if err != nil {
+			return err
+		}
+		log.Info("in-memory mode: created a development API key (valid until snip stops)", "api_key", key)
+	}
+
 	switch cmd {
 	case "serve":
 		return serve(ctx, cfg, log, st, pg)

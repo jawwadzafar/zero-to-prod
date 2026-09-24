@@ -10,12 +10,18 @@ snippet in the handbook is copied from here, and everything here is tested.
 ## Run it (no database needed)
 
 ```bash
-go run ./cmd/snip keys create me       # prints an API key (in-memory: lost on restart!)
-go run ./cmd/snip                       # listens on :8080
+go run ./cmd/snip        # listens on :8080 and prints a development API key in its log
 ```
 
-With no `SNIP_DATABASE_URL`, snip stores everything in memory. Good for a first
-look; the key from `keys create` won't survive, so for real use run Postgres.
+With no `SNIP_DATABASE_URL`, snip stores everything in memory — links *and* API
+keys — so it creates a development key at startup (look for `api_key=snip_…`).
+Everything is lost when it stops; for real use, run Postgres.
+
+```bash
+KEY=snip_...                                   # the key from the log
+curl -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev"}'
+SNIP_API_KEY=$KEY ./scripts/smoke.sh           # end-to-end check → [smoke] PASS
+```
 
 ## Run it for real (Postgres + Redis + worker)
 

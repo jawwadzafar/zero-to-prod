@@ -1,0 +1,411 @@
+---
+title: "2.4 Bash scripting"
+sidebar_label: "2.4 Bash scripting"
+description: Turn commands you'd type by hand into scripts that run the same way every time — variables, quoting, conditions, loops, functions, exit codes and the safety settings every script should start with — by writing a real smoke test for snip.
+---
+
+# 2.4 Bash scripting
+
+Anything you type in the terminal twice, you'll eventually want to type zero times. A **shell script** is just a file full of the commands you'd otherwise type by hand — saved, repeatable, shareable. Scripts start databases, run tests, deploy code, back things up, and check that services are healthy. They're also where a surprising number of production accidents come from, because the shell does exactly what you wrote, not what you meant. In this chapter you'll learn the handful of constructs that cover most scripts, the safety settings that prevent the classic disasters, and you'll write a real script: a smoke test that proves snip works.
+
+## What you'll learn
+
+- How to write, save and run a script: the **shebang** line, `chmod +x`, and **arguments** (`$1`, `$@`).
+- **Variables** and **quoting** — the single most important habit in shell scripting.
+- **Conditions** (`if`, `[[ ]]`, `&&`, `||`), **loops** (`for`, `while`) and **functions**.
+- **Exit codes** as the language scripts use to succeed or fail, and the "strict mode" line — `set -euo pipefail` — that every script should begin with.
+- When a shell script is the right tool, and when it's time to switch to a real programming language.
+
+---
+
+## A script is saved typing
+
+Create a file called `hello.sh`:
+
+```bash
+#!/usr/bin/env bash
+# hello.sh — my first script. Lines starting with # are comments.
+echo "Hello, $USER!"
+echo "Today is $(date +%A)."
+```
+
+Make it runnable and run it:
+
+```bash
+chmod +x hello.sh     # give it the execute permission (chapter 2.2)
+./hello.sh            # the ./ means "the one in this folder" — scripts aren't on $PATH
+```
+
+The first line, `#!/usr/bin/env bash`, is the **shebang**. It tells the OS which program should run the rest of the file — here, bash, found via `$PATH`. Without it, the system guesses, and the guess may be a different, more limited shell.
+
+:::note[Everyday anchor]
+A script is a written recipe instead of a cook improvising. Improvising works when you're there watching. A written recipe works when you're asleep, when someone else is cooking, and on the hundredth time — as long as it was written carefully, because it will be followed *exactly*.
+:::
+
+---
+
+## Variables and quoting
+
+```bash
+name="snip"                        # no spaces around = (name = "snip" is an error)
+port=8080
+echo "Starting $name on port $port"
+echo "Starting ${name}-api"        # braces mark where the name ends
+today=$(date +%Y-%m-%d)            # store a command's output
+echo "Backup file: backup-$today.sql"
+```
+
+Rules that trip everyone up once:
+
+- **No spaces around `=`.** `port = 8080` makes the shell try to run a program called `port`.
+- **Everything is text.** `port=8080` stores the characters `8080`. For arithmetic use `$(( ))`: `next=$((port + 1))`.
+- **Always double-quote variables when you use them:** `"$file"`, not `$file`.
+
+That last rule deserves a demonstration. Suppose a filename contains a space:
+
+```bash
+file="my report.txt"
+rm $file        # the shell splits it: rm "my" "report.txt" — deletes the wrong files (or fails)
+rm "$file"      # one argument: "my report.txt" — correct
+```
+
+Unquoted variables are split on spaces and have wildcards expanded (chapter 2.1). Quoted, they're passed as exactly one piece. **Quote every variable unless you have a specific reason not to.**
+
+### Arguments
+
+A script receives its command-line arguments as numbered variables:
+
+| Variable | Meaning |
+|---|---|
+| `$0` | the script's own name |
+| `$1`, `$2`, … | the first, second, … argument |
+| `$#` | how many arguments there are |
+| `"$@"` | all arguments, each kept as a separate word (almost always what you want) |
+
+```bash
+#!/usr/bin/env bash
+# greet.sh — usage: ./greet.sh NAME
+name="${1:-world}"          # $1, or "world" if no argument was given
+echo "Hello, $name"
+```
+
+`${1:-world}` means "the value of `$1`, or `world` if it's empty" — a tiny, very useful pattern for defaults.
+
+---
+
+## Making decisions
+
+### Exit codes are the scripting language of success
+
+Every command returns an exit code (chapter 1.2): `0` for success, anything else for failure. `if` doesn't test "true or false" — it tests **whether a command succeeded**:
+
+```bash
+if grep -q "ERROR" app.log; then        # -q = quiet: just set the exit code
+  echo "errors found"
+else
+  echo "log is clean"
+fi
+```
+
+### Tests with `[[ ]]`
+
+`[[ … ]]` is a command that succeeds or fails based on a comparison:
+
+```bash
+if [[ -f config.yaml ]]; then echo "file exists"; fi
+if [[ -d ~/code ]]; then echo "folder exists"; fi
+if [[ -z "$API_KEY" ]]; then echo "API_KEY is empty"; fi
+if [[ "$env" == "production" ]]; then echo "careful!"; fi
+if [[ "$status" -ge 500 ]]; then echo "server error"; fi
+```
+
+| Test | True when |
+|---|---|
+| `-f path` / `-d path` | a file / folder exists |
+| `-z "$v"` / `-n "$v"` | the string is empty / not empty |
+| `"$a" == "$b"` / `!=` | strings equal / differ |
+| `$a -eq $b`, `-ne`, `-lt`, `-le`, `-gt`, `-ge` | numeric comparisons |
+
+(Note the spaces: `[[ -f x ]]`, never `[[-f x]]`.)
+
+### `&&` and `||`: tiny if-statements
+
+```bash
+mkdir -p build && cd build              # run the second only if the first succeeded
+command -v jq >/dev/null || echo "please install jq"   # run the second only if the first failed
+```
+
+---
+
+## Repeating things
+
+```bash
+for service in api worker nginx; do     # loop over a list
+  echo "restarting $service"
+done
+
+for file in *.log; do                   # loop over files (quote "$file" inside!)
+  echo "$(wc -l < "$file") lines in $file"
+done
+
+for i in $(seq 1 5); do                  # loop over numbers 1..5
+  curl -s -o /dev/null "http://localhost:8080/healthz"
+done
+
+while read -r line; do                  # read a file line by line
+  echo "got: $line"
+done < urls.txt
+```
+
+### Retrying until something is ready
+
+One pattern you'll write again and again: *wait until a service is up, but give up after a while.*
+
+```bash
+for attempt in $(seq 1 30); do
+  if curl -fsS http://localhost:8080/healthz >/dev/null; then
+    echo "up after $attempt attempts"
+    break                               # leave the loop
+  fi
+  sleep 1                               # wait a second before trying again
+done
+```
+
+`curl -f` makes curl *fail* (non-zero exit code) on HTTP errors like 500, which is exactly what you want in a script.
+
+---
+
+## Functions
+
+Group steps under a name to reuse them and make the script read like a description:
+
+```bash
+log() {                                  # a function: define once, call many times
+  echo "[$(date +%H:%M:%S)] $*"          # $* = all the function's arguments
+}
+
+fail() {
+  log "FAIL: $*"
+  exit 1                                 # stop the whole script with a failure code
+}
+
+log "starting"
+[[ -f config.yaml ]] || fail "config.yaml is missing"
+```
+
+Inside a function, `$1`, `$2` and `$@` refer to the *function's* arguments. Mark variables used only inside a function with `local` so they don't leak out: `local url="$1"`.
+
+---
+
+## Strict mode: the line every script should start with
+
+By default, bash is dangerously forgiving: if a command fails, it **carries on** to the next line. A failed `cd` followed by `rm -rf *` deletes whatever folder you happened to be in. So nearly every serious script starts with:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+```
+
+| Setting | What it does | The disaster it prevents |
+|---|---|---|
+| `-e` | stop the script as soon as any command fails | carrying on after a failed `cd`, build or download |
+| `-u` | treat use of an unset variable as an error | `rm -rf "$DIR/"*` becoming `rm -rf /*` when `$DIR` is misspelled |
+| `-o pipefail` | a pipeline fails if *any* stage fails, not just the last | `curl … \| jq …` "succeeding" when curl failed |
+
+:::info[In the real world]
+In 2015 a bug in the installer script of Valve's Steam client for Linux ran `rm -rf "$STEAMROOT/"*` in a situation where `$STEAMROOT` turned out to be empty — and deleted users' entire home folders. It's the canonical example of why `set -u` and careful quoting exist. You can read the original bug report on GitHub: ValveSoftware/steam-for-linux, issue #3671.
+:::
+
+:::tip[Let a linter read your scripts]
+**ShellCheck** (`brew install shellcheck` or `sudo apt install -y shellcheck`) reads a script and warns about unquoted variables, typos and dozens of classic mistakes before you run it. Run `shellcheck myscript.sh` on every script you write. Many teams run it automatically in CI (Part 11).
+:::
+
+---
+
+## A real script: a smoke test for snip
+
+A **smoke test** is a quick check that the basics work — "turn it on and see if smoke comes out". Here's one for snip. It starts nothing itself; it assumes snip is running and proves the core flow works end to end. It's also in the repository at `snip/scripts/smoke.sh`.
+
+```bash
+#!/usr/bin/env bash
+# smoke.sh — prove a running snip can create a link and redirect to it.
+# Usage: SNIP_API_KEY=snip_... ./smoke.sh [BASE_URL]
+set -euo pipefail
+
+BASE_URL="${1:-http://localhost:8080}"
+: "${SNIP_API_KEY:?set SNIP_API_KEY to a key from 'snip keys create'}"
+
+log()  { echo "[smoke] $*"; }
+fail() { echo "[smoke] FAIL: $*" >&2; exit 1; }   # >&2 sends the message to stderr
+
+command -v curl >/dev/null || fail "curl is not installed"
+
+# 1. Wait for the service to be healthy (up to 30 seconds).
+for attempt in $(seq 1 30); do
+  if curl -fsS "$BASE_URL/healthz" >/dev/null 2>&1; then break; fi
+  [[ "$attempt" -eq 30 ]] && fail "$BASE_URL/healthz not healthy after 30s"
+  sleep 1
+done
+log "healthy"
+
+# 2. Create a link with a unique slug.
+slug="smoke-$(date +%s)"
+status=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE_URL/api/links" \
+  -H "Authorization: Bearer $SNIP_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"url\":\"https://example.com/smoke\",\"slug\":\"$slug\"}")
+[[ "$status" == "201" ]] || fail "create returned HTTP $status, expected 201"
+log "created /$slug"
+
+# 3. Follow it: expect a 302 pointing at the right place.
+location=$(curl -s -o /dev/null -w "%{redirect_url}" "$BASE_URL/$slug")
+[[ "$location" == "https://example.com/smoke" ]] || fail "redirect went to '$location'"
+log "redirect ok"
+
+# 4. Clean up after ourselves.
+curl -fsS -X DELETE "$BASE_URL/api/links/$slug" -H "Authorization: Bearer $SNIP_API_KEY" >/dev/null
+log "PASS"
+```
+
+Things worth noticing:
+
+- `: "${SNIP_API_KEY:?message}"` stops the script with `message` if the variable is unset — a one-line guard for required configuration.
+- Every check compares the **actual result** against what we expected. It doesn't trust exit codes alone (chapter 1.2's lesson).
+- Error messages go to **stderr** (`>&2`) and the script exits non-zero, so anything that runs it — you, CI, a deploy pipeline — knows it failed.
+- It cleans up the link it created, so it's safe to run against a real environment.
+
+---
+
+## When to stop writing bash
+
+Shell scripts are brilliant glue: running commands in order, checking results, moving files. They get painful when you need:
+
+- real **data structures** (lists of objects, nested data),
+- serious **error handling** or retries with state,
+- anything longer than roughly **100–200 lines**,
+- code other people will maintain and **test**.
+
+At that point, reach for a real language — Go (Part 4) or Python (chapter 14.1). A good rule: *if you're fighting bash's syntax more than your actual problem, switch.*
+
+:::warning[What can go wrong]
+- **No `set -euo pipefail`.** The script "succeeds" after half its steps failed.
+- **Unquoted variables.** Filenames with spaces, empty variables, and wildcards turn into wrong arguments — sometimes destructive ones.
+- **Scripts that only work from one folder.** Relative paths resolve from wherever the script is *run*, not where it *lives*. Use absolute paths, or compute the script's own folder: `cd "$(dirname "$0")"`.
+- **Secrets in scripts.** Never write an API key or password into a script file that gets committed. Read it from an environment variable, as the smoke test does (chapter 7.6).
+:::
+
+---
+
+## Lab
+
+Free, on your own computer. You'll write two scripts, then run snip's real smoke test.
+
+1. **A script with arguments and a default.**
+   ```bash
+   mkdir -p ~/scripts-lab && cd ~/scripts-lab
+   cat > greet.sh <<'EOF'
+   #!/usr/bin/env bash
+   set -euo pipefail
+   name="${1:-world}"
+   times="${2:-1}"
+   for i in $(seq 1 "$times"); do
+     echo "[$i] Hello, $name!"
+   done
+   EOF
+   chmod +x greet.sh
+   ./greet.sh              # uses both defaults
+   ./greet.sh "Ada Lovelace" 3
+   ```
+   Notice `"Ada Lovelace"` arrived as one argument because it was quoted.
+
+2. **See strict mode save you.**
+   ```bash
+   printf '#!/usr/bin/env bash\ncd /does-not-exist\necho "still running in $(pwd) — imagine rm here"\n' > unsafe.sh
+   bash unsafe.sh            # the cd fails, but the script carries on
+   printf '#!/usr/bin/env bash\nset -euo pipefail\ncd /does-not-exist\necho "never printed"\n' > safe.sh
+   bash safe.sh; echo "exit code: $?"   # stops at the failed cd, non-zero exit code
+   ```
+
+3. **Run snip's real smoke test.** In one terminal, start snip in memory mode from the repository you cloned in chapter 1.6:
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   go run ./cmd/snip
+   ```
+   In memory mode snip prints a development API key in its startup log — find the line containing `api_key=snip_…` and copy the key. (It only lives as long as this snip process, because in memory mode *everything* does.) In a second terminal:
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   SNIP_API_KEY=snip_paste_your_key_here ./scripts/smoke.sh   # → [smoke] PASS
+   SNIP_API_KEY=snip_fake ./scripts/smoke.sh                  # → FAIL: create returned HTTP 401
+   ```
+   Notice the failing run tells you *exactly* which step failed and why. A test that fails clearly is almost as valuable as one that passes.
+
+4. **Lint it.** If you installed ShellCheck: `shellcheck ~/scripts-lab/*.sh ~/code/zero-to-prod/snip/scripts/smoke.sh`. Then clean up with `rm -r ~/scripts-lab`.
+
+## Self-check
+
+<Quiz
+  id="linux-bash-scripting"
+  questions={[
+    {
+      q: 'What does set -euo pipefail at the top of a script do?',
+      options: [
+        'Makes the script run faster',
+        'Stops on the first failing command, errors on unset variables, and makes pipelines fail if any stage fails',
+        'Turns on colour output',
+        'Runs the script as root',
+      ],
+      answer: 1,
+      explain: '-e stops on failure, -u catches unset (often misspelled) variables, and pipefail stops a failing early stage of a pipeline from being hidden by a successful last stage.',
+    },
+    {
+      q: 'file="my notes.txt". Why is rm $file dangerous but rm "$file" safe?',
+      options: [
+        'Quotes make rm ask for confirmation',
+        'Unquoted, the shell splits it into two arguments, "my" and "notes.txt"',
+        'Quotes make the file read-only',
+        'There is no difference',
+      ],
+      answer: 1,
+      explain: 'Unquoted variables are split on spaces (and wildcards expanded). Double quotes pass the value as exactly one argument. Quote every variable by default.',
+    },
+    {
+      q: 'In bash, what does if actually test?',
+      options: [
+        'Whether a value is the word "true"',
+        'Whether a command succeeded — its exit code is 0',
+        'Whether a file is non-empty',
+        'Whether a variable is a number',
+      ],
+      answer: 1,
+      explain: 'if runs a command and checks its exit code. [[ … ]] is itself a command that succeeds or fails based on a comparison, and grep -q succeeds when it finds a match.',
+    },
+    {
+      q: 'Your deploy script has grown to 600 lines with nested data handling and retries. What is the best move?',
+      options: [
+        'Keep adding to it — bash can do anything',
+        'Split it into ten bash files',
+        'Rewrite the complex parts in a real programming language with tests',
+        'Remove the error handling to make it shorter',
+      ],
+      answer: 2,
+      explain: 'Bash is excellent glue but poor at data structures, error handling and testability at scale. When the script fights you more than the problem does, switch to Go or Python.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Explain what <code>: "${SNIP_API_KEY:?set SNIP_API_KEY}"</code> does, piece by piece.</summary>
+
+- `${SNIP_API_KEY:?message}` expands to the variable's value — but if it's **unset or empty**, the shell prints `message` and **exits the script** with an error.
+- `:` is a built-in command that does nothing and always succeeds. It's there just to give the expansion somewhere to happen.
+
+Together: "make sure this required variable is set, or stop immediately with a helpful message". It's a one-line guard that fails fast, at the top, instead of halfway through with a confusing error.
+
+</details>
+
+<details>
+<summary>Why does the smoke test check the <em>redirect location</em> instead of just checking that curl succeeded?</summary>
+
+Because **success is not the same as correctness**. `curl` exits 0 for any HTTP response it receives — a 404 page, a 500 error, or a redirect to the *wrong* place. The script's job is to prove snip works, so it compares the actual result (`Location: https://example.com/smoke`) to the expected one. Checking outcomes, not just exit codes, is what makes a test trustworthy.
+
+</details>
