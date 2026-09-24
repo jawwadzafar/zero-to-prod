@@ -285,10 +285,16 @@ jobs:
           helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 \
             -n envoy-gateway-system --create-namespace --wait --timeout 5m
           kubectl apply -f snip/deploy/k8s/gateway/gateway.yaml
-          timeout 200 kubectl -n snip wait --for=condition=Programmed gateway/snip --timeout=180s
+          # On kind the proxy's LoadBalancer Service never gets an external address, so the
+          # Gateway is Accepted but not Programmed. Wait for the proxy Pods instead.
+          timeout 200 kubectl -n snip wait --for=condition=Accepted gateway/snip --timeout=180s
+          for _ in $(seq 1 60); do
+            kubectl -n envoy-gateway-system get pods -l gateway.envoyproxy.io/owning-gateway-name=snip --no-headers 2>/dev/null | grep -q . && break; sleep 2
+          done
+          timeout 200 kubectl -n envoy-gateway-system wait --for=condition=Ready pod -l gateway.envoyproxy.io/owning-gateway-name=snip --timeout=180s
           SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=snip -o name)
           kubectl -n envoy-gateway-system port-forward "$SVC" 8888:80 > /dev/null 2>&1 &
-          sleep 3
+          for _ in $(seq 1 30); do curl -fsS -H "Host: snip.localhost" localhost:8888/healthz && break; sleep 2; done
           curl -fsS -H "Host: snip.localhost" localhost:8888/healthz
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: other.example' localhost:8888/healthz)" = 404
       - name: Chapter 11.3 lab — canary release with weighted routing
@@ -389,5 +395,8 @@ jobs:
       - if: failure()
         run: |
           kubectl -n snip get all,pvc,events --sort-by=.metadata.creationTimestamp || true
-          kubectl -n snip describe pods || true
-          kubectl -n snip logs -l app.kubernetes.io/name=api --tail=50 || true
+          kubectl -n snip describe pods | grep -A15 '^Events:' || true
+          kubectl -n snip logs -l app.kubernetes.io/name=api --tail=20 || true
+          kubectl -n snip get gateway,httproute -o yaml | grep -A30 '^  status:' || true
+          kubectl -n envoy-gateway-system get pods,svc || true
+          kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=30 || true

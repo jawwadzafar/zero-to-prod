@@ -227,9 +227,11 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
    helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 \
      -n envoy-gateway-system --create-namespace --wait
    kubectl apply -f deploy/k8s/gateway/gateway.yaml
-   kubectl -n snip wait --for=condition=Programmed gateway/snip --timeout=120s
+   kubectl -n snip wait --for=condition=Accepted gateway/snip --timeout=120s
+   kubectl -n envoy-gateway-system wait --for=condition=Ready pod -l gateway.envoyproxy.io/owning-gateway-name=snip --timeout=120s
+   kubectl -n snip get gateway snip          # PROGRAMMED False on kind: no load balancer to give it an address
    ```
-   Envoy Gateway runs the actual proxy as a Service in its own namespace. Forward a port to it and send a request with the route's hostname:
+   On a cloud cluster the Gateway would become **Programmed**, with a public address from a cloud load balancer. kind has no load balancer, so the Gateway is accepted and its proxy runs, but it never gets an external address. Envoy Gateway runs the actual proxy as a Service in its own namespace. Forward a port to it and send a request with the route's hostname:
    ```bash
    SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=snip -o name)
    kubectl -n envoy-gateway-system port-forward "$SVC" 8888:80 &
