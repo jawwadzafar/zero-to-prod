@@ -83,6 +83,8 @@ jobs:
           cache-dependency-path: snip/go.sum
       - name: govulncheck — known vulnerabilities in code snip actually calls
         working-directory: snip
+        env:
+          GOTOOLCHAIN: auto   # the tool itself needs a newer Go to build; snip is still analysed with 1.25
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - name: Build the image and save it as a tarball
         run: |
