@@ -170,6 +170,7 @@ jobs:
   snip-k8s:
     name: snip on Kubernetes (kind) works end to end
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: helm/kind-action@v1
@@ -183,11 +184,16 @@ jobs:
       - name: Apply the manifests
         run: kubectl apply -k snip/deploy/k8s/overlays/kind
       - name: Wait for every workload to be ready
+        timeout-minutes: 8
         run: |
-          kubectl -n snip rollout status statefulset/postgres --timeout=240s
-          kubectl -n snip rollout status deploy/redis --timeout=180s
-          kubectl -n snip rollout status deploy/api --timeout=240s
-          kubectl -n snip rollout status deploy/worker --timeout=180s
+          for i in $(seq 1 45); do
+            kubectl -n snip get pods --no-headers | tee /tmp/pods.txt
+            if [ -s /tmp/pods.txt ] && ! grep -vqE '\s1/1\s+Running' /tmp/pods.txt; then break; fi
+            echo "--- waiting ($i)"; sleep 10
+          done
+          timeout 120 kubectl -n snip rollout status statefulset/postgres --timeout=100s
+          timeout 120 kubectl -n snip rollout status deploy/api --timeout=100s
+          timeout 120 kubectl -n snip rollout status deploy/worker --timeout=100s
           kubectl -n snip get pods,svc,pvc
       - name: Smoke test through the Service
         run: |
