@@ -325,8 +325,9 @@ box means:
   chapter 0.1". Link forward sparingly: "covered in chapter 0.7".
 - Use relative file links: `[6.4 Indexes](../data/indexes-and-performance.mdx)`.
 - When you introduce a term that other chapters will use, **add it to
-  `docs/glossary.mdx`** (alphabetical, `**Term**` then `: definition`, plus
-  "See [chapter N](…)").
+  `src/data/glossary.json`** as `{"term": "…", "def": "one or two plain
+  sentences", "doc": "<partId>/<chapterId>"}`. Order doesn't matter; the
+  page sorts and links it.
 - The sidebar and roadmap come from `src/data/curriculum.json` — never edit them by hand.
 
 ---
@@ -361,7 +362,7 @@ box means:
 - [ ] Self-check has a diagnostic question and a judgment question, with
       full *why* answers.
 - [ ] No credentials, real IPs, or personal hostnames.
-- [ ] Chapter is in `src/data/curriculum.json`; new terms in `docs/glossary.mdx`.
+- [ ] Chapter is in `src/data/curriculum.json`; new terms in `src/data/glossary.json`.
 - [ ] Builds cleanly: `npm run build` (fails on broken links).
 
 ---

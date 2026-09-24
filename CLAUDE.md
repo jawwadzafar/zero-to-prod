@@ -95,7 +95,7 @@ chapter.** The owner should never have to repeat what is written here.
    It appears in the sidebar and roadmap automatically.
 3. Follow `STYLE.md` exactly: the ladder, the anatomy, `<Quiz>` + `<details>`
    self-check, a Lab that is free and runs locally.
-4. Add new terms to `docs/glossary.mdx`.
+4. Add new terms to `src/data/glossary.json` (`{"term", "def", "doc": "<partId>/<chapterId>"}`); the Glossary page and Ask index pick them up.
 5. Link only to chapters that exist (the build fails otherwise). When a later
    chapter is written, go back and add forward links if useful.
 6. Verify: `npm run build`. Commit (`docs: add 6.2 SQL from zero`) and push.

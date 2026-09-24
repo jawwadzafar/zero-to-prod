@@ -70,6 +70,11 @@ for (const part of curriculum.parts) {
   });
 }
 
+const glossary = JSON.parse(fs.readFileSync(path.join(root, 'src/data/glossary.json'), 'utf8'));
+for (const g of glossary) {
+  out.push({id: out.length, docId: 'glossary', url: '/learn/glossary', chapter: 'Glossary', heading: g.term, text: g.def});
+}
+
 fs.mkdirSync(path.join(root, 'static'), {recursive: true});
 fs.writeFileSync(path.join(root, 'static/ask-index.json'), JSON.stringify(out));
 console.log(`ask-index: ${out.length} passages`);
