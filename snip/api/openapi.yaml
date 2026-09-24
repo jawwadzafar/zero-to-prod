@@ -1,0 +1,261 @@
+openapi: 3.1.0
+info:
+  title: snip API
+  version: 1.0.0
+  summary: Create short links and see how often they're used.
+  description: |
+    The contract for snip, the link shortener built in Zero to Prod
+    (chapter 5.5). All management endpoints need an API key sent as
+    `Authorization: Bearer snip_…`. Errors always use the `Error` shape.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: links
+    description: Manage your short links
+  - name: redirect
+    description: Follow a short link
+  - name: operations
+    description: Health, readiness and metrics
+security:
+  - apiKey: []
+
+paths:
+  /api/links:
+    post:
+      tags: [links]
+      operationId: createLink
+      summary: Create a short link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLinkRequest'
+            examples:
+              random:
+                summary: Let snip pick the slug
+                value: {url: 'https://go.dev/doc/'}
+              custom:
+                summary: Choose your own slug
+                value: {url: 'https://go.dev/doc/', slug: godoc}
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location:
+              description: Where the new link can be fetched.
+              schema: {type: string, example: /api/links/godoc}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Link'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409':
+          description: The custom slug is already taken (code `slug_taken`).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '413':
+          description: Request body too large (code `body_too_large`).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '429':
+          description: Too many links created; slow down (code `rate_limited`).
+          headers:
+            Retry-After:
+              description: Seconds to wait before trying again.
+              schema: {type: integer}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '500': {$ref: '#/components/responses/Internal'}
+    get:
+      tags: [links]
+      operationId: listLinks
+      summary: List your links, newest first
+      parameters:
+        - name: limit
+          in: query
+          description: How many links to return (1–100).
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200':
+          description: Your links
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [links]
+                properties:
+                  links:
+                    type: array
+                    items: {$ref: '#/components/schemas/Link'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '500': {$ref: '#/components/responses/Internal'}
+
+  /api/links/{slug}:
+    parameters:
+      - $ref: '#/components/parameters/Slug'
+    get:
+      tags: [links]
+      operationId: getLink
+      summary: Get one of your links, with its click count
+      responses:
+        '200':
+          description: The link
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Link'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+    delete:
+      tags: [links]
+      operationId: deleteLink
+      summary: Delete one of your links
+      responses:
+        '204':
+          description: Deleted
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/Internal'}
+
+  /{slug}:
+    parameters:
+      - $ref: '#/components/parameters/Slug'
+    get:
+      tags: [redirect]
+      operationId: followLink
+      summary: Follow a short link
+      description: Redirects to the long URL and records a click.
+      security: []
+      responses:
+        '302':
+          description: Redirect to the long URL
+          headers:
+            Location:
+              schema: {type: string, format: uri}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /healthz:
+    get:
+      tags: [operations]
+      operationId: healthz
+      summary: Liveness — is the process alive?
+      security: []
+      responses:
+        '200':
+          description: Alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: {type: string, const: ok}
+  /readyz:
+    get:
+      tags: [operations]
+      operationId: readyz
+      summary: Readiness — can it serve traffic (Postgres, Redis reachable)?
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Readiness'}
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Readiness'}
+
+components:
+  securitySchemes:
+    apiKey:
+      type: http
+      scheme: bearer
+      description: An API key such as `snip_9fQ…`, created with `snip keys create NAME`.
+  parameters:
+    Slug:
+      name: slug
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Slug'}
+  schemas:
+    Slug:
+      type: string
+      pattern: '^[A-Za-z0-9_-]{3,32}$'
+      description: 3–32 letters, digits, `-` or `_`. Reserved words (api, healthz, readyz, metrics) are refused.
+      example: godoc
+    CreateLinkRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Absolute http(s) URL to shorten.
+        slug:
+          $ref: '#/components/schemas/Slug'
+    Link:
+      type: object
+      required: [slug, url, clicks, created_at, short_url]
+      properties:
+        slug: {$ref: '#/components/schemas/Slug'}
+        url: {type: string, format: uri, example: 'https://go.dev/doc/'}
+        clicks: {type: integer, minimum: 0, example: 42}
+        created_at: {type: string, format: date-time, example: '2026-09-24T19:56:18Z'}
+        short_url: {type: string, format: uri, example: 'http://localhost:8080/godoc'}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable, machine-readable error code.
+              enum: [invalid_json, invalid_url, invalid_slug, slug_taken, body_too_large, unauthorized, not_found, rate_limited, internal]
+            message:
+              type: string
+              description: Human-readable explanation; may change.
+      example:
+        error: {code: slug_taken, message: that slug is already in use}
+    Readiness:
+      type: object
+      properties:
+        ready: {type: boolean}
+        checks:
+          type: object
+          additionalProperties: {type: string, enum: [ok, unavailable]}
+  responses:
+    BadRequest:
+      description: Invalid input (codes `invalid_json`, `invalid_url`, `invalid_slug`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Unauthorized:
+      description: Missing or invalid API key (code `unauthorized`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotFound:
+      description: No such link — or it isn't yours (code `not_found`).
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Internal:
+      description: Something failed on snip's side (code `internal`). Details are in the logs under the X-Request-Id.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}

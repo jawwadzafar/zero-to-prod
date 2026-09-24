@@ -63,3 +63,13 @@ jobs:
           docker run -d --name snip -p 8080:8080 snip:ci
           for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
           docker logs snip; exit 1
+
+  api-contract:
+    name: snip OpenAPI contract is valid
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npx -y @redocly/cli@latest lint --config snip/api/redocly.yaml snip/api/openapi.yaml

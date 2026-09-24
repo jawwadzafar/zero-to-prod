@@ -1,0 +1,11 @@
+# Lint rules for snip's OpenAPI contract (chapter 5.5).
+# Run: npx @redocly/cli lint --config snip/api/redocly.yaml snip/api/openapi.yaml
+extends:
+  - recommended
+rules:
+  # Local development server is intentional.
+  no-server-example.com: off
+  # GET /{slug} succeeds with a 302 redirect, not a 2xx.
+  operation-2xx-response: off
+  # /healthz and /readyz take no input, so they have no 4xx responses.
+  operation-4xx-response: off
