@@ -1,0 +1,392 @@
+---
+title: "9.4 Images in production: size, security, registries"
+sidebar_label: "9.4 Images in production"
+description: "What changes when images leave your laptop: tagging and immutable digests, registries and pulling at scale, multi-architecture images, vulnerability scanning (govulncheck, Trivy), SBOMs, provenance and signing, and running containers with least privilege — using snip's real publishing pipeline to GitHub Container Registry."
+---
+
+# 9.4 Images in production: size, security, registries
+
+On your laptop, an image is something you build and run a minute later. In production, an image is a **release artefact**. It's built once by CI, stored in a registry, pulled by dozens of machines, run for months, and audited when something goes wrong. The questions change. *Which exact image is running right now? Is anything in it known to be vulnerable? Who built it, from what source? Can it run on the ARM servers too? If someone breaks into it, what can they do?* This chapter answers them, using snip's real pipeline: every change to snip is built for two CPU architectures, published to GitHub's container registry with a bill of materials, and scanned for known vulnerabilities.
+
+## What you'll learn
+
+- **Tagging** for production: why `latest` is a trap, and when to use **digests**.
+- **Registries** in practice: authentication, rate limits, mirrors and cleanup.
+- **Multi-architecture** images, and building them fast by cross-compiling.
+- **Supply-chain security**: vulnerability scanning, **SBOMs**, **provenance** and **signing**.
+- **Least privilege at run time**: non-root, read-only filesystems, dropped capabilities, limits.
+
+---
+
+## Tags, digests, and knowing what's running
+
+Chapter 9.1 introduced the difference: a **tag** is a movable label; a **digest** (`sha256:…`) identifies exact contents, forever. In production, that difference decides whether you can answer "what's running?".
+
+:::note[Everyday anchor]
+A tag is like "the current edition" of a textbook: useful when ordering, but "page 42 of the current edition" means different things in 2024 and 2026. A digest is the ISBN of one specific printing. If a student reports a mistake on page 42, you need the ISBN to find it.
+:::
+
+**Why `latest` is a trap.** `latest` is just a tag, the default when you don't specify one. It doesn't mean "newest" in any enforced way. If production runs `snip:latest`:
+
+- Two servers that pulled at different times can run **different code** under the same name.
+- Rolling back means "the previous `latest`", which no longer has a name.
+- A restart can silently **upgrade** you, because the node pulls whatever `latest` points to now.
+
+A good tagging scheme, and the one snip's pipeline uses:
+
+| Tag | Example | Moves? | Used for |
+|---|---|---|---|
+| Commit SHA | `sha-0309539` | Never (by convention) | Deploying: every build is traceable to its exact source commit |
+| Branch | `main` | Every push | "Latest build of main", for development and testing |
+| Version | `1.4.2` | Never | Releases people refer to |
+| Minor version | `1.4` | With each patch | "Give me the latest 1.4.x fix" |
+
+**Deploy by an immutable tag or by digest.** Many teams deploy `ghcr.io/org/snip@sha256:…` (the digest), so what runs is exactly what was tested. Registries can also enforce **immutable tags**, so nobody can re-push `1.4.2`.
+
+The same applies to what you build **from**. `FROM golang:1.25-alpine` gets a newer image whenever one is published, which is good for security patches and bad for reproducibility. The common answer is to **pin by digest and let a bot update it**:
+
+```dockerfile
+FROM golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build
+```
+
+Tools like **Dependabot** and **Renovate** then open a pull request whenever a new digest is published. CI tests the update, and a human merges it. You get both reproducibility and patches, deliberately.
+
+---
+
+## Registries in practice
+
+A **registry** stores images and serves them over HTTPS (chapter 9.1). The main choices:
+
+| Registry | Notes |
+|---|---|
+| **Docker Hub** | The default for `docker pull postgres`. Anonymous and free accounts are **rate-limited** |
+| **GitHub Container Registry** (`ghcr.io`) | Integrated with GitHub repos and Actions; snip publishes here |
+| **Amazon ECR**, **Google Artifact Registry**, **Azure Container Registry** | Each cloud's own; fast, private, IAM-integrated pulls from inside that cloud (chapter 12.4) |
+| **Harbor**, **Quay**, **JFrog Artifactory** | Self-hosted or commercial, with scanning and policies |
+
+Things that bite in production:
+
+- **Rate limits.** While this chapter was being written, the test machine's anonymous pulls from Docker Hub were refused with `429 Too Many Requests`. A fleet that pulls public images directly can fail to start during an incident, exactly when it matters. The fix is to **mirror** the public images you depend on into your own registry (or use a *pull-through cache*), and pull from there.
+- **Authentication.** Pushing, and pulling private images, requires logging in (`docker login ghcr.io`). In CI, use short-lived, narrowly scoped credentials. snip's workflow uses the automatic `GITHUB_TOKEN`, with only `packages: write`.
+- **Cleanup.** Every commit that produces an image adds hundreds of megabytes of storage. Registries offer **retention policies** ("keep the last 50 untagged images, keep every version tag forever"). Without them, storage bills grow forever.
+- **Pull time.** A new machine can't start a container until it has pulled the image. Small images and shared base layers (chapter 9.2) make autoscaling and recovery faster.
+
+---
+
+## One image, many CPU types
+
+Laptops and servers increasingly use **ARM** processors (Apple Silicon Macs, AWS Graviton, Ampere) alongside **x86-64** (`amd64`). A binary compiled for one won't run on the other: that's chapter 9.1's `exec format error`. Registries solve this with a **multi-architecture image**: one name that points to an **index** listing a separate image per platform. The client pulls the one matching its CPU automatically.
+
+```bash
+docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot
+```
+
+```text
+Name:      gcr.io/distroless/static-debian12:nonroot
+MediaType: application/vnd.oci.image.index.v1+json
+Digest:    sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+Manifests:
+  Name:      …@sha256:52dcfbab…   Platform:  linux/amd64
+  Name:      …@sha256:06c3c14b…   Platform:  linux/arm64/v8
+  Name:      …@sha256:ed55430d…   Platform:  linux/arm/v7
+  Name:      …@sha256:f8f7116c…   Platform:  linux/s390x
+```
+
+To **build** one, you ask BuildKit for several platforms: `docker buildx build --platform linux/amd64,linux/arm64 ...`. Building for a CPU you don't have normally means **emulating** it (QEMU), which is often 5–20 times slower for compiling. snip's Dockerfile avoids that by **cross-compiling**: the build stage runs on the builder's own CPU (`FROM --platform=$BUILDPLATFORM`), and Go compiles for the target (`GOOS=$TARGETOS GOARCH=$TARGETARCH`). The final stage only copies files, which needs no emulation. Go, Rust and Zig cross-compile easily. For languages that install native packages (Python wheels, Node modules), you may need emulation or native ARM builders.
+
+---
+
+## Supply-chain security
+
+Your image contains far more code than you wrote: a base OS's packages, a language runtime, and every library your code imports. Your **software supply chain** is all of it, plus the tools and pipelines that assembled it. Attacks increasingly target the chain rather than your code: a compromised dependency, a hijacked build, a look-alike package. Four practices defend it.
+
+### 1. Scan for known vulnerabilities
+
+Publicly known vulnerabilities get IDs (**CVE**-2024-…, GO-2024-…) and are collected in databases. **Scanners** compare what's in your image or code against those databases.
+
+- **Image scanners** (Trivy, Grype, Docker Scout) read the image's OS packages and language dependencies and report known CVEs by severity.
+- **Language-aware scanners** like Go's **`govulncheck`** go further: they check whether your code actually **calls** the vulnerable function. That cuts noise dramatically. A vulnerability in a part of a library you never use is reported as informational, not as a failure.
+
+snip's CI runs both on every push (the `security` job): `govulncheck` **fails the build** if snip calls vulnerable code, and Trivy scans the built image and reports HIGH and CRITICAL findings.
+
+From a real run of that job:
+
+```text
+$ govulncheck ./...
+No vulnerabilities found.
+
+$ trivy image --input snip.tar --severity HIGH,CRITICAL --ignore-unfixed
+Detected OS  family="debian" version="12.15"
+[debian] Detecting vulnerabilities...  pkg_num=5
+[gobinary] Detecting vulnerabilities...
+┌───────────────────────────────┬──────────┬─────────────────┐
+│            Target             │   Type   │ Vulnerabilities │
+├───────────────────────────────┼──────────┼─────────────────┤
+│ /scan/snip.tar (debian 12.15) │  debian  │        0        │
+│ usr/local/bin/snip            │ gobinary │        0        │
+│ usr/local/bin/snip-worker     │ gobinary │        0        │
+└───────────────────────────────┴──────────┴─────────────────┘
+```
+
+Note `pkg_num=5`: distroless contains just **five** OS packages to worry about. A typical Debian- or Ubuntu-based image has a hundred or more, and scanners routinely find dozens of findings in them. Choosing a minimal base (chapter 9.2) is the single most effective way to keep this table at zero. A clean result today isn't permanent, though. New vulnerabilities are published every day, which is why the job runs on every push.
+
+:::info[If you've written code]
+Scanning is **triage**, not a verdict. A CRITICAL CVE in a package your image contains but never executes may not matter; a MEDIUM one in your request-parsing path may matter a lot. Useful habits: scan in CI **and** regularly re-scan what's already deployed (new CVEs are published about old images every day); fail builds on what you can act on (fixable, reachable, high severity); and use `--ignore-unfixed`-style filters so the build doesn't fail on issues nobody can fix yet. Most findings are fixed by **rebuilding on an updated base image** and **updating dependencies** (`go get -u`, `npm update`), which is another reason for automated update PRs.
+:::
+
+### 2. Know what's inside: SBOMs
+
+A **software bill of materials** (**SBOM**) is an ingredient list for software: every package and library in the image, with versions, in a standard format (SPDX or CycloneDX). When the next big vulnerability is announced (and one always is), an organisation with SBOMs answers "which of our 400 services contain it?" in minutes rather than weeks. snip's publishing workflow attaches an SBOM to every image (`sbom: true`). Tools like **Syft** generate them too.
+
+### 3. Know how it was built: provenance
+
+**Provenance** is a signed record of **how** an artefact was built: which source repository and commit, which workflow, which builder, with which inputs. It lets you check that the image you're about to deploy came from *your* CI building *your* main branch, not from someone's laptop. snip's workflow records it (`provenance: mode=max`). The **SLSA** framework ("salsa") defines levels of supply-chain assurance built on this idea.
+
+### 4. Prove who published it: signing
+
+**Signing** attaches a cryptographic signature to an image digest (chapter 7.1), so a deployment system can refuse anything not signed by your pipeline. **Sigstore's cosign** is the common tool. With "keyless" signing, CI proves its identity through an OIDC token instead of guarding a long-lived private key. Kubernetes admission policies (chapter 10) can then enforce "only run signed images from our registry".
+
+---
+
+## Least privilege at run time
+
+Assume that, one day, someone finds a bug that lets them run commands inside your container. What they can do next depends on how the container runs. Chapter 7.4's least privilege, applied to containers:
+
+| Setting | `docker run` flag | Effect |
+|---|---|---|
+| **Non-root user** | `USER` in the Dockerfile, or `--user` | Not root, even inside |
+| **Read-only root filesystem** | `--read-only` (+ `--tmpfs /tmp` if needed) | Can't modify binaries or drop tools into the image |
+| **Drop Linux capabilities** | `--cap-drop ALL` | Even root loses special powers (changing file owners, binding low ports, raw network access…) |
+| **No privilege escalation** | `--security-opt no-new-privileges` | setuid programs can't gain privileges |
+| **Resource limits** | `--memory`, `--cpus`, `--pids-limit` | Can't starve the host, or fork-bomb it |
+| **Minimal image** | distroless / scratch | No shell, no package manager, no `curl` to download more tools |
+
+Linux splits root's powers into ~40 **capabilities**. Even root inside a container, stripped of them, can't do much:
+
+```bash
+docker run --rm --cap-drop ALL alpine:3.22 sh -c 'grep CapEff /proc/1/status; chown nobody /etc/passwd'
+```
+
+```text
+CapEff:	0000000000000000
+chown: /etc/passwd: Operation not permitted
+```
+
+snip runs happily with every restriction at once:
+
+```bash
+docker run -d --name hard --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --memory 128m --pids-limit 100 -p 8080:8080 snip:dev
+curl localhost:8080/healthz                     # {"status":"ok"}
+```
+
+:::danger
+Two settings undo nearly all container isolation. Treat them as "this container **is** the host":
+- **`--privileged`** gives the container every capability and access to host devices.
+- **Mounting the Docker socket** (`-v /var/run/docker.sock:/var/run/docker.sock`) lets the container ask Docker to start *another* container with the host's whole filesystem mounted: root on the host in one command.
+
+Some tools legitimately need them (CI runners, some monitoring agents). Use them only for software you trust completely, and never for your application. snip's CI scans its image by saving it to a file (`docker save`) and handing the scanner the file, precisely so the scanner doesn't need the socket.
+:::
+
+---
+
+## snip's publishing pipeline
+
+Putting it together, `.github/workflows/image.yml` runs on every push to `main` that touches `snip/`:
+
+```yaml title=".github/workflows/image.yml (the important part)"
+permissions:
+  contents: read
+  packages: write        # push to ghcr.io — nothing else
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/snip
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=match,pattern=snip-v(\d+\.\d+\.\d+),group=1
+            type=match,pattern=snip-v(\d+\.\d+),group=1
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: snip
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+- **Least-privilege token**: `packages: write` and read-only source access, nothing more.
+- **Tags**: `sha-<commit>` and `main` on every push; `1.2.3` and `1.2` when someone pushes a git tag `snip-v1.2.3`.
+- **Two architectures** in one build, cross-compiled.
+- **SBOM and provenance** attached to the image.
+- **Build cache** stored in GitHub Actions' cache, so unchanged layers aren't rebuilt.
+
+The result is public. Anyone can inspect it, and pull it without logging in:
+
+```bash
+docker buildx imagetools inspect ghcr.io/jawwadzafar/snip:main
+```
+
+```text
+Name:      ghcr.io/jawwadzafar/snip:main
+MediaType: application/vnd.oci.image.index.v1+json
+Digest:    sha256:d2e493136e8e77afe964e6d04fead885cc7168c813db4cb39a5ffa73d45d43fc
+Manifests:
+  Name:  …@sha256:b86a3ac1…   Platform: linux/amd64
+  Name:  …@sha256:5bc18fb6…   Platform: linux/arm64
+  Name:  …@sha256:74f02410…   Platform: unknown/unknown   vnd.docker.reference.type: attestation-manifest
+  Name:  …@sha256:43ee4396…   Platform: unknown/unknown   vnd.docker.reference.type: attestation-manifest
+```
+
+Two runnable images, one per architecture, and two **attestation** manifests carrying the SBOM and provenance for each. (Your digest will differ: every build of `main` publishes a new one.) The workflow then pulls the image **by digest**, runs it and checks `/healthz`, proving that what was published actually works.
+
+Part 11 builds on this: CI tests every change, this workflow publishes the image, and deployment uses the published digest.
+
+:::warning[What can go wrong]
+- **Deploying `latest`**: nobody can say what's running, and rollbacks are guesswork.
+- **Never rebuilding**: an image built a year ago contains a year of unpatched vulnerabilities, even if your code never changed. Rebuild regularly on updated bases.
+- **Scanning once, at build time**: new CVEs appear for old images daily. Re-scan what's deployed.
+- **Failing builds on every finding**: teams learn to ignore the scanner. Fail on fixable, reachable, severe issues, and triage the rest.
+- **Depending on Docker Hub directly** in production: rate limits and outages become your outages. Mirror what you use.
+- **`--privileged` or the Docker socket** "to make it work".
+:::
+
+:::info[In the real world]
+Mature teams treat images like any other build output. Each is produced by CI only, never pushed from a laptop. Each is identified by digest, scanned at build time and continuously afterwards, carries an SBOM and signed provenance, and is admitted to production clusters only if its signature checks out. Base images are updated by bot pull requests every week. None of this is exotic any more: the tools in this chapter are free, and snip's pipeline does most of it in under 100 lines of YAML.
+:::
+
+---
+
+## Lab
+
+Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
+
+1. **Inspect a multi-architecture image.**
+   ```bash
+   docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot
+   docker image inspect gcr.io/distroless/static-debian12:nonroot --format '{{json .RepoDigests}}'
+   ```
+   The index digest from the first command is what `RepoDigests` records: the name for *exactly this* image.
+
+2. **Run snip with least privilege**, using the commands in "Least privilege at run time". Then try to break the rules from inside a container that has a shell:
+   ```bash
+   docker run --rm --read-only alpine:3.22 sh -c 'echo x > /tmp/f'                 # Read-only file system
+   docker run --rm --read-only --tmpfs /tmp alpine:3.22 sh -c 'echo x > /tmp/f && echo ok'   # ok: /tmp is a RAM disk
+   docker run --rm alpine:3.22 grep CapEff /proc/1/status                          # default capabilities…
+   docker run --rm --cap-drop ALL alpine:3.22 grep CapEff /proc/1/status           # …and none
+   ```
+
+3. **Scan snip's Go code for known vulnerabilities** (needs internet access to `vuln.go.dev`):
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+   ```
+   If you have Trivy installed (see [trivy.dev](https://trivy.dev)), scan an image too: `trivy image --severity HIGH,CRITICAL alpine:3.22`.
+
+4. **Pull and run the published snip image**, the one CI built, instead of building your own:
+   ```bash
+   docker run --rm -p 8080:8080 ghcr.io/jawwadzafar/snip:main       # Ctrl-C to stop
+   docker buildx imagetools inspect ghcr.io/jawwadzafar/snip:main --format '{{ json .SBOM.linux_amd64.SPDX.packages }}' | head -c 600
+   ```
+   On an Apple Silicon Mac, Docker picks the `arm64` image automatically. The second command prints the start of the SBOM: the packages CI recorded inside the image.
+
+5. **Look at the real pipeline.** On GitHub, open the repository's **Actions** tab → **snip image** and read the latest run's log: the tags it computed, both platforms building, and the published digest. Then open the **security** job in the latest **CI** run to see govulncheck's and Trivy's reports.
+
+## Self-check
+
+<Quiz
+  id="containers-images-in-production"
+  questions={[
+    {
+      q: 'Why is deploying the latest tag a bad idea in production?',
+      options: [
+        'latest images are always larger',
+        'latest is a movable label: machines can run different code under the same name, and there is nothing precise to roll back to',
+        'Registries forbid pulling latest',
+        'latest images cannot be scanned',
+      ],
+      answer: 1,
+      explain: 'Deploy immutable tags (such as the commit SHA) or digests, so "what is running?" always has an exact answer.',
+    },
+    {
+      q: 'What does govulncheck do that a plain image scanner does not?',
+      options: [
+        'It scans OS packages',
+        'It checks whether your code actually calls the vulnerable functions, so unreachable vulnerabilities do not fail the build',
+        'It fixes vulnerabilities automatically',
+        'It signs images',
+      ],
+      answer: 1,
+      explain: 'Reachability analysis cuts noise: a CVE in code you never call is reported but not treated as urgent.',
+    },
+    {
+      q: 'How does snip build an arm64 image quickly on an amd64 CI machine?',
+      options: [
+        'It emulates an ARM CPU with QEMU',
+        'The build stage runs natively (FROM --platform=$BUILDPLATFORM) and Go cross-compiles for the target architecture',
+        'It only builds amd64',
+        'GitHub provides ARM runners automatically',
+      ],
+      answer: 1,
+      explain: 'Emulated compiling is often 5–20× slower. The runtime stage only copies files, which needs no emulation.',
+    },
+    {
+      q: 'What is an SBOM for?',
+      options: [
+        'Making images smaller',
+        'Listing every package and version in an artefact, so you can quickly find everything affected when a new vulnerability is announced',
+        'Encrypting images',
+        'Speeding up builds',
+      ],
+      answer: 1,
+      explain: 'A software bill of materials is an ingredient list. With SBOMs, "which services contain library X?" takes minutes.',
+    },
+    {
+      q: 'Which container setting effectively gives root on the host to anyone who controls the container?',
+      options: [
+        '--read-only',
+        'Mounting /var/run/docker.sock (or running with --privileged)',
+        '--cap-drop ALL',
+        '--memory 128m',
+      ],
+      answer: 1,
+      explain: 'With the Docker socket, a container can start another container with the host filesystem mounted. Treat both as full host access.',
+    },
+    {
+      q: 'Your image was built a year ago and your code has not changed. Is it still fine to run?',
+      options: [
+        'Yes: unchanged code means unchanged risk',
+        'Probably not: the base image and dependencies have likely had security fixes since. Rebuild regularly and re-scan deployed images',
+        'Yes, if it was scanned when built',
+        'Only if it uses Alpine',
+      ],
+      answer: 1,
+      explain: 'New CVEs are published about old software every day. A scan at build time says nothing about vulnerabilities found since.',
+    },
+  ]}
+/>
+
+<details>
+<summary>A security scan reports 3 CRITICAL CVEs in your image. Walk through how you'd triage them.</summary>
+
+1. **Where is each one?** In the base OS packages, the language runtime, or an application dependency? The scanner report names the package.
+2. **Is there a fix?** If the fixed version exists, the usual remedy is simple: rebuild on the updated base image, or bump the dependency, then re-scan.
+3. **Is it reachable?** Does the image actually use the vulnerable component, and in the vulnerable way? A CVE in a package that's installed but never executed (or a library function you never call, which govulncheck tells you) is lower priority. It's still worth removing, which a smaller base image often does.
+4. **Is it exposed?** A vulnerability in request parsing on an internet-facing service is urgent. The same one in a batch job with no network input is less so.
+5. **Decide and record it**: fix now; schedule it; or accept it with a written reason and an expiry date (most scanners support ignore files with comments). Don't just silence the tool.
+6. **Prevent recurrence**: automated base-image and dependency updates, regular rebuilds, and continuous scanning of deployed images.
+
+</details>
+
+<details>
+<summary>Why does snip's CI save the image to a file before scanning it with Trivy, instead of letting Trivy read it from Docker directly?</summary>
+
+Reading images directly from Docker means mounting the Docker socket (`/var/run/docker.sock`) into the scanner's container. Anything with access to that socket can start containers with the host's filesystem mounted, which effectively means root on the host. A scanner is a large program that parses untrusted input (image contents), exactly the kind of software you don't want holding that power. `docker save` produces a tarball of the image, mounted **read-only** into the scanner. It gets everything it needs to scan and nothing more: least privilege, applied to the pipeline itself.
+
+</details>
