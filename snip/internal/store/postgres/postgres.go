@@ -73,7 +73,7 @@ func (s *Store) Migrate(ctx context.Context) ([]int, error) {
 		return nil, err
 	}
 	sort.Strings(names)
-	var applied []int
+	applied := []int{} // empty, not nil, so "nothing to do" logs as []
 	for _, name := range names {
 		base := strings.TrimPrefix(name, "migrations/")
 		version, err := strconv.Atoi(strings.SplitN(base, "_", 2)[0])
