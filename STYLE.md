@@ -159,11 +159,19 @@ who finishes rung 4 can make decisions. Both are wins.
 
 ## 5. Chapter anatomy
 
-Every teaching chapter follows this skeleton. (Status and reference chapters
-— Part 11, the API reference, the glossary — may drop the Lab.)
+Every teaching chapter follows this skeleton. Chapters are **MDX** files at
+`docs/<partId>/<chapterId>.mdx` (see `CLAUDE.md` §4). Components `Quiz`,
+`SqlPlayground`, `Tabs`/`TabItem` and `Roadmap` are available everywhere
+without an import.
 
-```markdown
-# <N.N> <Title that says what you'll understand>
+````mdx
+---
+title: "<N.N> <Title that says what you'll understand>"
+sidebar_label: "<N.N> <Short title>"
+description: <One sentence for search results and link previews.>
+---
+
+# <N.N> <Title>
 
 <Hook paragraph, 2–4 sentences, written to "you". Start from where the
 reader already is — something they've done, seen, or heard — and say what
@@ -178,22 +186,24 @@ this chapter will let them do that they can't today.>
 
 ## <Claim-style heading for idea 1>
 
-<Rung 0 anchor → rung 1 mechanism + small diagram → rung 2 our system.>
+<Rung 0 anchor → rung 1 mechanism + small diagram → rung 2 hands on.>
 
-!!! note "Everyday anchor"
-    <Optional reinforcement of the analogy in 2–3 sentences.>
+:::note[Everyday anchor]
+<Optional reinforcement of the analogy in 2–3 sentences.>
+:::
 
 ---
 
 ## <Claim-style heading for idea 2>
 ...
 
-!!! warning "What can go wrong"
-    - **<Failure in bold.>** Why it happens and how you'd spot it.
+:::warning[What can go wrong]
+- **<Failure in bold.>** Why it happens and how you'd spot it.
+:::
 
 ---
 
-## Cheat sheet            <!-- optional, for command/term-heavy chapters -->
+## Cheat sheet            {/* optional, for command/term-heavy chapters */}
 
 | Command / term | What it does | When you reach for it |
 |---|---|---|
@@ -202,8 +212,7 @@ this chapter will let them do that they can't today.>
 
 ## Lab
 
-<One line saying where it's safe to run: "on your laptop", or
-"read-only on the tf-dev-v2 devbox".>
+<One line saying where it runs and that it's free: "on your laptop".>
 
 1. **<What you'll see, in bold.>**
    ```bash
@@ -215,52 +224,73 @@ this chapter will let them do that they can't today.>
 
 ## Self-check
 
-??? question "<A question that tests understanding, not recall>"
-    <Answer that explains the *why*, connects back to the anchor, and
-    names the rule to keep.>
-```
+<Quiz id="<partId>-<chapterId>" questions={[
+  {q: '…', options: ['…', '…', '…', '…'], answer: 1, explain: 'Why — including why the tempting wrong answer is wrong.'},
+]} />
+
+<details>
+<summary>An open question that needs explaining, not picking</summary>
+
+A full answer that explains the *why* and names the rule to keep.
+
+</details>
+````
 
 ### Section-by-section guidance
 
-- **Title** — numbered to match `mkdocs.yml` nav (`# 0.5 …`, `# 49a …`).
+- **Title** — numbered to match the part/chapter order in
+  `src/data/curriculum.json` (`# 2.1 …`).
 - **Hook** — meet the reader in their world: "You've opened a website
   thousands of times…", "You've seen a command in a tutorial and pasted
   it…". Then promise the shift: from copy-pasting to reasoning.
 - **Horizontal rules (`---`)** between major sections.
 - **Length** — as long as the ladder needs, no longer. Typical: 250–500
-  lines. If a chapter passes ~700, split it (`35a`, `35b`, …).
+  lines. If a chapter passes ~700 lines, it's two chapters.
 - **Lab** — 2–4 steps, real commands, **safe and free by default**, runnable
   on the reader's own laptop (Docker, local Kubernetes via `kind`). Anything
-  that costs money (cloud) gets a `!!! danger "This costs money"` box and a
-  teardown step. After each step, tell the reader what to *notice*.
-- **Self-check** — 4–6 questions. At least one "what would you check
-  first?" diagnostic, and at least one "why is it built this way?" judgment
-  question. Answers are full explanations, not one-word keys.
+  that costs money (cloud) gets a `:::danger[This costs money]` box and a
+  teardown step. After each step, tell the reader what to *notice*. Give
+  macOS / Linux / Windows (WSL) variants with `<Tabs>` when commands differ.
+- **Self-check** — a `<Quiz>` with 3–5 questions **plus** 1–3 `<details>`
+  open questions. At least one "what would you check first?" diagnostic and
+  one "why is it built this way?" judgment question. Every quiz
+  explanation teaches, including why the tempting wrong answer is wrong.
+  Quiz `id` is `<partId>-<chapterId>`.
+- **Interactive where it helps** — `<SqlPlayground setup="…" sql="…" />`
+  in data chapters so readers run real SQL in the browser.
+
+### MDX gotchas (the build will tell you, but save yourself the trip)
+
+- A bare `<` or `{` in prose is parsed as JSX. Put it in backticks
+  (`` `a < b` ``) or write "less than". Inside code blocks it's fine.
+- Comments are `{/* like this */}`, not `<!-- this -->`.
+- Inside `<Quiz questions={[…]}>`, strings are JavaScript: use single quotes
+  and escape apostrophes (`it\'s`) or use double-quoted strings.
+- Leave a blank line inside `<details>` before and after Markdown content.
+- Links between chapters are relative file links: `[6.4](../data/indexes-and-performance.mdx)`.
 
 ---
 
 ## 6. Callouts (admonitions)
 
-Use the MkDocs Material admonitions already enabled in `mkdocs.yml`. Keep
-titles consistent so readers learn what each box means:
+Docusaurus admonitions. Keep titles consistent so readers learn what each
+box means:
 
-| Box | Title | Use for |
-|---|---|---|
-| `!!! note` | `"Everyday anchor"` | The analogy, restated or extended. |
-| `!!! note` | `"If you've written code"` | Optional anchor for developers (JS/Go/etc.). Must be skippable. |
-| `!!! tip` | a short claim | A habit worth adopting ("Use absolute paths when it matters"). |
-| `!!! warning` | `"What can go wrong"` | Bulleted failure modes, each bold-led. |
-| `!!! danger` | a short claim | Destructive or irreversible actions (deleting data, `kill -9`, force-push). |
-| `!!! info` | `"In the real world"` | How companies actually do it; industry variation. |
-| `??? question` | the question | Self-check items (collapsible). |
-
+| Syntax | Use for |
+|---|---|
+| `:::note[Everyday anchor]` | The analogy, restated or extended. |
+| `:::info[If you've written code]` | Optional anchor for developers (JS/Python/etc.). Must be skippable. |
+| `:::tip` (optionally `[A short claim]`) | A habit worth adopting. |
+| `:::warning[What can go wrong]` | Bulleted failure modes, each bold-led. |
+| `:::danger` (optionally `[This costs money]`) | Destructive, irreversible, or paid actions. |
+| `:::info[In the real world]` | How companies actually do it; industry variation. |
 
 ---
 
 ## 7. Diagrams
 
-- **Mermaid only** (fenced as ` ```mermaid `), so diagrams live in the text
-  and diff cleanly.
+- **Mermaid only** (fenced as ` ```mermaid `), so diagrams live in the text,
+  diff cleanly, and follow light/dark mode.
 - **Two-step rule:** a tiny `flowchart LR` first (3–4 boxes), then the full
   version if needed. Introduce each: "Four boxes: …" / "Here is the fuller
   picture, because …".
@@ -293,11 +323,11 @@ titles consistent so readers learn what each box means:
 
 - Link back to where a concept was first taught: "You met processes in
   chapter 0.1". Link forward sparingly: "covered in chapter 0.7".
-- Use relative links: `[chapter 6.4](../part06/04-indexes-and-performance.md)`.
+- Use relative file links: `[6.4 Indexes](../data/indexes-and-performance.mdx)`.
 - When you introduce a term that other chapters will use, **add it to
-  `docs/glossary.md`** (alphabetical, `**Term**` then `: definition`, plus
+  `docs/glossary.mdx`** (alphabetical, `**Term**` then `: definition`, plus
   "See [chapter N](…)").
-- Keep `docs/index.md` (the map and reading paths) in sync with the nav.
+- The sidebar and roadmap come from `src/data/curriculum.json` — never edit them by hand.
 
 ---
 
@@ -331,8 +361,8 @@ titles consistent so readers learn what each box means:
 - [ ] Self-check has a diagnostic question and a judgment question, with
       full *why* answers.
 - [ ] No credentials, real IPs, or personal hostnames.
-- [ ] `mkdocs.yml` nav, `docs/glossary.md`, and `docs/index.md` updated.
-- [ ] Builds cleanly: `mkdocs build --strict`.
+- [ ] Chapter is in `src/data/curriculum.json`; new terms in `docs/glossary.mdx`.
+- [ ] Builds cleanly: `npm run build` (fails on broken links).
 
 ---
 
@@ -340,9 +370,11 @@ titles consistent so readers learn what each box means:
 
 When in doubt, open these and copy their moves:
 
-- `docs/part02/01-shell-and-filesystem.md` — anchors, two-step diagrams,
+- `docs/start/how-this-handbook-works.mdx` — the anatomy and interactive
+  components in action.
+- `docs/linux/shell-and-filesystem.mdx` — anchors, two-step diagrams,
   cheat sheet, safe lab, strong self-check.
-- `docs/part01/06-what-a-server-is.md` — anchoring a whole field in what
+- `docs/foundations/what-a-server-is.mdx` — anchoring a whole field in what
   the reader already knows; tracing a real request through real code.
-- `docs/part06/05-transactions.md` — a hard idea taught with the ladder all
+- `docs/data/transactions.mdx` — a hard idea taught with the ladder all
   the way to rung 4.
