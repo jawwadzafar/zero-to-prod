@@ -101,3 +101,14 @@ groups:
         annotations:
           summary: "{{ $labels.job }} at {{ $labels.instance }} is not responding to scrapes"
           description: "Runbook: snip/docs/runbook.md#target-down"
+      # No worker at all. With DNS or Kubernetes service discovery, a stopped
+      # worker isn't "down": it simply disappears from the target list, so
+      # up == 0 never fires. absent() catches "nothing is there" (chapter 13.4).
+      - alert: SnipNoWorkerRunning
+        expr: absent(up{job="snip-worker"} == 1)
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "No snip worker is running: clicks are queueing up"
+          description: "Runbook: snip/docs/runbook.md#click-backlog"

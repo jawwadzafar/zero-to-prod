@@ -79,3 +79,22 @@ tests:
             exp_annotations:
               summary: "3000 clicks waiting for the worker"
               description: "Counts are delayed but not lost. Runbook: snip/docs/runbook.md#click-backlog"
+
+  # 5. The worker disappears from service discovery (stopped, or never started).
+  #    There is no up{job="snip-worker"} series at all, so only absent() can see it.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="snip-worker", instance="worker:9091"}'
+        values: '1x10 _x20'   # present for 10 minutes, then gone
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SnipNoWorkerRunning
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: SnipNoWorkerRunning
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "No snip worker is running: clicks are queueing up"
+              description: "Runbook: snip/docs/runbook.md#click-backlog"
