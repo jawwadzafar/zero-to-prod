@@ -1,0 +1,31 @@
+# snip, managed by Argo CD (chapter 11.4). Argo CD watches this Git repository
+# and keeps the cluster matching snip/deploy/k8s/base on the main branch.
+#   kubectl apply -f deploy/argocd/application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: snip
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jawwadzafar/zero-to-prod.git
+    targetRevision: main
+    path: snip/deploy/k8s/base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: snip
+  syncPolicy:
+    automated:
+      prune: true        # delete things that were removed from Git
+      selfHeal: true     # undo changes made directly in the cluster
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+  # The HPA owns the API's replica count; don't "correct" it back to Git's 2.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: api
+      jsonPointers:
+        - /spec/replicas

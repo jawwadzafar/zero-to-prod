@@ -400,3 +400,51 @@ jobs:
           kubectl -n snip get gateway,httproute -o yaml | grep -A30 '^  status:' || true
           kubectl -n envoy-gateway-system get pods,svc || true
           kubectl -n envoy-gateway-system logs deploy/envoy-gateway --tail=30 || true
+
+  snip-gitops:
+    name: snip via GitOps (Argo CD on kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: helm/kind-action@v1
+        with:
+          version: v0.33.0
+          cluster_name: gitops
+      - name: Install Argo CD and metrics-server (chapter 11.4 lab)
+        run: |
+          kubectl create namespace argocd
+          kubectl apply -n argocd --server-side --force-conflicts \
+            -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml
+          helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+          helm install metrics-server metrics-server/metrics-server -n kube-system \
+            --set 'args={--kubelet-insecure-tls}' --wait --timeout 5m
+          timeout 400 kubectl -n argocd wait --for=condition=Available deploy --all --timeout=380s
+          timeout 200 kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s
+      - name: Point Argo CD at this commit of the repository and let it sync
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          sed "s/targetRevision: main/targetRevision: $SHA/" snip/deploy/argocd/application.yaml | kubectl apply -f -
+          for _ in $(seq 1 90); do
+            S=$(kubectl -n argocd get application snip -o jsonpath='{.status.sync.status} {.status.health.status}')
+            echo "$S"; [ "$S" = "Synced Healthy" ] && break; sleep 5
+          done
+          kubectl -n argocd get application snip
+          [ "$S" = "Synced Healthy" ]
+          kubectl -n snip get pods
+      - name: Drift is undone — a hand-edited ConfigMap reverts, a deleted Deployment returns
+        run: |
+          kubectl -n snip patch configmap snip-config --type merge -p '{"data":{"SNIP_LOG_LEVEL":"debug"}}'
+          for _ in $(seq 1 60); do
+            L=$(kubectl -n snip get configmap snip-config -o jsonpath='{.data.SNIP_LOG_LEVEL}')
+            [ "$L" = info ] && break; sleep 2
+          done
+          echo "SNIP_LOG_LEVEL is back to: $L"; [ "$L" = info ]
+          kubectl -n snip delete deployment worker
+          for _ in $(seq 1 60); do kubectl -n snip get deployment worker > /dev/null 2>&1 && break; sleep 2; done
+          kubectl -n snip get deployment worker
+      - if: failure()
+        run: |
+          kubectl -n argocd get application snip -o yaml | grep -A40 '^status:' || true
+          kubectl -n snip get pods,events || true
