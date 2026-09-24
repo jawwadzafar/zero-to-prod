@@ -262,13 +262,14 @@ If a secret has ever been built into an image that was pushed anywhere, treat it
 
 ```dockerfile title="snip/Dockerfile"
 # syntax=docker/dockerfile:1
-FROM golang:1.25-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
+ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/snip ./cmd/snip && \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/snip-worker ./cmd/snip-worker
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/snip ./cmd/snip && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/snip-worker ./cmd/snip-worker
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/snip /out/snip-worker /usr/local/bin/
@@ -278,6 +279,7 @@ ENTRYPOINT ["/usr/local/bin/snip"]
 ```
 
 - **Two stages**: the Go toolchain builds; distroless runs.
+- **`--platform=$BUILDPLATFORM`**, `TARGETOS` and `TARGETARCH` let one build produce images for several CPU types (Intel/AMD and ARM) by cross-compiling. Chapter 9.4 explains; for a normal `docker build` they simply match your machine.
 - **Dependencies first** (`go.mod`, `go.sum`, `go mod download`) for caching; then the code (`COPY . .`, filtered by `.dockerignore`).
 - **Two programs, one image**: the API and the worker. Compose runs the worker by overriding the entrypoint (`entrypoint: ["/usr/local/bin/snip-worker"]`, chapter 9.3).
 - **Non-root**, **exec-form** `ENTRYPOINT`, and no configuration or secrets inside: everything comes from `SNIP_*` environment variables at run time.
