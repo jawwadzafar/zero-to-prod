@@ -177,7 +177,7 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
    docker run --rm --network snip_default alpine:3.22 wget -qO- api:8080/metrics | grep '^snip_'
    docker run --rm --network snip_default alpine:3.22 wget -qO- worker:9091/metrics | grep '^snip_worker'
    ```
-   snip's own image has no `wget` (chapter 9.2), so this uses a throwaway Alpine container on the stack's network. You'll notice the API also exposes the worker's metrics, as zeros, and the worker the API's: both processes register the same set. It's harmless, and a good reason for dashboard queries to filter by `job` when it matters.
+   snip's own image has no `wget` (chapter 9.2), so this uses a throwaway Alpine container on the stack's network. You'll notice the API also exposes the worker's two metrics, as zeros: both processes register the same set, and plain counters and gauges are exported even when unused (labelled ones appear only once something is recorded). It's harmless, and a good reason for dashboard queries to filter by `job` when it matters.
 
 3. **Query Prometheus.** Open [localhost:9090](http://localhost:9090), or use the API:
    ```bash
