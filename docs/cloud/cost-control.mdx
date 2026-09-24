@@ -1,0 +1,245 @@
+---
+title: "12.7 Cost control & free-tier safety"
+sidebar_label: "12.7 Cost control"
+description: "Understanding and controlling cloud spend: where the money really goes (with an itemised estimate for snip's AWS staging setup), budgets and anomaly alerts, tagging and cost allocation, rightsizing, scheduling and scaling to zero, commitments and spot capacity, storage, egress and logging costs, unit economics and FinOps — plus the habits that keep a learning account at zero."
+---
+
+# 12.7 Cost control & free-tier safety
+
+The cloud's greatest strength is that anyone can create a hundred servers with one command. Its greatest risk is the same sentence. Cloud costs don't arrive as a purchase you approve. They **accumulate**, per second and per gigabyte, from resources nobody is looking at: the test database from last month, the load balancer in front of nothing, the logs nobody reads. Engineers make most spending decisions in the cloud, often without seeing a price. This chapter makes cost visible. It works through what snip's own AWS configuration would cost per month, line by line, and why the biggest item has nothing to do with snip. Then it covers the controls every team needs: budgets, alerts and tags, the main levers for spending less, how to reason about cost per unit of work, and the habits that keep a personal learning account from ever producing a scary bill.
+
+## What you'll learn
+
+- Where the money goes, using an **itemised estimate** for snip's AWS staging setup.
+- **Visibility**: budgets, anomaly alerts, tags and cost allocation.
+- The **levers**: rightsizing, scheduling, scaling to zero, commitments, spot, storage classes, egress and logging.
+- **Unit economics** and **FinOps**: cost as an engineering metric.
+- **Free-tier safety**: the habits that keep a learning account at zero.
+
+---
+
+## Where the money goes: snip's staging, itemised
+
+Chapter 12.1 said hourly resources bill whether or not anyone uses them. Here's what that means for snip's AWS staging configuration (`snip/infra/aws` with `envs/staging.tfvars`), using typical list prices for a European region:
+
+```text
+NAT gateway (hourly)                       $  35.04
+Load balancer (hourly)                     $  18.40
+RDS db.t4g.micro                           $  13.14
+RDS storage 20 GB                          $   2.54
+ElastiCache cache.t4g.micro                $  12.41
+Fargate ARM, 2 tasks x 0.25 vCPU/0.5 GB    $  14.42
+Public IPv4 addresses (3)                  $  10.95
+Secrets Manager (1 secret)                 $   0.40
+Total per month                            $ 107.29   ≈ $3.58 per day
+```
+
+:::warning[What can go wrong]
+These are **rough estimates** from hourly list prices (730 hours a month), before any traffic, taxes or free-tier credits, and prices change and differ by region. Always check the provider's pricing calculator for your region before you apply anything. The point isn't the exact figure; it's the **shape**.
+:::
+
+Look at the shape:
+
+- **The biggest line isn't snip.** The NAT gateway, which exists so private tasks can pull images and call AWS APIs, costs more than all of snip's compute. The load balancer and the public IPv4 addresses together cost more than the database. That's typical: **fixed infrastructure** often outweighs the application at small scale.
+- **Nothing here scales to zero.** Every line bills at 3 a.m. with no users. A staging environment used during working hours still pays for all 730 hours.
+- **The fixes are architectural.** VPC endpoints instead of NAT for AWS APIs (chapter 12.2), one shared load balancer for several services, a serverless container platform that scales to zero for low-traffic environments, or simply **destroying** staging when it isn't needed. Terraform makes that one command (chapter 12.5).
+
+Production adds more lines: Multi-AZ doubles the database, more tasks, more NAT gateways (one per zone), data transfer, logs, backups. And at real traffic, **per-use** charges (NAT and load-balancer data processing, egress, requests) start to matter as much as hourly ones.
+
+---
+
+## Visibility first: you can't control what you can't see
+
+:::note[Everyday anchor]
+A household that never opens its bank statement doesn't have a spending problem, yet. It has a *visibility* problem: the subscription it forgot, the energy tariff that changed, the gym it stopped going to. The first step isn't cutting back; it's reading the statement, sorting it into categories, and setting a limit that sends an alert.
+:::
+
+1. **Budgets and alerts.** Set a monthly budget per account with alerts at, say, 50%, 80% and 100% of expected spend, and on the *forecast* ("you're on track to exceed…"). This is the one control every account needs from day one (chapter 12.1).
+2. **Anomaly detection.** Providers can alert when spending jumps unusually, for example a service costing 5× its normal daily amount. This catches leaked keys running crypto-miners and runaway loops within hours, not at month end.
+3. **Tags and cost allocation.** Tag every resource with who owns it and why it exists. snip's Terraform does it automatically for everything it creates:
+   ```hcl
+   provider "aws" {
+     default_tags {
+       tags = {
+         project     = "snip"
+         environment = var.environment
+         managed-by  = "terraform"
+       }
+     }
+   }
+   ```
+   Activate these as **cost allocation tags**, and the bill can be grouped by project and environment: "staging costs $107, production $640, and this untagged $300 belongs to… nobody knows". Untagged spend is where waste hides.
+4. **Separate accounts** per environment and team (chapter 12.4) make the bill split itself.
+
+---
+
+## The levers
+
+In rough order of effort versus payoff:
+
+| Lever | What it means | Typical saving |
+|---|---|---|
+| **Delete what's unused** | Old environments, unattached disks, idle load balancers, forgotten snapshots, test databases | Often the biggest, and free to do |
+| **Scale to zero / schedule** | Serverless for spiky workloads; stop dev and staging outside working hours (a 50-hour week is 70% less than 168 hours) | Up to ~70% of non-production |
+| **Rightsize** | Match instance sizes to measured use (chapter 8.5's load tests, and CPU/memory metrics). Oversized "to be safe" is the norm | Commonly 30–50% on the resized resources |
+| **Use cheaper hardware** | ARM processors (snip's Fargate tasks use them), newer instance generations | ~20% for the same work |
+| **Commit** | Savings plans or reserved instances: commit to steady baseline usage for 1–3 years | Often 30–60% on the committed part |
+| **Spot / preemptible** | Spare capacity at deep discounts that can be reclaimed at short notice. Fine for CI, batch jobs and stateless workers that tolerate interruption | Often 60–90% |
+| **Storage classes & lifecycle** | Move old objects to infrequent-access or archive classes; expire logs and snapshots (chapter 12.3) | Large, for storage-heavy systems |
+| **Reduce data transfer** | CDNs for public content, keep chatty services in the same zone, VPC endpoints instead of NAT for cloud APIs | Varies; egress can dominate |
+| **Log and metric volume** | Observability data is billed by ingestion and retention. Debug-level logs in production, and high-cardinality metrics (chapter 13.2) are classic budget-eaters | Often surprisingly large |
+
+Two principles decide where to start: **fix the biggest line first**, and **don't spend an engineer-week to save $20 a month**. Cost work competes with product work like everything else.
+
+---
+
+## Unit economics and FinOps
+
+A total bill says little on its own: $10,000 a month is cheap for a million users and expensive for a hundred. **Unit economics** divides cost by a unit of value: cost per 1,000 redirects, per active user, per customer. If traffic doubles and cost rises 20%, the unit cost *fell*, which is healthy growth. If the cost per redirect creeps up month after month, something is getting less efficient, even while the total looks fine.
+
+**FinOps** is the practice of making cloud cost a shared, continuous engineering concern rather than a finance department's monthly shock. Teams see their own costs (tags and dashboards). Architecture reviews ask "what will this cost at 10× the traffic?". Cost is monitored like latency, with alerts. And there's a feedback loop between the people who spend and the people who pay.
+
+:::info[In the real world]
+Companies regularly find that a large share of their cloud spend is waste: idle resources, overprovisioning, forgotten environments. The fix is rarely heroic. It's tagging, budgets per team, scheduled shutdown of non-production, a monthly review of the top ten cost lines, and cost estimates in pull requests. Tools like **Infracost** comment on a Terraform pull request with "this change adds $35.04/month", so the NAT gateway above would be a visible decision, not a surprise.
+:::
+
+---
+
+## Free-tier safety: keeping a learning account at zero
+
+Most readers of this handbook will use a personal account to learn. The rules that keep it safe:
+
+- **MFA on the root user, a budget alert at a small amount, anomaly alerts on.** (Chapter 12.1, and do it first.)
+- **No long-lived access keys**, and never in code (chapter 12.4). This is the single most expensive mistake.
+- **One region** for experiments, so nothing hides elsewhere.
+- **Create with Terraform, finish with `terraform destroy`.** Then check the console for anything left over (a snapshot from `skip_final_snapshot = false`, a log group, an Elastic IP).
+- **Know what's free and what isn't.** Free tiers cover specific services, sizes and amounts, sometimes for 12 months only. NAT gateways, load balancers, public IPv4 addresses and most managed databases are typically **not** free.
+- **Put a reminder on anything you leave running**, and delete the whole account's contents when a course or project ends.
+
+:::danger
+If you see an unexpected charge or suspect a leaked key: **deactivate the key immediately**, check the billing console and activity logs for what was created and where (every region), delete it, and contact the provider's support. Providers often waive charges from a genuine compromise when you act quickly and have secured the account.
+:::
+
+---
+
+## Lab
+
+Free, and **no cloud account needed**.
+
+1. **Rebuild the estimate yourself.** Save this as `estimate.py` and run `python3 estimate.py`:
+   ```python
+   H = 730  # hours in a month
+   items = {
+       "NAT gateway (hourly)":        0.048 * H,
+       "Load balancer (hourly)":      0.0252 * H,
+       "RDS db.t4g.micro":            0.018 * H,
+       "RDS storage 20 GB":           20 * 0.127,
+       "ElastiCache cache.t4g.micro": 0.017 * H,
+       "Fargate ARM, 2 tasks x 0.25 vCPU/0.5 GB": 2 * (0.25 * 0.03238 + 0.5 * 0.00356) * H,
+       "Public IPv4 addresses (3)":   3 * 0.005 * H,
+       "Secrets Manager (1 secret)":  0.40,
+   }
+   total = sum(items.values())
+   for name, cost in items.items():
+       print(f"{name:42} ${cost:7.2f}")
+   print(f"{'Total per month':42} ${total:7.2f}   ≈ ${total / 30:.2f} per day")
+   ```
+   Then look up current prices for your region in the provider's calculator and update the numbers.
+
+2. **Model the levers.** Change the script to show: (a) staging running only 50 hours a week; (b) removing the NAT gateway in favour of VPC endpoints (they have their own hourly cost, roughly $0.011 per endpoint per zone: how many would snip need for Secrets Manager, CloudWatch Logs and the container registry, across two zones?); (c) production with Multi-AZ (double the database) and 3 API tasks. Which change saves the most?
+
+3. **Find the tags.** In `snip/infra/aws/versions.tf`, find `default_tags`. Which three tags does every snip resource get, and how would you use them in a billing report? (`project`, `environment`, `managed-by`: group costs by project and environment, and spot anything untagged, which wasn't created by Terraform.)
+
+4. **Unit economics.** Suppose production costs $640 a month and serves 30 million redirects. What's the cost per 1,000 redirects? (About $0.021.) Next month, traffic is 45 million and the bill is $760. Did efficiency improve? (Yes: about $0.017 per 1,000.)
+
+## Self-check
+
+<Quiz
+  id="cloud-cost-control"
+  questions={[
+    {
+      q: 'In snip’s staging estimate, what is the single most expensive item?',
+      options: ['The database', 'The NAT gateway, which exists for outbound access, not for snip itself', 'Fargate compute', 'Secrets Manager'],
+      answer: 1,
+      explain: 'Fixed infrastructure often outweighs the application at small scale. VPC endpoints or a different architecture can remove it.',
+    },
+    {
+      q: 'What is the first cost control every cloud account should have?',
+      options: [
+        'Reserved instances',
+        'A budget with alerts (and anomaly detection), so surprises arrive as an email, not a statement',
+        'Spot instances',
+        'A bigger free tier',
+      ],
+      answer: 1,
+      explain: 'Visibility first. You can’t fix what you don’t see.',
+    },
+    {
+      q: 'Why tag resources with project and environment?',
+      options: [
+        'Tags make resources faster',
+        'Cost allocation: the bill can be grouped by owner and purpose, and untagged spend (often waste) becomes visible',
+        'AWS requires tags',
+        'Tags encrypt data',
+      ],
+      answer: 1,
+      explain: 'snip’s Terraform applies default_tags to everything it creates.',
+    },
+    {
+      q: 'Which workloads suit spot or preemptible capacity?',
+      options: [
+        'A single primary database',
+        'Interruption-tolerant work: CI jobs, batch processing, stateless workers that can be restarted elsewhere',
+        'Anything important',
+        'Nothing',
+      ],
+      answer: 1,
+      explain: 'Deep discounts in exchange for possible reclamation at short notice.',
+    },
+    {
+      q: 'Traffic grew 50% and the bill grew 19%. What does unit economics say?',
+      options: [
+        'Costs are out of control',
+        'Cost per unit (e.g. per 1,000 redirects) fell: the system got more efficient while growing',
+        'Nothing useful',
+        'Traffic must be reduced',
+      ],
+      answer: 1,
+      explain: 'Totals alone mislead. Divide by a unit of value.',
+    },
+    {
+      q: 'You finished a Terraform lab in your own account. What should you do?',
+      options: [
+        'Leave it running for next time',
+        'Run terraform destroy, then check the console for leftovers (snapshots, log groups, IP addresses) in that region',
+        'Delete the state file',
+        'Nothing, it’s free tier',
+      ],
+      answer: 1,
+      explain: 'Destroy is one command. Deleting the state file makes Terraform forget, but the resources keep billing.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Propose a cheaper architecture for snip's staging environment and estimate the saving.</summary>
+
+Options, from least to most change:
+- **Schedule it**: destroy staging every evening and recreate it in the morning with Terraform (or scale ECS to 0 and stop the database outside working hours). At 50 hours a week instead of 168, the hourly lines drop by about 70%. That's ~$75 of the ~$107.
+- **Remove the NAT gateway**: VPC endpoints for Secrets Manager, CloudWatch Logs and the container registry (and pull the image from a registry reachable via endpoint, e.g. a copy in the cloud's own registry), or put staging tasks in public subnets with public IPs and tight security groups. That saves ~$35 (minus endpoint costs).
+- **Scale to zero**: run staging's API on a serverless container service that bills per request, with a small shared database, so an idle staging costs a few dollars a month.
+- **Share**: one load balancer and one small database instance serving several staging apps, separated by path rules and database schemas.
+
+The right choice depends on how staging is used. If it's needed around the clock for integration tests, scheduling won't work, but NAT removal and sharing still do.
+
+</details>
+
+<details>
+<summary>Your monthly bill jumped from $300 to $4,000 overnight. What do you do, in order?</summary>
+
+1. **Find it**: the billing console's cost breakdown by service, region and usage type for the last day. A spike usually points straight at one service (e.g. EC2 in a region you never use, or data transfer).
+2. **If it looks like abuse** (unfamiliar regions, huge instances, GPU machines): treat it as a security incident. Deactivate access keys, check CloudTrail for who created what, delete the resources in **every** region, rotate credentials, and contact support.
+3. **If it's your own system** (a runaway loop, a logging explosion, a misconfigured autoscaler, a recursive function calling itself): stop the cause first (scale down, disable the trigger), then fix it properly.
+4. **Prevent recurrence**: anomaly alerts with a low threshold, budgets per account, service quotas that cap how many instances can exist, and a postmortem (chapter 13.5).
+
+</details>
