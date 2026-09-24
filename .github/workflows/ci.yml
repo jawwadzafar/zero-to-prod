@@ -97,6 +97,14 @@ jobs:
           COPIES=$(docker compose logs api | grep '"route":"GET /{slug}"' | cut -d'|' -f1 | sort -u | wc -l)
           echo "api copies that served redirects: $COPIES"; test "$COPIES" -eq 2
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/metrics)" = 403
+      - name: Scale to 4 api copies; nginx spreads load across all of them (chapter 8.6 lab)
+        run: |
+          docker compose up -d --scale api=4 --wait
+          docker compose restart nginx
+          sleep 2
+          for i in $(seq 1 40); do curl -s -o /dev/null localhost:8080/lbtest; done
+          COPIES=$(docker compose logs --since 30s api | grep '"route":"GET /{slug}"' | cut -d'|' -f1 | sort -u | wc -l)
+          echo "api copies that served redirects: $COPIES"; test "$COPIES" -eq 4
       - name: The worker counts clicks
         run: |
           KEY=$(docker compose exec -T api snip keys create ci3 | grep -o 'snip_[A-Za-z0-9]*')

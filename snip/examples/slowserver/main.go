@@ -5,11 +5,12 @@
 // 4 ÷ 0.010 s = 400 requests per second. Load-test it and watch what happens
 // as you approach — and pass — that number.
 //
-//	go run ./examples/slowserver            # listens on :9090
+//	go run ./examples/slowserver            # listens on :9090 (change with -addr)
 //	go run ./examples/loadgen -url http://localhost:9090/ -rate 300 -d 5s
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -22,6 +23,9 @@ const (
 )
 
 func main() {
+	addr := flag.String("addr", ":9090", "address to listen on")
+	flag.Parse()
+
 	sem := make(chan struct{}, slots) // a semaphore: a channel with 4 spaces
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		sem <- struct{}{}        // wait for a free slot (this wait is the queue)
@@ -29,6 +33,6 @@ func main() {
 		time.Sleep(work)
 		fmt.Fprintln(w, "ok")
 	})
-	log.Printf("slowserver on :9090 — capacity %d req/s", int(slots*time.Second/work))
-	log.Fatal(http.ListenAndServe(":9090", nil))
+	log.Printf("slowserver on %s — capacity %d req/s", *addr, int(slots*time.Second/work))
+	log.Fatal(http.ListenAndServe(*addr, nil))
 }

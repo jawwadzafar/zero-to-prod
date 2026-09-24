@@ -230,8 +230,8 @@ Free, on your own computer with Docker. You'll run the whole stack — two snip 
 2. **Watch round robin.** Create a key and a link through nginx, then follow it several times while watching both API copies' logs:
    ```bash
    KEY=$(docker compose exec -T api snip keys create lb-lab | grep -o 'snip_[A-Za-z0-9]*')
-   curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"lb"}' >/dev/null
-   for i in $(seq 1 6); do curl -s -o /dev/null localhost:8080/lb; done
+   curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"lbtest"}' >/dev/null
+   for i in $(seq 1 6); do curl -s -o /dev/null localhost:8080/lbtest; done
    docker compose logs api | grep '"route":"GET /{slug}"' | cut -d'|' -f1 | sort | uniq -c   # requests per copy
    ```
 
@@ -239,7 +239,7 @@ Free, on your own computer with Docker. You'll run the whole stack — two snip 
    ```bash
    docker compose ps api                               # two containers: snip-api-1 and snip-api-2
    docker kill snip-api-2
-   for i in $(seq 1 4); do curl -s -o /dev/null -w "%{http_code} " localhost:8080/lb; done; echo   # still 302s
+   for i in $(seq 1 4); do curl -s -o /dev/null -w "%{http_code} " localhost:8080/lbtest; done; echo   # still 302s
    docker compose up -d                                # bring it back
    ```
 
