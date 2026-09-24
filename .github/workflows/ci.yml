@@ -450,3 +450,49 @@ jobs:
         run: |
           kubectl -n argocd get application snip -o yaml | grep -A40 '^status:' || true
           kubectl -n snip get pods,events || true
+
+  terraform:
+    name: Terraform — snip's local stack applies, is idempotent, detects drift, destroys
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: snip/infra/local
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.4
+          terraform_wrapper: false
+      - name: Format and validate (chapter 12.5 lab)
+        run: |
+          terraform fmt -check -recursive ..
+          terraform init -input=false
+          terraform validate
+      - name: Apply, then use snip through what Terraform built
+        run: |
+          terraform apply -auto-approve -input=false
+          terraform output
+          for _ in $(seq 1 30); do curl -fsS localhost:8080/healthz && break; sleep 2; done
+          KEY=$(docker exec snip-tf-api snip keys create tf | grep -o 'snip_[A-Za-z0-9]*')
+          SNIP_API_KEY="$KEY" ../../scripts/smoke.sh http://localhost:8080
+      - name: A second plan changes nothing (idempotent); deleting a container is drift
+        run: |
+          set +e
+          terraform plan -detailed-exitcode -input=false > /dev/null; CODE=$?
+          set -e
+          echo "plan exit code after apply: $CODE (0 = no changes)"; [ "$CODE" = 0 ]
+          docker rm -f snip-tf-worker-0
+          set +e
+          terraform plan -detailed-exitcode -input=false -no-color | tee /tmp/plan.txt; CODE=$?
+          set -e
+          echo "plan exit code after drift: $CODE (2 = changes)"; [ "$CODE" = 2 ]
+          grep -q "1 to add" /tmp/plan.txt
+          terraform apply -auto-approve -input=false
+          docker ps --format '{{.Names}}' | grep -q snip-tf-worker-0
+      - name: Change a variable, then destroy everything
+        run: |
+          terraform apply -auto-approve -input=false -var workers=2
+          test "$(docker ps --format '{{.Names}}' | grep -c snip-tf-worker)" = 2
+          terraform destroy -auto-approve -input=false
+          test -z "$(docker ps -aq --filter name=snip-tf-)"
