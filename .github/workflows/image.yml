@@ -47,6 +47,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Show what was published
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/snip@${{ steps.build.outputs.digest }}
         run: |
-          echo "digest: ${{ steps.build.outputs.digest }}"
-          docker buildx imagetools inspect ghcr.io/${{ github.repository_owner }}/snip@${{ steps.build.outputs.digest }}
+          docker buildx imagetools inspect "$IMAGE"
+          echo "--- SBOM (linux/amd64): packages inside the image"
+          docker buildx imagetools inspect "$IMAGE" \
+            --format '{{ range .SBOM.linux_amd64.SPDX.packages }}{{ .name }} {{ .versionInfo }}{{ "\n" }}{{ end }}'
+      - name: Pull the published image by digest and run it
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/snip@${{ steps.build.outputs.digest }}
+        run: |
+          docker run -d --name snip -p 8080:8080 "$IMAGE"
+          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
+          docker logs snip; exit 1
