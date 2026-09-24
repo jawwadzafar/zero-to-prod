@@ -51,3 +51,15 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
       - run: go build ./...
+
+  snip-image:
+    name: snip container image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t snip:ci snip
+      - name: Image starts and answers /healthz
+        run: |
+          docker run -d --name snip -p 8080:8080 snip:ci
+          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
+          docker logs snip; exit 1
