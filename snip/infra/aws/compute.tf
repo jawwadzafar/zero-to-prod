@@ -130,7 +130,7 @@ resource "aws_lb_target_group" "api" {
 }
 
 # HTTP only, to keep the example free of a domain. In production, add an HTTPS
-# listener with an ACM certificate and redirect HTTP to it (chapter 7.3).
+# listener with an ACM certificate and redirect HTTP to it (chapter 7.1).
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80

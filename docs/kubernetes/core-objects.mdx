@@ -191,7 +191,7 @@ Requests matter more than they look. Without them, the scheduler can pack too ma
 | **StatefulSet** | N Pods with **stable identities** (`postgres-0`, `postgres-1`), started in order, each with **its own persistent volume** | Databases, message brokers, anything where each copy owns data | `postgres` |
 | **DaemonSet** | **One Pod on every node** (or chosen nodes) | Per-node agents: log collectors, monitoring, networking | (none; kube-proxy is one) |
 | **Job** | Pods that **run to completion**, retried on failure | Migrations, batch processing, one-off tasks | (could run `snip migrate`) |
-| **CronJob** | A Job **on a schedule** (cron syntax, chapter 2.6) | Nightly reports, cleanups, backups | (a nightly Postgres backup) |
+| **CronJob** | A Job **on a schedule** (cron syntax, chapter 2.5) | Nightly reports, cleanups, backups | (a nightly Postgres backup) |
 
 snip's Postgres uses a StatefulSet with a `volumeClaimTemplates` entry, so its Pod `postgres-0` always gets the same disk (`data-postgres-0`), even when it's recreated on another node. Chapter 10.4 covers storage properly.
 

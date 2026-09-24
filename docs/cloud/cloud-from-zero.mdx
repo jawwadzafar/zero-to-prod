@@ -64,7 +64,7 @@ Why it matters:
 
 | Model | You rent | You manage | Examples | snip would be… |
 |---|---|---|---|---|
-| **IaaS** (infrastructure as a service) | Virtual machines, disks, networks | The OS, runtime, app, scaling, patches | AWS EC2, Azure VMs, GCP Compute Engine | A VM running snip with systemd (chapter 2.6) |
+| **IaaS** (infrastructure as a service) | Virtual machines, disks, networks | The OS, runtime, app, scaling, patches | AWS EC2, Azure VMs, GCP Compute Engine | A VM running snip with systemd (chapter 2.5) |
 | **Containers / Kubernetes** | A cluster or a container runtime | Your containers and their configuration | EKS, AKS, GKE; ECS | Part 10, on managed Kubernetes |
 | **PaaS** (platform as a service) | A platform that runs your code or container | Your app and its configuration | Cloud Run, App Runner, Azure Container Apps, Heroku-style platforms | "Here's the image, run it" |
 | **Serverless functions** | Execution of individual functions, per request | Just the function code | AWS Lambda, Azure Functions, Cloud Functions | Each API route as a function |
@@ -137,7 +137,7 @@ Free, and **no cloud account needed**.
      curl -o /dev/null -s -w '%{time_connect}s connect, %{time_total}s total\n' "https://dynamodb.$r.amazonaws.com/ping"
    done
    ```
-   `time_connect` is roughly one network round trip; `time_total` includes the TLS handshake (chapter 7.3), several more round trips. A test machine in the US saw totals of about 0.22 s for Virginia, 0.68 s for Ireland and 0.76 s for Sydney. Yours depend on where you are: the nearest region should be clearly fastest. (If `time_connect` is near zero everywhere, you're behind a proxy, which connects for you; compare `time_total` instead.)
+   `time_connect` is roughly one network round trip; `time_total` includes the TLS handshake (chapter 7.1), several more round trips. A test machine in the US saw totals of about 0.22 s for Virginia, 0.68 s for Ireland and 0.76 s for Sydney. Yours depend on where you are: the nearest region should be clearly fastest. (If `time_connect` is near zero everywhere, you're behind a proxy, which connects for you; compare `time_total` instead.)
 
 2. **Do the latency arithmetic.** Using 200 km per millisecond, what's the minimum round-trip time between London and Sydney, about 17,000 km apart? (About 170 ms: 17,000 ÷ 200 = 85 ms each way.) Now imagine a page that makes 10 sequential requests from Sydney to a London server. Why do global companies run servers in several regions? (10 × 170 ms is 1.7 seconds of pure physics before any work is done.)
 

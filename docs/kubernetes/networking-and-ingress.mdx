@@ -204,7 +204,7 @@ Plus the same for Redis, and one allowing the API's port 8080 from anywhere (so 
 - **Egress** policies (what a Pod may connect *out* to) are powerful too: a compromised API Pod that can't open connections to the internet can't easily send your data out. Remember to allow DNS (port 53 to CoreDNS), or nothing will resolve.
 
 :::info[In the real world]
-Larger platforms add a **service mesh** (Istio, Linkerd, Cilium's mesh). Sidecar or node proxies give every connection mutual TLS (chapter 7.3), retries, per-request load balancing (fixing the gRPC problem above) and detailed traffic metrics, without changing the application. It's powerful and adds real operational weight. Most teams start with Services, a Gateway and NetworkPolicies, and add a mesh only when they need what it offers.
+Larger platforms add a **service mesh** (Istio, Linkerd, Cilium's mesh). Sidecar or node proxies give every connection mutual TLS (chapter 7.1), retries, per-request load balancing (fixing the gRPC problem above) and detailed traffic metrics, without changing the application. It's powerful and adds real operational weight. Most teams start with Services, a Gateway and NetworkPolicies, and add a mesh only when they need what it offers.
 :::
 
 ---
@@ -328,7 +328,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
 <details>
 <summary>Trace a request from a user's browser to a snip Pod in a cloud cluster using a Gateway.</summary>
 
-1. The browser resolves `snip.example.com` via public DNS to the **cloud load balancer's** public IP (chapter 5.1), which was created for the Gateway.
+1. The browser resolves `snip.example.com` via public DNS to the **cloud load balancer's** public IP (DNS, chapter 1.4), which was created for the Gateway.
 2. The load balancer forwards the connection to the **Gateway implementation's proxy** Pods (for example, Envoy), running in the cluster. With TLS, it terminates here (chapter 8.3).
 3. The proxy matches the request's host and path against **HTTPRoutes** attached to the Gateway, and picks the backend Service `api` in namespace `snip`.
 4. The proxy sends the request to one of the Service's **ready endpoints**, a specific snip Pod IP, often directly from the EndpointSlice rather than via the ClusterIP.
