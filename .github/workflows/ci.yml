@@ -221,6 +221,19 @@ jobs:
           kubectl -n snip wait --for=jsonpath='{.status.phase}'=Succeeded pod/probe --timeout=120s
           RESULT=$(kubectl -n snip logs probe); echo "$RESULT"
           echo "$RESULT" | grep -q ' bad=0$'
+      - name: Chapter 10.1 lab — the published image, imperative commands, self-healing, scaling
+        run: |
+          kubectl create deployment snip --image=ghcr.io/jawwadzafar/snip:main --replicas=3
+          kubectl rollout status deployment/snip --timeout=180s
+          kubectl delete pod "$(kubectl get pods -l app=snip -o name | head -1 | cut -d/ -f2)" --wait=false
+          sleep 3
+          kubectl rollout status deployment/snip --timeout=120s
+          kubectl scale deployment/snip --replicas=5
+          kubectl rollout status deployment/snip --timeout=120s
+          test "$(kubectl get deploy snip -o jsonpath='{.status.readyReplicas}')" = 5
+          kubectl port-forward deployment/snip 8081:8080 > /dev/null 2>&1 &
+          sleep 3; curl -fsS localhost:8081/healthz
+          kubectl delete deployment snip
       - if: failure()
         run: |
           kubectl -n snip get all,pvc,events --sort-by=.metadata.creationTimestamp || true
