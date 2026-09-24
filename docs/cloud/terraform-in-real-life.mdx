@@ -161,7 +161,7 @@ Tools like **Atlantis**, **HCP Terraform** and similar services implement this w
 
 ### Scanning infrastructure code
 
-Scanners read Terraform (and Kubernetes manifests, Dockerfiles, Helm charts) and flag risky configurations **before** they exist: public buckets, unencrypted disks, security groups open to the world, missing logging. snip's CI runs **Trivy** in configuration mode over `snip/infra` and `snip/deploy` on every push (report only):
+Scanners read Terraform (and Kubernetes manifests, Dockerfiles, Helm charts) and flag risky configurations **before** they exist: public buckets, unencrypted disks, security groups open to the world, missing logging. snip's CI runs **Trivy** in configuration mode over `snip/infra` and `snip/deploy` on every push:
 
 The first time it ran against snip's AWS configuration, it reported four findings:
 
@@ -190,7 +190,7 @@ Accepted findings are recorded **in the code**, next to the resource, with the r
 resource "aws_lb" "this" {
 ```
 
-The same scan found that the **Postgres and Redis Kubernetes manifests** (chapter 10.2) ran with default security contexts, which allow root. snip's own Pods were already locked down, but these two, adapted from the Compose stack, weren't. They now run as the images' non-root users with read-only root filesystems, like snip. After that, the scan reports zero HIGH or CRITICAL findings, and any new one is visible on the next push.
+The same scan found that the **Postgres and Redis Kubernetes manifests** (chapter 10.2) ran with default security contexts, which allow root. snip's own Pods were already locked down, but these two, adapted from the Compose stack, weren't. They now run as the images' non-root users with read-only root filesystems, like snip. After that, the scan reported zero HIGH or CRITICAL findings, and CI was switched from *report only* to **blocking**: any new finding now fails the build until it's fixed or accepted with a written reason.
 
 ### Refactoring without destroying: moved and import
 
