@@ -98,7 +98,7 @@ chapter.** The owner should never have to repeat what is written here.
 4. Add new terms to `src/data/glossary.json` (`{"term", "def", "doc": "<partId>/<chapterId>"}`); the Glossary page and Ask index pick them up.
 5. Link only to chapters that exist (the build fails otherwise). When a later
    chapter is written, go back and add forward links if useful.
-6. Verify: `npm run build`. Commit (`docs: add 6.2 SQL from zero`) and push.
+6. Verify: `npm run build` (and `npm run check:sql` if the chapter has SQL playgrounds — it runs every playground against real Postgres). Commit (`docs: add 6.2 SQL from zero`) and push.
 7. Run `node scripts/status.mjs` to see what's left.
 
 ## 5. The snip project (what readers build)
