@@ -5,7 +5,23 @@ on:
   push:
     branches: [main]
 
+# Least privilege: CI only needs to read the code (chapter 11.2).
+permissions:
+  contents: read
+
+# A newer push to the same pull request cancels the older, now-pointless run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  workflows:
+    name: Workflows are valid (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
   site:
     name: Site builds
     if: github.event_name == 'pull_request'
@@ -62,7 +78,7 @@ jobs:
       - name: Image starts and answers /healthz
         run: |
           docker run -d --name snip -p 8080:8080 snip:ci
-          for i in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
+          for _ in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
           docker logs snip; exit 1
       - name: Chapter 9.2 dockerlab builds, runs as non-root, and stops gracefully
         run: |
@@ -125,7 +141,7 @@ jobs:
         run: |
           KEY=$(docker compose exec -T api snip keys create ci2 | grep -o 'snip_[A-Za-z0-9]*')
           curl -fsS -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"lbtest"}'
-          for i in $(seq 1 10); do curl -s -o /dev/null localhost:8080/lbtest; done
+          for _ in $(seq 1 10); do curl -s -o /dev/null localhost:8080/lbtest; done
           COPIES=$(docker compose logs api | grep '"route":"GET /{slug}"' | cut -d'|' -f1 | sort -u | wc -l)
           echo "api copies that served redirects: $COPIES"; test "$COPIES" -eq 2
           test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/metrics)" = 403
@@ -134,15 +150,15 @@ jobs:
           docker compose up -d --scale api=4 --wait
           docker compose restart nginx
           sleep 2
-          for i in $(seq 1 40); do curl -s -o /dev/null localhost:8080/lbtest; done
+          for _ in $(seq 1 40); do curl -s -o /dev/null localhost:8080/lbtest; done
           COPIES=$(docker compose logs --since 30s api | grep '"route":"GET /{slug}"' | cut -d'|' -f1 | sort -u | wc -l)
           echo "api copies that served redirects: $COPIES"; test "$COPIES" -eq 4
       - name: The worker counts clicks
         run: |
           KEY=$(docker compose exec -T api snip keys create ci3 | grep -o 'snip_[A-Za-z0-9]*')
           curl -fsS -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"counted"}'
-          for i in $(seq 1 5); do curl -s -o /dev/null localhost:8080/counted; done
-          for i in $(seq 1 20); do
+          for _ in $(seq 1 5); do curl -s -o /dev/null localhost:8080/counted; done
+          for _ in $(seq 1 20); do
             N=$(curl -s localhost:8080/api/links/counted -H "Authorization: Bearer $KEY" | jq .clicks)
             [ "$N" = 5 ] && exit 0; sleep 1
           done
@@ -152,7 +168,7 @@ jobs:
           docker compose exec -T postgres psql -U snip -c "SELECT slug, clicks FROM links ORDER BY slug" | tee /dev/stderr | grep -q counted
           docker compose exec -T redis redis-cli XLEN snip:clicks
           docker compose --profile observability up -d prometheus
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             N=$(curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.health=="up")] | length')
             [ "${N:-0}" -ge 2 ] && echo "prometheus targets up: $N" && exit 0; sleep 2
           done
@@ -186,10 +202,10 @@ jobs:
       - name: Wait for every workload to be ready
         timeout-minutes: 8
         run: |
-          for i in $(seq 1 45); do
+          for _ in $(seq 1 45); do
             kubectl -n snip get pods --no-headers | tee /tmp/pods.txt
             if [ -s /tmp/pods.txt ] && ! grep -vqE '\s1/1\s+Running' /tmp/pods.txt; then break; fi
-            echo "--- waiting ($i)"; sleep 10
+            echo "--- waiting"; sleep 10
           done
           timeout 120 kubectl -n snip rollout status statefulset/postgres --timeout=100s
           timeout 120 kubectl -n snip rollout status deploy/api --timeout=100s
@@ -207,13 +223,14 @@ jobs:
           kubectl -n snip delete "$POD" --wait=false
           sleep 2
           kubectl -n snip wait --for=condition=Available deploy/api --timeout=120s
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             R=$(kubectl -n snip get deploy api -o jsonpath='{.status.readyReplicas}')
             [ "$R" = 2 ] && kubectl -n snip get pods -l app.kubernetes.io/name=api && exit 0; sleep 2
           done
           exit 1
       - name: Rolling update with zero failed requests (chapter 10.2 lab)
         run: |
+          # shellcheck disable=SC2016 # the $(...) must expand inside the probe Pod, not here
           kubectl -n snip run probe --image=curlimages/curl:8.22.0 --restart=Never --command -- sh -c '
             ok=0; bad=0; end=$(( $(date +%s) + 45 ))
             while [ "$(date +%s)" -lt "$end" ]; do
@@ -279,14 +296,14 @@ jobs:
           set -x
           # 1. bad image tag: new Pod can't pull; old Pods keep serving; undo
           kubectl -n snip set image deploy/api api=ghcr.io/jawwadzafar/snip:does-not-exist
-          for i in $(seq 1 30); do kubectl -n snip get pods -l app.kubernetes.io/name=api | grep -qE 'ErrImagePull|ImagePullBackOff' && break; sleep 3; done
+          for _ in $(seq 1 30); do kubectl -n snip get pods -l app.kubernetes.io/name=api | grep -qE 'ErrImagePull|ImagePullBackOff' && break; sleep 3; done
           kubectl -n snip get pods -l app.kubernetes.io/name=api | grep -E 'ErrImagePull|ImagePullBackOff'
           test "$(kubectl -n snip get deploy api -o jsonpath='{.status.readyReplicas}')" = 2
           kubectl -n snip rollout undo deploy/api
           timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
           # 2. config the app rejects → CrashLoopBackOff, reason in --previous logs
           kubectl -n snip set env deploy/api SNIP_RATE_LIMIT=0
-          for i in $(seq 1 40); do
+          for _ in $(seq 1 40); do
             NEW=$(kubectl -n snip get pods -l app.kubernetes.io/name=api --sort-by=.metadata.creationTimestamp -o name | tail -1)
             kubectl -n snip logs "$NEW" --previous 2>/dev/null | grep -q 'SNIP_RATE_LIMIT: must be a positive integer' && break
             sleep 3
@@ -297,23 +314,23 @@ jobs:
           # 3. impossible request → Pending, FailedScheduling
           kubectl -n snip create deployment greedy --image=ghcr.io/jawwadzafar/snip:main
           kubectl -n snip set resources deploy/greedy --requests=cpu=64
-          for i in $(seq 1 30); do kubectl -n snip describe pod -l app=greedy | grep -q 'Insufficient cpu' && break; sleep 2; done
+          for _ in $(seq 1 30); do kubectl -n snip describe pod -l app=greedy | grep -q 'Insufficient cpu' && break; sleep 2; done
           kubectl -n snip describe pod -l app=greedy | grep 'Insufficient cpu'
           kubectl -n snip delete deploy greedy
           # 4. ephemeral debug container in a shell-less Pod
           POD=$(kubectl -n snip get pods -l app.kubernetes.io/name=api -o name | head -1)
           kubectl -n snip debug "$POD" --image=alpine:3.22 --target=api --profile=general --container=dbg -- \
             sh -c 'ps; wget -qO- localhost:8080/readyz; echo; cat /proc/1/environ | tr "\0" "\n" | grep SNIP_LOG'
-          for i in $(seq 1 30); do kubectl -n snip logs "$POD" -c dbg 2>/dev/null | grep -q SNIP_LOG_LEVEL && break; sleep 2; done
+          for _ in $(seq 1 30); do kubectl -n snip logs "$POD" -c dbg 2>/dev/null | grep -q SNIP_LOG_LEVEL && break; sleep 2; done
           kubectl -n snip logs "$POD" -c dbg | tee /dev/stderr | grep -q SNIP_LOG_LEVEL
       - name: Chapter 10.5 lab — metrics-server, kubectl top, HPA
         run: |
           helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
           helm install metrics-server metrics-server/metrics-server -n kube-system \
             --set 'args={--kubelet-insecure-tls}' --wait --timeout 5m
-          for i in $(seq 1 40); do kubectl -n snip top pods 2>/dev/null && break; sleep 5; done
+          for _ in $(seq 1 40); do kubectl -n snip top pods 2>/dev/null && break; sleep 5; done
           kubectl -n snip top pods
-          for i in $(seq 1 40); do kubectl -n snip get hpa api | grep -q 'cpu: [0-9]' && break; sleep 5; done
+          for _ in $(seq 1 40); do kubectl -n snip get hpa api | grep -q 'cpu: [0-9]' && break; sleep 5; done
           kubectl -n snip get hpa api | tee /dev/stderr | grep -q 'cpu: [0-9]'
       - name: Chapter 10.6 lab — snip's Helm chart installs, upgrades, rolls back
         run: |
