@@ -10,9 +10,11 @@ permissions:
   contents: read
 
 # A newer push to the same pull request cancels the older, now-pointless run.
+# Pushes to main get a unique group each (the run id), so every commit on main
+# is tested and none are queued or cancelled (chapter 11.2).
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   workflows:

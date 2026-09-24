@@ -115,10 +115,10 @@ A slow pipeline gets ignored (chapter 11.1). The main techniques:
 - **Concurrency.** When you push three times in a minute to a pull request, only the last run matters. `ci.yml` cancels superseded PR runs:
   ```yaml
   concurrency:
-    group: ci-${{ github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+    cancel-in-progress: true
   ```
-  On `main` it doesn't cancel, so every commit keeps a result. `deploy.yml` uses `cancel-in-progress: false` for a different reason: you never want to interrupt a deployment halfway.
+  Pull request runs share a group per branch, so a new push cancels the old run. Pushes to `main` get a unique group each (the run's ID), so every commit on `main` is tested. This repository learned that the hard way: its first version used `group: ci-${{ github.ref }}` with cancelling switched off for `main`, expecting every commit to keep its run. But a concurrency group allows only one running and **one pending** run, and silently cancels older pending ones. So fast pushes to `main` queued up behind each other, and the ones in the middle were cancelled without being tested. `deploy.yml` uses `cancel-in-progress: false` for a different reason: you never want to interrupt a deployment halfway.
 - **Path filters.** `image.yml` only runs when `snip/` changes (`paths: ["snip/**"]`), so editing a chapter doesn't rebuild images.
 
 ---
