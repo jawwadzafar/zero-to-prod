@@ -219,6 +219,22 @@ jobs:
             | jq -r '[.result.resourceSpans[].scopeSpans[].spans[]] | group_by(.traceId)[] | [.[].name] | join(" | ")' | tee /tmp/traces.txt
           grep -q "cache.GetURL" /tmp/traces.txt
           docker compose logs api | grep -m1 '"trace_id"'  # the same trace IDs are in the logs
+      - name: Chapter 13.5 lab — game day, Redis frozen then stopped; snip degrades but keeps redirecting
+        run: |
+          KEY=$(docker compose exec -T api snip keys create gameday | grep -o 'snip_[A-Za-z0-9]*')
+          curl -fsS -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"gameday"}'
+          time_redirects() { for _ in 1 2 3; do curl -s -o /dev/null -m 2 -w '%{http_code} %{time_total}s\n' localhost:8080/gameday; done | tee /tmp/gd.txt; test "$(grep -c '^302 ' /tmp/gd.txt)" = 3; }
+          echo "--- redis frozen";  docker compose pause redis
+          time_redirects
+          curl -s localhost:8080/readyz | tee /dev/stderr | jq -e '.ready == true and .degraded == true'
+          docker compose unpause redis
+          echo "--- redis stopped"; docker compose stop redis
+          time_redirects
+          curl -s localhost:8080/readyz | jq -e '.ready == true and .degraded == true'
+          echo "--- redis back";    docker compose start redis
+          for _ in $(seq 1 20); do curl -s localhost:8080/readyz | jq -e '.degraded == false' && break; sleep 1; done
+          curl -s localhost:8080/readyz | jq -e '.degraded == false'
+          docker compose logs api | grep -c '"click not recorded"'
       - name: Chapter 9.3 lab — data survives down/up (named volume), and is gone after down -v
         run: |
           docker compose --profile observability down
