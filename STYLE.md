@@ -270,6 +270,8 @@ A full answer that explains the *why* and names the rule to keep.
 - Inside `<Quiz questions={[…]}>`, strings are JavaScript: use single quotes
   and escape apostrophes (`it\'s`) or use double-quoted strings.
 - Leave a blank line inside `<details>` before and after Markdown content.
+- Front matter is YAML: wrap `title`/`description` in double quotes if they
+  contain `: ` (colon + space), or the whole site build fails.
 - Links between chapters are relative file links: `[6.4](../data/indexes-and-performance.mdx)`.
 
 ---
