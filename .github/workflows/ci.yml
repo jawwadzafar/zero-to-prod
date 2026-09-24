@@ -20,6 +20,7 @@ jobs:
   workflows:
     name: Workflows are valid (actionlint)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
@@ -28,6 +29,7 @@ jobs:
     name: Site builds
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -42,6 +44,7 @@ jobs:
   alerts:
     name: Alert rules are valid and their unit tests pass (chapter 13.4)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - name: promtool check and test
@@ -54,6 +57,7 @@ jobs:
   snip:
     name: snip (Go) — vet, test, build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: snip
@@ -93,19 +97,23 @@ jobs:
         run: |
           go build -o /tmp/snip ./cmd/snip && go build -o /tmp/loadgen ./examples/loadgen
           SNIP_HTTP_ADDR=:8095 SNIP_DEBUG_ADDR=localhost:6060 /tmp/snip serve > /tmp/snip.log 2>&1 &
+          SNIP_PID=$!
           sleep 1
           KEY=$(grep -o 'snip_[A-Za-z0-9]*' /tmp/snip.log | head -1)
           curl -fsS -X POST localhost:8095/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"hot"}'
           /tmp/loadgen -url http://localhost:8095/hot -c 20 -d 8s &
+          LOADGEN_PID=$!
           sleep 1
           go tool pprof -top -cum -nodecount=40 "http://localhost:6060/debug/pprof/profile?seconds=5" | tee /tmp/prof.txt
-          wait
+          wait "$LOADGEN_PID"   # a bare `wait` would also wait for snip, which never exits (chapter 13.6)
           grep -q "httpapi.(\*Server).redirect" /tmp/prof.txt
           curl -s "localhost:6060/debug/pprof/goroutine?debug=1" | head -3
+          kill "$SNIP_PID"
 
   ai:
     name: ai (Python) — lint, types, tests, live against snip
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: ai
@@ -136,6 +144,7 @@ jobs:
   snip-image:
     name: snip container image builds
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - run: docker build -t snip:ci snip
@@ -155,6 +164,7 @@ jobs:
   security:
     name: Vulnerability scans (chapter 9.4)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -180,6 +190,7 @@ jobs:
   api-contract:
     name: snip OpenAPI contract is valid
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -190,6 +201,7 @@ jobs:
   snip-stack:
     name: snip full stack (compose) works end to end
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: snip
