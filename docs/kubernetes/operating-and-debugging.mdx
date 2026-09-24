@@ -1,0 +1,286 @@
+---
+title: "10.5 Operating & debugging Kubernetes"
+sidebar_label: "10.5 Operating & debugging"
+description: "A repeatable way to debug anything in Kubernetes (get → describe → events → logs → exec/debug), the failure states you'll meet and what each one means (Pending, ImagePullBackOff, CrashLoopBackOff, CreateContainerConfigError, OOMKilled, not ready), metrics and autoscaling in practice, ephemeral debug containers, node maintenance with drain and PodDisruptionBudgets, and upgrades — by breaking snip on purpose, four different ways."
+---
+
+# 10.5 Operating & debugging Kubernetes
+
+Everything in Kubernetes fails eventually: an image tag with a typo, a config value the app rejects, a Pod asking for more CPU than any node has, a container that runs out of memory. The good news is that Kubernetes almost always **tells you why**. The reason sits in a Pod's status and in its **events**, one or two commands away. The bad news is that a beginner, faced with a wall of `0/1` and `Pending`, doesn't know where to look. This chapter gives you a fixed routine that works for any problem, a field guide to the failure states you'll meet, and then you'll break snip on purpose four different ways and fix it each time. You'll also turn on metrics so `kubectl top` and snip's autoscaler work, attach a debugger to a container that has no shell, and learn how clusters are maintained without downtime.
+
+## What you'll learn
+
+- A **debugging routine**: get → describe → events → logs → exec/debug.
+- What each **failure state** means: `Pending`, `ImagePullBackOff`, `CrashLoopBackOff`, `CreateContainerConfigError`, `OOMKilled`, running-but-not-ready.
+- **metrics-server**, `kubectl top`, and the **HorizontalPodAutoscaler** in action.
+- **Ephemeral debug containers** for images without a shell.
+- **Node maintenance**: cordon, drain, **PodDisruptionBudgets**, and cluster upgrades.
+
+---
+
+## The routine
+
+:::note[Everyday anchor]
+A good mechanic doesn't start by replacing parts. They ask what the dashboard says (status), read the service log (events), listen to the engine (logs), and only then open the bonnet (exec). The same order, every time, finds most problems in the first two steps.
+:::
+
+1. **`kubectl get`**: what's the state? `kubectl -n snip get pods` shows `STATUS`, `READY` (`1/1`), `RESTARTS` and `AGE`. Add `-o wide` for nodes and IPs.
+2. **`kubectl describe`**: why? The bottom of `kubectl describe pod NAME` lists **Events**: scheduling decisions, image pulls, probe failures, kills, each with a reason. This is the step people skip, and it holds the answer most often.
+3. **`kubectl get events`**: what's happening across the namespace? `kubectl -n snip get events --sort-by=.lastTimestamp` shows events for every object, in order. It's useful when the problem isn't a single Pod (a Deployment that won't scale, a claim that won't bind).
+4. **`kubectl logs`**: what did the program say? `kubectl logs POD` (or `deploy/api`). Crucially, **`--previous`** shows the output of the *last crashed* container, which is where a crash's reason is.
+5. **`kubectl exec` / `kubectl debug`**: look from inside. `exec` runs a command in the container (if it has one to run); `debug` attaches a separate container with tools (below).
+
+Then fix the **desired state**, not the Pod (chapter 10.1). Deleting a broken Pod only produces an identical broken Pod.
+
+---
+
+## A field guide to failure states
+
+| You see | It means | Look at | Usual causes |
+|---|---|---|---|
+| `Pending` | No node has been found for the Pod, or its volume isn't ready | `describe` → `FailedScheduling` event | Requests larger than any node's free capacity; a PVC that can't bind; node selectors or taints nobody matches |
+| `ContainerCreating` (for long) | Scheduled, but can't start yet | `describe` events | Pulling a huge image; a volume that won't attach; a missing Secret or ConfigMap to mount |
+| `ErrImagePull` → `ImagePullBackOff` | The image can't be pulled; retries back off | `describe` → `Failed to pull image` | A typo in the image or tag; a private registry without credentials; registry rate limits (chapter 9.4) |
+| `CreateContainerConfigError` | The container's configuration is invalid | `describe` events | A referenced ConfigMap, Secret or key doesn't exist; a security setting that can't be satisfied (the `runAsNonRoot` story in chapter 10.2) |
+| `CrashLoopBackOff` | The container starts, exits, and is restarted with growing delays (10 s, 20 s, 40 s… up to 5 min) | `logs --previous` | The app exits on bad config or a failing dependency; a liveness probe that's too strict; the wrong command |
+| `OOMKilled` (in `describe`, "Last State") | Killed for exceeding its memory limit; exit code 137 | `describe` → Last State | Memory limit too low, or a leak (chapter 9.1) |
+| `Running`, `READY 0/1` | The process runs, but the readiness probe fails, so it gets no traffic | `describe` → `Readiness probe failed` | A dependency is down (snip's `/readyz` checks Postgres and Redis); wrong probe path or port |
+| `Evicted` | The node ran low on memory or disk and removed the Pod | `describe`, node conditions | Pods without requests on a crowded node; filling the node's disk with logs |
+| `Terminating` (for long) | The Pod won't finish shutting down | `describe`, finalizers | A process ignoring SIGTERM until the grace period ends; stuck volume detach |
+
+Two notes save a lot of confusion:
+
+- **`BackOff` means Kubernetes is waiting before retrying.** It isn't the error itself. The error is in the events or the previous logs.
+- **With `maxUnavailable: 0`, a broken rollout doesn't cause an outage.** New Pods fail and the old ones keep serving (chapter 10.2). `kubectl rollout status` just never finishes. Fix forward, or `kubectl rollout undo`.
+
+---
+
+## Metrics and autoscaling in practice
+
+`kubectl top` and the HorizontalPodAutoscaler need live CPU and memory numbers, which come from **metrics-server**, a small add-on that collects usage from every kubelet. Managed clusters usually include it; kind doesn't. Once it's installed:
+
+```bash
+kubectl top nodes
+kubectl -n snip top pods
+kubectl -n snip get hpa api
+```
+
+```text
+NAME   REFERENCE        TARGETS       MINPODS   MAXPODS   REPLICAS
+api    Deployment/api   cpu: 1%/70%   2         6         2
+```
+
+`cpu: 1%/70%` is current usage as a **percentage of requests** (chapter 10.2) against the target. Push load at snip (chapter 8.5's load generator through a port-forward) and the HPA raises the replica count within a minute or so. After the load stops, it waits about five minutes before scaling down, so a brief lull doesn't cause flapping.
+
+This is also where requests earn their keep: an HPA can't compute a percentage for a container with no CPU request, and reports `<unknown>`.
+
+---
+
+## Debugging a container with no shell
+
+snip's image has no shell (chapter 9.2), so `kubectl exec -it deploy/api -- sh` fails. **Ephemeral debug containers** solve this. `kubectl debug` adds a temporary container, from any image you choose, to a **running** Pod, and `--target` shares the process namespace of the container you name:
+
+```bash
+POD=$(kubectl -n snip get pods -l app.kubernetes.io/name=api -o name | head -1)
+kubectl -n snip debug -it "$POD" --image=alpine:3.22 --target=api --profile=general -- sh
+# inside:
+ps                          # snip is visible as a process
+wget -qO- localhost:8080/readyz
+cat /proc/1/environ | tr '\0' '\n' | grep SNIP_LOG     # the environment snip actually received
+```
+
+The debug container shares the Pod's network (so `localhost:8080` is snip), and with `--target` it sees snip's processes. `--profile=general` gives it the extra capability (`SYS_PTRACE`) needed to inspect another user's process, such as reading snip's environment. It disappears when the Pod is replaced. For node-level problems, `kubectl debug node/NAME -it --image=alpine:3.22` starts a Pod with the node's filesystem mounted at `/host`.
+
+:::danger
+Debug containers, `kubectl exec`, and node debugging are powerful: they can read secrets from a process's environment and change things on nodes. In production, restrict who may use them with RBAC, and prefer logs, metrics and traces (Part 13) for everyday investigation.
+:::
+
+---
+
+## Maintaining nodes without downtime
+
+Nodes need maintenance: OS patches, Kubernetes upgrades, replacing hardware. The polite way to take a node out of service:
+
+1. **`kubectl cordon NODE`**: mark it unschedulable. Nothing new is placed there; running Pods stay.
+2. **`kubectl drain NODE --ignore-daemonsets --delete-emptydir-data`**: **evict** its Pods, which are recreated on other nodes by their controllers.
+3. Do the maintenance, then **`kubectl uncordon NODE`**.
+
+Eviction respects **PodDisruptionBudgets** (PDBs). snip's says at least one API Pod must stay available:
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+```
+
+If draining would break that promise (say both API Pods are on the node being drained), the drain evicts one, waits until its replacement is ready elsewhere, then evicts the other. PDBs only cover these **voluntary** disruptions (drains, upgrades, autoscaler scale-downs), not a node crashing. That's what running several replicas across several nodes is for.
+
+**Cluster upgrades** follow the same pattern: upgrade the control plane (a button or a command on managed clusters), then replace or upgrade nodes one at a time, draining each. Kubernetes supports each minor version for about a year, so this is a routine chore. Read the release notes for **removed APIs** first. Manifests using an API version that's been removed stop applying after the upgrade.
+
+:::warning[What can go wrong]
+- **Deleting Pods to "fix" them**: the controller recreates the same broken Pod. Fix the spec.
+- **Not reading events**: most answers are in `describe`, and people go straight to guessing.
+- **Forgetting `--previous`**: the current container of a crash-looping Pod has barely started; the reason is in the last one's logs.
+- **No requests**: Pods get evicted first under pressure, the scheduler overpacks nodes, and the HPA can't compute utilisation.
+- **PDBs that can never be satisfied** (`minAvailable: 2` with 2 replicas): drains hang forever and upgrades stall.
+:::
+
+:::info[In the real world]
+Teams don't debug production by staring at `kubectl` alone. **Dashboards** (Grafana over Prometheus), **centralised logs** and **traces** (Part 13) show what happened across hundreds of Pods and hours of time, and alerts point at the problem before users do. `kubectl` is the precise tool for the last mile: confirming a hypothesis on one object. Many teams also give developers read-only cluster access by default, and grant `exec` and `debug` only through a short-lived, audited "break-glass" process.
+:::
+
+---
+
+## Lab: break snip four ways
+
+Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in snip's CI on a fresh cluster. After each break, use the routine to find the reason *before* reading the answer.
+
+1. **A bad image tag.**
+   ```bash
+   kubectl -n snip set image deploy/api api=ghcr.io/jawwadzafar/snip:does-not-exist
+   kubectl -n snip get pods -l app.kubernetes.io/name=api        # a new Pod: ErrImagePull / ImagePullBackOff
+   kubectl -n snip describe pod -l app.kubernetes.io/name=api | grep -A2 "Failed"
+   kubectl -n snip rollout undo deploy/api
+   ```
+   The two old Pods kept serving throughout (`maxUnavailable: 0`).
+
+2. **Configuration the app rejects.**
+   ```bash
+   kubectl -n snip set env deploy/api SNIP_RATE_LIMIT=0
+   kubectl -n snip get pods -l app.kubernetes.io/name=api -w      # Error → CrashLoopBackOff (Ctrl-C)
+   kubectl -n snip logs "$(kubectl -n snip get pods -l app.kubernetes.io/name=api --sort-by=.metadata.creationTimestamp -o name | tail -1)" --previous
+   ```
+   ```text
+   snip: SNIP_RATE_LIMIT: must be a positive integer
+   ```
+   snip validates its configuration at start and refuses to run with a bad value (chapter 7.6). That's much better than running wrongly. Fix it with `kubectl -n snip set env deploy/api SNIP_RATE_LIMIT-` (the trailing `-` removes the variable).
+
+3. **An impossible request.**
+   ```bash
+   kubectl -n snip create deployment greedy --image=ghcr.io/jawwadzafar/snip:main
+   kubectl -n snip set resources deploy/greedy --requests=cpu=64
+   kubectl -n snip get pods -l app=greedy                         # Pending
+   kubectl -n snip describe pod -l app=greedy | grep -A3 Events
+   ```
+   ```text
+   Warning  FailedScheduling  ...  0/1 nodes are available: 1 Insufficient cpu.
+   ```
+   Clean up with `kubectl -n snip delete deploy greedy`.
+
+4. **Look inside a shell-less container**, using the `kubectl debug` command from "Debugging a container with no shell".
+
+5. **Turn on metrics** and watch the autoscaler's view:
+   ```bash
+   helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+   helm install metrics-server metrics-server/metrics-server -n kube-system \
+     --set 'args={--kubelet-insecure-tls}' --wait
+   kubectl -n snip top pods                                         # may take a minute to have data
+   kubectl -n snip get hpa api
+   ```
+   `--kubelet-insecure-tls` is needed because kind's kubelets use self-signed certificates. Never use it on a real cluster.
+
+## Self-check
+
+<Quiz
+  id="kubernetes-operating-and-debugging"
+  questions={[
+    {
+      q: 'A Pod is CrashLoopBackOff. Where is the most likely place to find why?',
+      options: [
+        'kubectl get nodes',
+        'kubectl logs POD --previous: the output of the container that crashed',
+        'The Service’s endpoints',
+        'The image’s Dockerfile',
+      ],
+      answer: 1,
+      explain: 'The current container has only just restarted. The crash reason is in the previous container’s output (and describe’s Last State).',
+    },
+    {
+      q: 'A Pod is Pending with the event "0/3 nodes are available: 3 Insufficient memory". What does it mean?',
+      options: [
+        'The image is too big',
+        'No node has enough unreserved memory to satisfy the Pod’s memory request; lower the request, free capacity or add nodes',
+        'The container ran out of memory',
+        'The Pod is waiting for a Secret',
+      ],
+      answer: 1,
+      explain: 'Scheduling is based on requests. Pending plus FailedScheduling means no node fits.',
+    },
+    {
+      q: 'You deploy an image tag with a typo. With maxUnavailable: 0, what do users experience?',
+      options: [
+        'An outage until you fix it',
+        'Nothing: the new Pod is stuck in ImagePullBackOff and the old Pods keep serving until you undo or fix the rollout',
+        'Half of requests fail',
+        'The cluster rolls back automatically',
+      ],
+      answer: 1,
+      explain: 'Old Pods are only removed after new ones are ready. The rollout stalls; it doesn’t break service.',
+    },
+    {
+      q: 'Why does snip’s HPA show cpu: <unknown> on a cluster without metrics-server?',
+      options: [
+        'snip doesn’t use CPU',
+        'The HPA needs live usage from metrics-server to compute utilisation against requests',
+        'HPAs only work on the cloud',
+        'CPU limits are missing',
+      ],
+      answer: 1,
+      explain: 'Install metrics-server (managed clusters usually have it) and make sure containers have CPU requests.',
+    },
+    {
+      q: 'How can you inspect a running container whose image has no shell?',
+      options: [
+        'You can’t',
+        'kubectl debug adds an ephemeral container from an image with tools, sharing the Pod’s network and (with --target) the container’s processes',
+        'Rebuild the image with a shell and redeploy',
+        'Use kubectl exec with sh',
+      ],
+      answer: 1,
+      explain: 'Ephemeral containers keep production images minimal while still allowing investigation.',
+    },
+    {
+      q: 'What does a PodDisruptionBudget protect against?',
+      options: [
+        'Node crashes',
+        'Voluntary disruptions like drains and upgrades removing too many Pods at once',
+        'Memory leaks',
+        'Bad deployments',
+      ],
+      answer: 1,
+      explain: 'Evictions wait until the budget allows them. Crashes aren’t voluntary; replicas across nodes cover those.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Your API Pods restart every few minutes with no errors in their logs. What might be happening, and how do you find out?</summary>
+
+Restarts without application errors usually mean **Kubernetes** killed the container, not that the app crashed on its own. Run `kubectl describe pod` and read **Last State** and **Events**:
+
+- **`OOMKilled`, exit code 137**: the container hit its **memory limit**. Check `kubectl top pod` and memory trends; raise the limit or fix the leak (and set `GOMEMLIMIT` for Go, chapter 9.1).
+- **`Liveness probe failed`** events: the probe is failing, perhaps because a timeout is too short under load, or the endpoint is slow or checks dependencies. The kubelet restarts the container each time. Loosen the probe (timeout, failure threshold) or make `/healthz` cheap and dependency-free, as snip's is.
+- **Evictions** or node problems: check `kubectl get events` and node conditions.
+
+`kubectl logs --previous` confirms it: a clean log that simply stops is typical of a kill from outside.
+
+</details>
+
+<details>
+<summary>You need to patch the OS on every node of a 5-node production cluster. Plan it.</summary>
+
+1. Make sure workloads can tolerate losing a node: **2+ replicas** of everything important, spread across nodes (anti-affinity or topology spread), with **PDBs** (like snip's `minAvailable: 1`), and enough spare capacity for one node's Pods.
+2. For each node, one at a time: `kubectl cordon`, then `kubectl drain --ignore-daemonsets --delete-emptydir-data`. Evictions respect PDBs, so the drain waits for replacements to become ready elsewhere.
+3. Patch and reboot (or, on managed clusters, replace the node with a fresh, patched one, which is common and simpler).
+4. Check the node is `Ready`, `kubectl uncordon` it, and watch that workloads are healthy (dashboards, `kubectl get pods`) before moving on.
+5. Watch for stuck drains: usually a PDB that can't be satisfied, or a Pod without a controller (which drain refuses to delete without `--force`).
+
+Managed node pools automate exactly this as a "surge upgrade": add a new node, drain an old one, repeat.
+
+</details>

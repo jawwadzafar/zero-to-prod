@@ -170,7 +170,7 @@ jobs:
   snip-k8s:
     name: snip on Kubernetes (kind) works end to end
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
       - uses: helm/kind-action@v1
@@ -227,6 +227,88 @@ jobs:
           kubectl -n snip wait --for=jsonpath='{.status.phase}'=Succeeded pod/probe --timeout=120s
           RESULT=$(kubectl -n snip logs probe); echo "$RESULT"
           echo "$RESULT" | grep -q ' bad=0$'
+      - name: Chapter 10.4 lab — Secrets are only base64; config rolls out on restart; data survives its Pod
+        run: |
+          kubectl -n snip get secret snip-db -o jsonpath='{.data.SNIP_DATABASE_URL}' | base64 -d | grep -q snip-dev-only
+          kubectl -n snip patch configmap snip-config --type merge -p '{"data":{"SNIP_LOG_LEVEL":"debug"}}'
+          kubectl -n snip rollout restart deploy/api
+          timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
+          kubectl -n snip patch configmap snip-config --type merge -p '{"data":{"SNIP_LOG_LEVEL":"info"}}'
+          kubectl -n snip get pvc data-postgres-0
+          kubectl -n snip exec postgres-0 -- psql -U snip -c "INSERT INTO links (slug, url, owner_id) SELECT 'survivor', 'https://go.dev', id FROM api_keys LIMIT 1"
+          kubectl -n snip delete pod postgres-0
+          sleep 5
+          timeout 150 kubectl -n snip wait --for=condition=Ready pod/postgres-0 --timeout=120s
+          kubectl -n snip exec postgres-0 -- psql -U snip -c "SELECT slug, url FROM links WHERE slug='survivor'" | tee /dev/stderr | grep -q survivor
+      - name: Chapter 10.3 lab — endpoints and DNS
+        run: |
+          timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
+          kubectl -n snip get endpointslices -l kubernetes.io/service-name=api -o wide
+          kubectl -n snip run dns --rm -i --image=alpine:3.22 --restart=Never -- \
+            sh -c 'nslookup api; nslookup api.snip.svc.cluster.local; wget -qO- http://api/healthz' | tee /tmp/dns.txt
+          grep -q '"status":"ok"' /tmp/dns.txt
+      - name: Chapter 10.3 lab — NetworkPolicies block strangers, allow snip
+        run: |
+          kubectl -n snip run intruder --rm -i --image=alpine:3.22 --restart=Never -- \
+            sh -c 'nc -z -w 3 postgres 5432 && echo "postgres: OPEN" || echo "postgres: blocked"; wget -qO- -T 3 http://api/healthz' | tee /tmp/intruder.txt
+          grep -q 'postgres: blocked' /tmp/intruder.txt
+          grep -q '"status":"ok"' /tmp/intruder.txt
+          kubectl -n snip port-forward svc/api 8082:80 > /dev/null 2>&1 &
+          sleep 3
+          KEY=$(kubectl -n snip exec deploy/api -- snip keys create np | grep -o 'snip_[A-Za-z0-9]*')
+          SNIP_API_KEY="$KEY" snip/scripts/smoke.sh http://localhost:8082
+      - name: Chapter 10.3 lab — Gateway API with Envoy Gateway
+        run: |
+          helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 \
+            -n envoy-gateway-system --create-namespace --wait --timeout 5m
+          kubectl apply -f snip/deploy/k8s/gateway/gateway.yaml
+          timeout 200 kubectl -n snip wait --for=condition=Programmed gateway/snip --timeout=180s
+          SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=snip -o name)
+          kubectl -n envoy-gateway-system port-forward "$SVC" 8888:80 > /dev/null 2>&1 &
+          sleep 3
+          curl -fsS -H "Host: snip.localhost" localhost:8888/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: other.example' localhost:8888/healthz)" = 404
+      - name: Chapter 10.5 lab — break it four ways
+        run: |
+          set -x
+          # 1. bad image tag: new Pod can't pull; old Pods keep serving; undo
+          kubectl -n snip set image deploy/api api=ghcr.io/jawwadzafar/snip:does-not-exist
+          for i in $(seq 1 30); do kubectl -n snip get pods -l app.kubernetes.io/name=api | grep -qE 'ErrImagePull|ImagePullBackOff' && break; sleep 3; done
+          kubectl -n snip get pods -l app.kubernetes.io/name=api | grep -E 'ErrImagePull|ImagePullBackOff'
+          test "$(kubectl -n snip get deploy api -o jsonpath='{.status.readyReplicas}')" = 2
+          kubectl -n snip rollout undo deploy/api
+          timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
+          # 2. config the app rejects → CrashLoopBackOff, reason in --previous logs
+          kubectl -n snip set env deploy/api SNIP_RATE_LIMIT=0
+          for i in $(seq 1 40); do
+            NEW=$(kubectl -n snip get pods -l app.kubernetes.io/name=api --sort-by=.metadata.creationTimestamp -o name | tail -1)
+            kubectl -n snip logs "$NEW" --previous 2>/dev/null | grep -q 'SNIP_RATE_LIMIT: must be a positive integer' && break
+            sleep 3
+          done
+          kubectl -n snip logs "$NEW" --previous | grep 'SNIP_RATE_LIMIT: must be a positive integer'
+          kubectl -n snip set env deploy/api SNIP_RATE_LIMIT-
+          timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
+          # 3. impossible request → Pending, FailedScheduling
+          kubectl -n snip create deployment greedy --image=ghcr.io/jawwadzafar/snip:main
+          kubectl -n snip set resources deploy/greedy --requests=cpu=64
+          for i in $(seq 1 30); do kubectl -n snip describe pod -l app=greedy | grep -q 'Insufficient cpu' && break; sleep 2; done
+          kubectl -n snip describe pod -l app=greedy | grep 'Insufficient cpu'
+          kubectl -n snip delete deploy greedy
+          # 4. ephemeral debug container in a shell-less Pod
+          POD=$(kubectl -n snip get pods -l app.kubernetes.io/name=api -o name | head -1)
+          kubectl -n snip debug "$POD" --image=alpine:3.22 --target=api --profile=general --container=dbg -- \
+            sh -c 'ps; wget -qO- localhost:8080/readyz; echo; cat /proc/1/environ | tr "\0" "\n" | grep SNIP_LOG'
+          for i in $(seq 1 30); do kubectl -n snip logs "$POD" -c dbg 2>/dev/null | grep -q SNIP_LOG_LEVEL && break; sleep 2; done
+          kubectl -n snip logs "$POD" -c dbg | tee /dev/stderr | grep -q SNIP_LOG_LEVEL
+      - name: Chapter 10.5 lab — metrics-server, kubectl top, HPA
+        run: |
+          helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+          helm install metrics-server metrics-server/metrics-server -n kube-system \
+            --set 'args={--kubelet-insecure-tls}' --wait --timeout 5m
+          for i in $(seq 1 40); do kubectl -n snip top pods 2>/dev/null && break; sleep 5; done
+          kubectl -n snip top pods
+          for i in $(seq 1 40); do kubectl -n snip get hpa api | grep -q 'cpu: [0-9]' && break; sleep 5; done
+          kubectl -n snip get hpa api | tee /dev/stderr | grep -q 'cpu: [0-9]'
       - name: Chapter 10.1 lab — the published image, imperative commands, self-healing, scaling
         run: |
           kubectl create deployment snip --image=ghcr.io/jawwadzafar/snip:main --replicas=3
