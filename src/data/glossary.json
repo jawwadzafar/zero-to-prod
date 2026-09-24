@@ -195,6 +195,11 @@
   "doc": "foundations/bits-bytes-text-formats"
  },
  {
+  "term": "Blameless",
+  "def": "The postmortem principle of assuming people acted reasonably given what they knew, and asking how the system let that cause harm, so people share facts openly.",
+  "doc": "observability/incidents-and-postmortems"
+ },
+ {
   "term": "Blast radius",
   "def": "How many users or systems a failure affects. Canaries and cells keep it small.",
   "doc": "shipping/delivery-and-deployment"
@@ -328,6 +333,11 @@
   "term": "Channel",
   "def": "A typed pipe for passing values safely between goroutines.",
   "doc": "go/concurrency"
+ },
+ {
+  "term": "Chaos engineering",
+  "def": "Running failure experiments systematically, with a written hypothesis, sometimes automatically and in production (e.g. Netflix's Chaos Monkey).",
+  "doc": "observability/incidents-and-postmortems"
  },
  {
   "term": "Chart version",
@@ -488,6 +498,11 @@
   "term": "Contract test",
   "def": "A test that checks the code still matches its published contract.",
   "doc": "apis/api-contracts"
+ },
+ {
+  "term": "Contributing factor",
+  "def": "One of the several conditions that combined to cause an incident. Real incidents rarely have a single root cause.",
+  "doc": "observability/incidents-and-postmortems"
  },
  {
   "term": "Control plane",
@@ -855,6 +870,11 @@
   "doc": "linux/running-a-linux-server"
  },
  {
+  "term": "Five whys",
+  "def": "Asking \"why?\" repeatedly to trace a problem back to something fixable. A good start, but it tends to follow one chain and stop at a person.",
+  "doc": "observability/incidents-and-postmortems"
+ },
+ {
   "term": "Flaky test",
   "def": "A test that sometimes passes and sometimes fails without any code change — a bug to fix, not ignore.",
   "doc": "go/testing"
@@ -888,6 +908,11 @@
   "term": "Function",
   "def": "A named, reusable set of steps that takes inputs (parameters) and can return outputs.",
   "doc": "go/why-go-first-program"
+ },
+ {
+  "term": "Game day",
+  "def": "A planned exercise where you deliberately break part of a system to test your assumptions, alerts, dashboards and runbooks.",
+  "doc": "observability/incidents-and-postmortems"
  },
  {
   "term": "Gateway API",
@@ -930,6 +955,11 @@
   "doc": "containers/images-in-production"
  },
  {
+  "term": "Graceful degradation",
+  "def": "Continuing to provide the core function, perhaps slower or with features off, when part of the system fails, instead of failing completely.",
+  "doc": "observability/incidents-and-postmortems"
+ },
+ {
   "term": "Graceful shutdown",
   "def": "Stopping a server by refusing new work and letting in-flight requests finish before exiting.",
   "doc": "go/concurrency"
@@ -953,6 +983,11 @@
   "term": "Handler",
   "def": "A function that receives an HTTP request and writes the response; in Go, func(w http.ResponseWriter, r *http.Request).",
   "doc": "apis/first-http-server"
+ },
+ {
+  "term": "Hard vs soft dependency",
+  "def": "A hard dependency is one a service can't work without (snip's Postgres); a soft one only makes it worse when missing (snip's Redis cache). Readiness should fail only for hard ones.",
+  "doc": "observability/incidents-and-postmortems"
  },
  {
   "term": "Hash (commit ID)",
@@ -1133,6 +1168,16 @@
   "term": "import block",
   "def": "Brings an existing, hand-made resource under Terraform management without recreating it.",
   "doc": "cloud/terraform-in-real-life"
+ },
+ {
+  "term": "Incident",
+  "def": "An unplanned event that hurts (or is about to hurt) users or the business enough that normal work stops and a coordinated response starts.",
+  "doc": "observability/incidents-and-postmortems"
+ },
+ {
+  "term": "Incident commander (IC)",
+  "def": "The person who owns an incident response: sets priorities, assigns work, makes decisions and keeps communication going. They don't debug.",
+  "doc": "observability/incidents-and-postmortems"
  },
  {
   "term": "Index / B-tree",
@@ -1455,9 +1500,19 @@
   "doc": "cloud/terraform-in-real-life"
  },
  {
+  "term": "Mitigation",
+  "def": "Stopping the damage during an incident (roll back, scale out, fail over, turn off a feature) before the underlying cause is understood.",
+  "doc": "observability/incidents-and-postmortems"
+ },
+ {
   "term": "moved block",
   "def": "Tells Terraform a resource was renamed or moved in code, so it isn't destroyed and recreated.",
   "doc": "cloud/terraform-in-real-life"
+ },
+ {
+  "term": "MTTR",
+  "def": "Mean time to recover (or restore): how long, on average, from an incident starting to users being fine. Useful for trends, misleading as a target.",
+  "doc": "observability/incidents-and-postmortems"
  },
  {
   "term": "Multi-architecture image",
@@ -1758,6 +1813,11 @@
   "term": "port-forward",
   "def": "kubectl port-forward: a tunnel from a local port through the API server to a Pod or Service, for debugging.",
   "doc": "kubernetes/networking-and-ingress"
+ },
+ {
+  "term": "Postmortem",
+  "def": "A written review after an incident: what happened, why, what went well, and the action items that will change the system.",
+  "doc": "observability/incidents-and-postmortems"
  },
  {
   "term": "Pre-signed URL",
@@ -2220,6 +2280,11 @@
   "doc": "linux/bash-scripting"
  },
  {
+  "term": "Severity level (SEV)",
+  "def": "A pre-agreed grade for how bad an incident is (SEV1 = core function down for many users), which sets how loud and fast the response is.",
+  "doc": "observability/incidents-and-postmortems"
+ },
+ {
   "term": "Sharding",
   "def": "Splitting data across several independent databases by a shard key, so each handles part of the writes. Makes cross-shard queries and transactions hard.",
   "doc": "distributed/scaling"
@@ -2403,6 +2468,11 @@
   "term": "Status code",
   "def": "The three-digit number in an HTTP response: 2xx success, 3xx redirect, 4xx client error, 5xx server error.",
   "doc": "foundations/http-from-zero"
+ },
+ {
+  "term": "Status page",
+  "def": "A public page, hosted separately from the service, showing its current health and incident updates for users.",
+  "doc": "observability/incidents-and-postmortems"
  },
  {
   "term": "stdin / stdout / stderr",

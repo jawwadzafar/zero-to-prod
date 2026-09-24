@@ -306,7 +306,7 @@ Free, on your own computer with Docker. You'll run the whole stack — two snip 
 <details>
 <summary>Explain passive vs active health checks, and why snip's <code>/readyz</code> matters for the second.</summary>
 
-**Passive** health checking learns from real traffic: when requests to a backend fail (connection refused, timeouts), the proxy marks it unhealthy for a while and routes elsewhere. It's automatic but only notices after some requests have failed. **Active** health checking polls a dedicated endpoint every few seconds and removes backends that fail *before* users hit them. snip's `/readyz` is designed for exactly that: it reports whether snip can reach Postgres and Redis, so a copy that's alive but can't serve (say, it lost its database connection) is taken out of rotation instead of returning errors to users — while `/healthz`, used for restarts, stays green (chapter 5.4).
+**Passive** health checking learns from real traffic: when requests to a backend fail (connection refused, timeouts), the proxy marks it unhealthy for a while and routes elsewhere. It's automatic but only notices after some requests have failed. **Active** health checking polls a dedicated endpoint every few seconds and removes backends that fail *before* users hit them. snip's `/readyz` is designed for exactly that: it reports whether snip can reach Postgres and Redis, and fails only when a copy truly can't serve (say, it lost its database connection), so that copy is taken out of rotation instead of returning errors to users — while `/healthz`, used for restarts, stays green (chapter 5.4).
 
 </details>
 

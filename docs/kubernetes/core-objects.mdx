@@ -138,7 +138,7 @@ The kubelet asks each container three different questions (chapter 5.4 introduce
 |---|---|---|---|
 | **startupProbe** | Has it finished starting? | Keep waiting (up to a limit); other probes don't run yet | `/healthz`, every 2 s, up to 30 times: time for migrations on first start |
 | **livenessProbe** | Is it alive, or stuck? | **Restart the container** | `/healthz`: never checks dependencies |
-| **readinessProbe** | Should it receive traffic right now? | **Take it out of the Service**, but don't restart it | `/readyz`: checks Postgres and Redis |
+| **readinessProbe** | Should it receive traffic right now? | **Take it out of the Service**, but don't restart it | `/readyz`: fails if Postgres is down (Redis down = degraded, still ready; chapter 13.5) |
 
 The difference between liveness and readiness matters enormously. If Postgres goes down and the **liveness** probe checked the database, Kubernetes would restart every API Pod, again and again, which fixes nothing and adds a restart storm to a database outage. With snip's split, Pods stay alive but are marked **not ready**, so traffic stops going to them, and they come back into service by themselves once the database recovers.
 
@@ -385,9 +385,9 @@ If (2) happens faster than (1) finishes, some nodes still route new requests to 
 <summary>Your API Pods show READY 0/1 and never become ready, but logs show no errors. How do you investigate?</summary>
 
 1. `kubectl describe pod NAME` and read the **Events** at the bottom: failing readiness probes are reported there with the HTTP status or error.
-2. Check what the readiness probe checks. For snip, `/readyz` pings Postgres and Redis, so check those Pods are Running and ready, and that their Services exist: `kubectl get pods,svc`.
+2. Check what the readiness probe checks. For snip, `/readyz` fails when it can't reach Postgres (it also reports Redis, but a Redis outage alone doesn't fail it), so check the Postgres Pod is Running and ready, and that its Service exists: `kubectl get pods,svc`.
 3. Test the endpoint yourself from inside the cluster, e.g. `kubectl run -it --rm debug --image=curlimages/curl:8.22.0 --restart=Never -- curl -v http://api/readyz`, or port-forward to one Pod and curl `/readyz`.
-4. Check the configuration the Pod actually received: `kubectl exec deploy/api -- env` isn't possible in distroless, but `kubectl get pod NAME -o yaml` shows the env sources, and `kubectl get cm snip-config -o yaml` shows values. A typo in `SNIP_REDIS_ADDR` is a classic cause.
+4. Check the configuration the Pod actually received: `kubectl exec deploy/api -- env` isn't possible in distroless, but `kubectl get pod NAME -o yaml` shows the env sources, and `kubectl get cm snip-config -o yaml` shows values. A typo in `SNIP_DATABASE_URL` is a classic cause.
 5. Check probe settings: a port name or path typo, or a timeout too short for the check.
 
 </details>

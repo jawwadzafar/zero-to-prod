@@ -44,7 +44,7 @@ Then fix the **desired state**, not the Pod (chapter 10.1). Deleting a broken Po
 | `CreateContainerConfigError` | The container's configuration is invalid | `describe` events | A referenced ConfigMap, Secret or key doesn't exist; a security setting that can't be satisfied (the `runAsNonRoot` story in chapter 10.2) |
 | `CrashLoopBackOff` | The container starts, exits, and is restarted with growing delays (10 s, 20 s, 40 s… up to 5 min) | `logs --previous` | The app exits on bad config or a failing dependency; a liveness probe that's too strict; the wrong command |
 | `OOMKilled` (in `describe`, "Last State") | Killed for exceeding its memory limit; exit code 137 | `describe` → Last State | Memory limit too low, or a leak (chapter 9.1) |
-| `Running`, `READY 0/1` | The process runs, but the readiness probe fails, so it gets no traffic | `describe` → `Readiness probe failed` | A dependency is down (snip's `/readyz` checks Postgres and Redis); wrong probe path or port |
+| `Running`, `READY 0/1` | The process runs, but the readiness probe fails, so it gets no traffic | `describe` → `Readiness probe failed` | A hard dependency is down (snip's `/readyz` fails if Postgres is unreachable; Redis down only marks it degraded, chapter 13.5); wrong probe path or port |
 | `Evicted` | The node ran low on memory or disk and removed the Pod | `describe`, node conditions | Pods without requests on a crowded node; filling the node's disk with logs |
 | `Terminating` (for long) | The Pod won't finish shutting down | `describe`, finalizers | A process ignoring SIGTERM until the grace period ends; stuck volume detach |
 
