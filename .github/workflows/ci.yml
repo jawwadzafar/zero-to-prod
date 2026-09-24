@@ -345,8 +345,13 @@ jobs:
           for _ in $(seq 1 30); do kubectl -n snip describe pod -l app=greedy | grep -q 'Insufficient cpu' && break; sleep 2; done
           kubectl -n snip describe pod -l app=greedy | grep 'Insufficient cpu'
           kubectl -n snip delete deploy greedy
-          # 4. ephemeral debug container in a shell-less Pod
-          POD=$(kubectl -n snip get pods -l app.kubernetes.io/name=api -o name | head -1)
+          # 4. ephemeral debug container in a shell-less Pod. Wait for old Pods from the
+          #    rollouts above to finish terminating, and pick a live one.
+          for _ in $(seq 1 60); do
+            [ "$(kubectl -n snip get pods -l app.kubernetes.io/name=api --no-headers | wc -l)" = 2 ] && break; sleep 2
+          done
+          POD=pod/$(kubectl -n snip get pods -l app.kubernetes.io/name=api \
+            -o go-template='{{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}' | head -1)
           kubectl -n snip debug "$POD" --image=alpine:3.22 --target=api --profile=general --container=dbg -- \
             sh -c 'ps; wget -qO- localhost:8080/readyz; echo; cat /proc/1/environ | tr "\0" "\n" | grep SNIP_LOG'
           for _ in $(seq 1 30); do kubectl -n snip logs "$POD" -c dbg 2>/dev/null | grep -q SNIP_LOG_LEVEL && break; sleep 2; done
@@ -504,5 +509,7 @@ jobs:
       - name: Misconfiguration scan of all infrastructure code (report only, chapter 12.6)
         working-directory: snip
         run: |
-          docker run --rm -v "$PWD:/src:ro" aquasec/trivy:0.74.0 \
-            config --severity HIGH,CRITICAL --exit-code 0 /src/infra /src/deploy
+          for dir in infra deploy; do
+            docker run --rm -v "$PWD:/src:ro" aquasec/trivy:0.74.0 \
+              config --severity HIGH,CRITICAL --exit-code 0 "/src/$dir"
+          done
