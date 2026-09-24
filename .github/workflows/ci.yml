@@ -291,6 +291,26 @@ jobs:
           sleep 3
           curl -fsS -H "Host: snip.localhost" localhost:8888/healthz
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: other.example' localhost:8888/healthz)" = 404
+      - name: Chapter 11.3 lab — canary release with weighted routing
+        run: |
+          kubectl apply -f snip/deploy/k8s/canary/canary.yaml
+          timeout 200 kubectl -n snip rollout status deploy/api-canary --timeout=180s
+          kubectl apply -f snip/deploy/k8s/canary/route.yaml
+          SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=snip -o name)
+          kubectl -n envoy-gateway-system port-forward "$SVC" 8889:80 > /dev/null 2>&1 &
+          sleep 8
+          count() {  # how many of 200 requests the canary answered
+            for _ in $(seq 1 200); do
+              curl -s -D - -o /dev/null -H "Host: snip.localhost" localhost:8889/healthz | grep -i '^x-snip-track'
+            done | grep -ci canary || true
+          }
+          C=$(count); echo "canary answered $C of 200 at weight 10"
+          [ "$C" -ge 5 ] && [ "$C" -le 50 ]
+          sed -e 's/weight: 90/weight: 0/' -e 's/weight: 10/weight: 100/' snip/deploy/k8s/canary/route.yaml | kubectl apply -f -
+          for _ in $(seq 1 20); do C=$(count); [ "$C" = 200 ] && break; sleep 3; done
+          echo "canary answered $C of 200 after promotion"; [ "$C" = 200 ]
+          kubectl apply -f snip/deploy/k8s/gateway/gateway.yaml           # back to the plain route
+          kubectl delete -f snip/deploy/k8s/canary/canary.yaml
       - name: Chapter 10.5 lab — break it four ways
         run: |
           set -x

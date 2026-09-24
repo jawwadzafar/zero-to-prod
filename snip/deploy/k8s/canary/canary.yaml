@@ -1,0 +1,72 @@
+# A canary release of snip's API (chapter 11.3): a second, small Deployment
+# that receives a controlled share of traffic through the Gateway.
+# Apply after chapter 10.3's Gateway:  kubectl apply -f deploy/k8s/canary/
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-canary
+  namespace: snip
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-canary
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-canary
+        app.kubernetes.io/part-of: snip
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          # In a real canary this is the NEW version's image. The lab reuses the
+          # same image so it works offline; the route labels each response instead.
+          image: snip:dev
+          envFrom:
+            - configMapRef: { name: snip-config }
+            - secretRef: { name: snip-db }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-canary
+  namespace: snip
+spec:
+  selector:
+    app.kubernetes.io/name: api-canary
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# The canary accepts HTTP from anywhere, like the stable API (chapter 10.3).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-canary-from-anywhere
+  namespace: snip
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-canary
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: 8080

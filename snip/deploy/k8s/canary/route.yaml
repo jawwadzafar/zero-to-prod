@@ -1,0 +1,33 @@
+# Replaces chapter 10.3's route: 90% of requests to the stable API, 10% to the
+# canary. Each backend adds an x-snip-track header so you can see the split.
+# Promote by editing the weights (50/50, then 0/100) and re-applying.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: snip
+  namespace: snip
+spec:
+  parentRefs:
+    - name: snip
+  hostnames:
+    - snip.localhost
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: / }
+      backendRefs:
+        - name: api
+          port: 80
+          weight: 90
+          filters:
+            - type: ResponseHeaderModifier
+              responseHeaderModifier:
+                set:
+                  - { name: x-snip-track, value: stable }
+        - name: api-canary
+          port: 80
+          weight: 10
+          filters:
+            - type: ResponseHeaderModifier
+              responseHeaderModifier:
+                set:
+                  - { name: x-snip-track, value: canary }
