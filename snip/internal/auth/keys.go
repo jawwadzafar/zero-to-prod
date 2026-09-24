@@ -25,6 +25,7 @@ type Owner struct {
 type KeyStore interface {
 	CreateKey(ctx context.Context, name, keyHash string) (Owner, error)
 	LookupKey(ctx context.Context, keyHash string) (Owner, error) // ErrUnknownKey if none
+	RevokeKey(ctx context.Context, id int64) error                // ErrUnknownKey if no active key has this id
 }
 
 const keyPrefix = "snip_"

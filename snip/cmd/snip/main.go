@@ -3,6 +3,7 @@
 //	snip                    start the HTTP server (same as "snip serve")
 //	snip migrate            apply database migrations and exit
 //	snip keys create NAME   create an API key and print it once
+//	snip keys revoke ID     revoke the API key of owner ID
 //
 // All settings come from SNIP_* environment variables (internal/config).
 package main
@@ -15,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -98,13 +100,24 @@ func run(args []string) error {
 		log.Info("migrations applied", "versions", applied)
 		return nil
 	case "keys":
-		if len(args) != 3 || args[1] != "create" {
-			return errors.New(`usage: snip keys create NAME`)
+		if len(args) != 3 || (args[1] != "create" && args[1] != "revoke") {
+			return errors.New("usage: snip keys create NAME | snip keys revoke OWNER_ID")
 		}
 		if pg != nil { // make sure the api_keys table exists on a fresh database
 			if _, err := pg.Migrate(ctx); err != nil {
 				return err
 			}
+		}
+		if args[1] == "revoke" {
+			id, err := strconv.ParseInt(args[2], 10, 64)
+			if err != nil {
+				return fmt.Errorf("OWNER_ID must be a number: %w", err)
+			}
+			if err := st.RevokeKey(ctx, id); err != nil {
+				return err
+			}
+			fmt.Printf("revoked API key for owner id %d — it stops working immediately\n", id)
+			return nil
 		}
 		key, owner, err := auth.CreateKey(ctx, st, args[2])
 		if err != nil {

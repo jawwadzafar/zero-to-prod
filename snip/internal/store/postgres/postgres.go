@@ -198,3 +198,17 @@ func (s *Store) LookupKey(ctx context.Context, keyHash string) (auth.Owner, erro
 	}
 	return o, err
 }
+
+// RevokeKey marks a key as revoked. The row is kept (revoked_at is set) so
+// the history of who owned which links stays intact.
+func (s *Store) RevokeKey(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return auth.ErrUnknownKey
+	}
+	return nil
+}

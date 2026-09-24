@@ -101,3 +101,21 @@ func TestAddClicksIsAtomic(t *testing.T) {
 		t.Fatalf("clicks = %d, want 100", got.Clicks)
 	}
 }
+
+func TestRevokedKeyStopsWorking(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+	key, owner, err := auth.CreateKey(ctx, st, "to-revoke")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RevokeKey(ctx, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.Authenticate(ctx, st, key); !errors.Is(err, auth.ErrUnknownKey) {
+		t.Fatalf("revoked key: Authenticate error = %v, want ErrUnknownKey", err)
+	}
+	if err := st.RevokeKey(ctx, owner.ID); !errors.Is(err, auth.ErrUnknownKey) {
+		t.Fatalf("revoking twice = %v, want ErrUnknownKey", err)
+	}
+}

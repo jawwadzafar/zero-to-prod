@@ -1,0 +1,322 @@
+---
+title: "7.2 Authentication: passwords, sessions & tokens"
+sidebar_label: "7.2 Authentication"
+description: "Proving who someone is — authentication vs authorization, passwords done right, multi-factor authentication, server-side sessions and cookie flags, bearer tokens and JWTs, API keys like snip's (show once, store a hash, revoke), and the classic mistakes that leak accounts."
+---
+
+# 7.2 Authentication: passwords, sessions & tokens
+
+Every request that reaches snip's management API carries a claim: *"I'm the owner of these links."* Before snip does anything, it must check that claim — and because HTTP forgets everything between requests (chapter 1.5), it has to check it **on every single request**. That's **authentication**: proving who someone is. It's also where many of the worst real-world breaches start: weak passwords, stolen session cookies, leaked API keys, tokens that never expire. This chapter covers the main ways systems authenticate people and programs — passwords, sessions, tokens and API keys — with snip's real API-key code as the worked example.
+
+## What you'll learn
+
+- **Authentication** (who are you?) vs **authorization** (what may you do?) — and why mixing them up causes bugs.
+- **Passwords** done right: storage, login rules, rate limiting, and **multi-factor authentication**.
+- **Sessions**: a random ID in a cookie, and the cookie flags (**HttpOnly**, **Secure**, **SameSite**) that protect it.
+- **Tokens**: bearer tokens and **JWTs** — what they are, their big advantage, and their big problem (revocation).
+- **API keys** the way snip does them: generate, show once, store only a hash, send as a bearer token, revoke.
+
+---
+
+## Authentication vs authorization
+
+Two words that sound alike and must never be confused:
+
+- **Authentication** (**authn**) — *who are you?* Proving identity: a password, a key, a fingerprint.
+- **Authorization** (**authz**) — *what are you allowed to do?* Checking permissions: may this user delete this link?
+
+```mermaid
+flowchart LR
+    R["Request with credentials"] --> A{"Authentication<br/>Who is this?"}
+    A -->|"unknown / invalid"| E401["401 Unauthorized"]
+    A -->|"it's owner 7"| Z{"Authorization<br/>May owner 7 do this?"}
+    Z -->|"no"| E403["403 / 404"]
+    Z -->|"yes"| OK["Do it"]
+```
+
+They map onto HTTP status codes you met in chapter 1.5: **401** means authentication failed (despite its name, "Unauthorized"); **403** means authenticated but not permitted. This chapter is about the first box; chapter 7.4 is about the second.
+
+:::note[Everyday anchor]
+At an airport, showing your passport is **authentication** — it proves you are who you say. Your boarding pass is **authorization** — it says which flight you may board. A valid passport doesn't get you onto every plane.
+:::
+
+---
+
+## Factors: what you know, have, and are
+
+Ways to prove identity come in three kinds, called **factors**:
+
+| Factor | Examples | Weakness |
+|---|---|---|
+| Something you **know** | password, PIN | Guessed, phished, reused, leaked |
+| Something you **have** | phone app codes, a security key, a device | Lost or stolen |
+| Something you **are** | fingerprint, face | Can't be changed if leaked |
+
+**Multi-factor authentication (MFA)** requires two or more *different* factors — typically a password plus a code from an app, or a hardware security key. It's the single most effective protection for accounts: a stolen password alone is no longer enough. The strongest option today is **passkeys** / **FIDO2** security keys, which use public-key cryptography (chapter 7.1) and can't be phished, because the key only ever signs challenges for the real site's domain.
+
+---
+
+## Passwords, done properly
+
+If your product has passwords, the essentials are:
+
+1. **Store only slow, salted hashes** — Argon2id or bcrypt (chapter 7.1). Never plain text, never encryption, never a fast hash.
+2. **Prefer length over complexity.** Current guidance (NIST SP 800-63B) says: require a reasonable minimum length (at least 8, better 12–15+), allow long passphrases and all characters, **check new passwords against lists of breached passwords**, and **don't** force arbitrary complexity rules or periodic rotation — they push people towards `Password1!`, `Password2!`…
+3. **Limit login attempts** per account and per IP address (chapter 8.4), so guessing is slow.
+4. **Give the same error for "no such user" and "wrong password"** — *"Invalid email or password"* — so attackers can't use your login form to discover which emails have accounts.
+5. **Offer MFA**, and require it for administrators.
+6. **Make password resets safe**: a random, single-use, short-lived token (from `crypto/rand`, chapter 7.1), sent to the verified email, stored only as a hash.
+
+:::info[In the real world]
+**Credential stuffing** — taking usernames and passwords leaked from one site and trying them on thousands of others — is one of the most common attacks on the internet, because people reuse passwords. Breached-password checks, rate limits and MFA are the defences. Services like "Have I Been Pwned" publish collections of breached passwords (safely, as hashes) precisely so sites can refuse them.
+:::
+
+---
+
+## Sessions: remembering a login in a browser
+
+After a user logs in with their password, you don't want them to send it again with every request. Instead, the server creates a **session**:
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant S as Server
+    participant D as Session store (DB / Redis)
+    B->>S: POST /login (email + password)
+    S->>S: check password hash
+    S->>D: save session: id=Kx9…, user=7, expires in 7 days
+    S->>B: 200 OK + Set-Cookie: session=Kx9…; HttpOnly; Secure; SameSite=Lax
+    B->>S: GET /dashboard + Cookie: session=Kx9…
+    S->>D: look up Kx9… → user 7
+    S->>B: 200 OK (user 7's dashboard)
+```
+
+1. The server generates a **session ID** — long and random (`crypto/rand`) — and stores `session ID → user` in a database or Redis (chapter 6.7), with an expiry.
+2. It sends the ID to the browser in a **cookie** (chapter 1.5).
+3. The browser automatically sends the cookie back on every request; the server looks the ID up.
+4. **Logout** deletes the session on the server — it's instantly invalid everywhere.
+
+The session ID is effectively a temporary password, so the cookie carrying it needs protection. Three **cookie flags** matter:
+
+| Flag | Effect | Protects against |
+|---|---|---|
+| **`HttpOnly`** | JavaScript on the page can't read the cookie | Stealing the session via injected scripts (XSS, chapter 7.5) |
+| **`Secure`** | Only sent over HTTPS | Eavesdropping on unencrypted connections |
+| **`SameSite=Lax`** (or `Strict`) | Not sent on most requests initiated by other sites | Cross-site request forgery (CSRF, chapter 7.5) |
+
+---
+
+## Tokens: carrying proof with every request
+
+Mobile apps, command-line tools and programs calling APIs don't have a browser's cookie jar. Instead, they send a **token** in a header on every request:
+
+```http
+Authorization: Bearer snip_9fQ2k…
+```
+
+**Bearer** means exactly what it sounds like: *whoever bears (holds) this token is treated as its owner.* No other proof is required. That makes bearer tokens simple — and means a stolen token is as good as a stolen password until it expires or is revoked. So: always send them over HTTPS, never put them in URLs (URLs end up in logs and browser history), and never log them.
+
+### JWTs: tokens that carry their own claims
+
+A **JWT** (JSON Web Token, pronounced "jot") is a popular token format that contains information *inside* the token, **signed** by the server (chapter 7.1):
+
+```text
+eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3IiwiZXhwIjoxNzkwMDAwMDAwfQ.qUw4…
+└──── header ──────┘ └────────── payload ──────────────────┘ └ signature ┘
+```
+
+Each part is Base64 (chapter 1.3) — **readable by anyone**. Decoded, the payload might be `{"sub": "7", "exp": 1790000000}`: "this is user 7, valid until this Unix time". The **signature** proves the server issued it and nobody changed it.
+
+| | Server-side sessions / opaque tokens | JWTs |
+|---|---|---|
+| How the server checks it | Looks the ID up in a store | Verifies the signature — no lookup |
+| Revoke immediately? | ✅ Delete it from the store | ❌ Valid until it expires (unless you add a deny-list — a lookup again) |
+| Contents visible to the client? | No — just a random ID | Yes — anyone can decode the payload |
+| Good for | Most web apps and APIs | Passing identity between many services without a shared store (chapter 7.3) |
+
+The standard way to live with the revocation problem is **short-lived access tokens** (minutes) plus a longer-lived **refresh token** that the client exchanges for new access tokens — and which *can* be revoked. You'll see this in OAuth and OpenID Connect (chapter 7.3).
+
+:::warning
+JWTs are **signed, not encrypted**: never put secrets in the payload. And always verify the signature with a known algorithm — historic library bugs accepted tokens with `"alg": "none"` (no signature at all).
+:::
+
+---
+
+## API keys: how snip authenticates
+
+snip's API is used by programs and scripts, not browsers, so it uses **API keys**: long-lived bearer tokens tied to an owner. Here's the whole lifecycle, in snip's real code.
+
+**1. Generate** — 32 random characters from `crypto/rand`, with a recognisable `snip_` prefix (chapter 7.1).
+
+**2. Store only a hash, show the key once.** From `internal/auth/keys.go`:
+
+```go
+// CreateKey generates a key, stores its hash, and returns the plaintext key
+// (the only time it is ever visible) with its owner record.
+func CreateKey(ctx context.Context, ks KeyStore, name string) (string, Owner, error) {
+	key := GenerateKey()
+	owner, err := ks.CreateKey(ctx, name, HashKey(key))
+	return key, owner, err
+}
+```
+
+The database holds `key_hash`, never the key. If the database leaks, the attacker gets hashes of random 190-bit values — useless. The user sees the key exactly once (`snip keys create`) and must store it; lost keys are replaced, never recovered. (GitHub, Stripe and AWS all work this way.)
+
+**3. Authenticate every request.** The `requireKey` middleware (`internal/httpapi/middleware.go`) runs before every `/api/…` handler:
+
+```go
+func (s *Server) requireKey(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="snip"`)
+			writeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid API key")
+			return
+		}
+		owner, err := auth.Authenticate(r.Context(), s.keys, strings.TrimSpace(key))
+		if err != nil {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="snip"`)
+			s.writeDomainError(w, r, err)
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ownerKey, owner)))
+	}
+}
+```
+
+`Authenticate` hashes the presented key and looks the hash up — `SELECT id, name FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL`. On success, the **owner** is attached to the request's context (chapter 4.5), and every handler after it knows exactly who is asking. Every failure — no header, wrong format, unknown key, revoked key — gives the **same** `401 unauthorized`, revealing nothing about *why*.
+
+**4. Revoke** — keys leak (pasted into a chat, committed to Git, left in a laptop backup). Revocation must be instant:
+
+```bash
+snip keys revoke 7        # sets revoked_at = now() for owner 7's key
+```
+
+The row stays (so ownership history is intact), but `revoked_at IS NOT NULL` makes the lookup fail from the very next request. Because snip checks keys against the database on every request — rather than trusting a self-contained token — revocation is immediate, which is exactly the trade-off in the table above.
+
+:::tip[API key hygiene]
+Give each integration **its own key** (so revoking one doesn't break the others), rotate keys periodically by creating a new one before revoking the old, store them in a secrets manager rather than code (chapter 7.6), and add the prefix to your secret-scanning rules so leaks are caught automatically.
+:::
+
+---
+
+## Which mechanism when?
+
+| Who is calling | Typical choice |
+|---|---|
+| A person in a browser | Login (password + MFA, or "Sign in with…", chapter 7.3) → **server-side session cookie** |
+| A mobile or single-page app | OAuth/OIDC login → **short-lived access token + refresh token** (chapter 7.3) |
+| A script or partner integration calling your API | **API key** (like snip) or OAuth client credentials |
+| One of your services calling another | Workload identity: mTLS or signed tokens from your platform (chapters 7.3, 12.4) |
+
+:::warning[What can go wrong]
+- **Plain-text or fast-hashed passwords.** A database leak becomes an account-takeover disaster.
+- **Revealing which accounts exist.** "No user with that email" vs "wrong password" lets attackers enumerate users.
+- **No rate limit on login.** Unlimited guessing.
+- **Session cookies without HttpOnly/Secure/SameSite.** Stolen by scripts, sniffed, or ridden by forged requests.
+- **Long-lived JWTs with no way to revoke them.** A stolen token works for weeks.
+- **Tokens in URLs or logs.** `?api_key=…` ends up in server logs, proxies and browser history.
+- **Keys in Git.** Treat as leaked: revoke and replace (chapter 3.1).
+:::
+
+---
+
+## Lab
+
+Free, on your own computer.
+
+1. **Decode a JWT by hand** — proof that its contents aren't secret:
+   ```bash
+   TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3IiwibmFtZSI6ImFkYSIsImV4cCI6MTc5MDAwMDAwMH0.signature-here'
+   echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null; echo    # the payload: {"sub":"7","name":"ada","exp":1790000000}
+   date -u -r 1790000000 2>/dev/null || date -u -d @1790000000   # when it expires (macOS / Linux)
+   ```
+   (Base64 in JWTs is the URL-safe variant without padding, so for some tokens `base64 -d` needs `=` added to the end. Sites like jwt.io decode them for you — but never paste a real production token into a website.)
+
+2. **Walk snip's key lifecycle** with Postgres (chapter 6.6's lab setup):
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   export SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable"
+   go run ./cmd/snip keys create lab-user      # note the key AND the owner id
+   KEY=snip_paste_key_here; OWNER=paste_owner_id_here
+   go run ./cmd/snip &                        # start the API
+   sleep 3
+   curl -s -o /dev/null -w "%{http_code}\n" localhost:8080/api/links -H "Authorization: Bearer $KEY"   # 200
+   go run ./cmd/snip keys revoke "$OWNER"
+   curl -s localhost:8080/api/links -H "Authorization: Bearer $KEY"                                    # 401 — immediately
+   kill %1
+   ```
+
+3. **See what the database knows.**
+   ```bash
+   docker exec -it snip-pg psql -U snip -c "SELECT id, name, left(key_hash, 16) AS hash_prefix, revoked_at FROM api_keys;"
+   ```
+   Only hashes, and a `revoked_at` timestamp. Try to find your key in the database — you can't; only its fingerprint is there.
+
+4. **Inspect a real session cookie.** Log in to any site you use, open DevTools → **Application** (Chrome) or **Storage** (Firefox) → **Cookies**. Find the session cookie and check its `HttpOnly`, `Secure` and `SameSite` columns.
+
+## Self-check
+
+<Quiz
+  id="security-authentication"
+  questions={[
+    {
+      q: 'A request has a valid API key but tries to delete someone else’s link. Which check fails?',
+      options: [
+        'Authentication',
+        'Authorization',
+        'Encryption',
+        'Validation',
+      ],
+      answer: 1,
+      explain: 'Authentication succeeded — snip knows who is asking. Authorization (may this owner delete this link?) fails, which snip reports as 404 so it does not leak the link’s existence.',
+    },
+    {
+      q: 'Why does snip store only a hash of each API key?',
+      options: [
+        'Hashes are shorter to store',
+        'If the database leaks, attackers get useless hashes instead of working keys',
+        'Hashes make requests faster',
+        'Postgres cannot store keys',
+      ],
+      answer: 1,
+      explain: 'Storing only a hash means the key itself exists nowhere on the server. A database leak does not hand out working credentials.',
+    },
+    {
+      q: 'What is the main drawback of long-lived JWTs compared with server-side sessions?',
+      options: [
+        'JWTs are larger than cookies',
+        'They cannot be revoked immediately, because servers verify them without a lookup',
+        'They cannot contain a user ID',
+        'They only work in browsers',
+      ],
+      answer: 1,
+      explain: 'A JWT is valid until it expires. The usual fix is short-lived access tokens plus revocable refresh tokens.',
+    },
+    {
+      q: 'Which cookie flag stops JavaScript on the page from reading a session cookie?',
+      options: [
+        'Secure',
+        'SameSite',
+        'HttpOnly',
+        'Path',
+      ],
+      answer: 2,
+      explain: 'HttpOnly hides the cookie from scripts, so an injected script (XSS) cannot steal the session. Secure restricts it to HTTPS; SameSite limits cross-site sending.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Why should a login form say "Invalid email or password" instead of "No account with that email"?</summary>
+
+Because the specific message turns the login form into an **account-discovery tool**. An attacker can submit thousands of emails and learn which ones have accounts — useful for targeted phishing and credential stuffing, and sometimes sensitive in itself (being a customer of some services is private information). A single generic message gives nothing away. snip follows the same principle: every authentication failure returns the same `401`, and "someone else's link" returns the same `404` as "no such link".
+
+</details>
+
+<details>
+<summary>snip checks API keys against the database on every request. What does it gain, and what does it cost?</summary>
+
+**Gains:** **instant revocation** (the next request after `snip keys revoke` fails), and the key can be a meaningless random string, so it reveals nothing. **Costs:** a database lookup (an indexed one, via the `UNIQUE` index on `key_hash`) on every API request — cheap, but not free. At very high scale you could cache recent lookups in Redis for a few seconds, accepting that revocation might take that long to take effect. It's the same freshness-versus-load trade-off as any cache (chapter 6.7).
+
+</details>

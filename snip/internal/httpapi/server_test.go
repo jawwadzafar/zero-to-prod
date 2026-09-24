@@ -176,3 +176,24 @@ func TestHealthAndMetrics(t *testing.T) {
 		t.Fatal("responses should carry X-Request-ID")
 	}
 }
+
+func TestRevokedKeyIsRejected(t *testing.T) {
+	st := memory.New()
+	key, owner, _ := auth.CreateKey(context.Background(), st, "tester")
+	api := httpapi.New(httpapi.Options{
+		Links:  links.NewService(st, nil, nil),
+		Keys:   st,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+	if res := do(t, "GET", ts.URL+"/api/links", key, ""); res.StatusCode != 200 {
+		t.Fatalf("before revoke: %d", res.StatusCode)
+	}
+	if err := st.RevokeKey(context.Background(), owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if res := do(t, "GET", ts.URL+"/api/links", key, ""); res.StatusCode != 401 {
+		t.Fatalf("after revoke: %d, want 401", res.StatusCode)
+	}
+}

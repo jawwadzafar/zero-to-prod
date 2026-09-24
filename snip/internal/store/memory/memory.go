@@ -103,3 +103,15 @@ func (s *Store) LookupKey(_ context.Context, keyHash string) (auth.Owner, error)
 	}
 	return o, nil
 }
+
+func (s *Store) RevokeKey(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for h, o := range s.keys {
+		if o.ID == id {
+			delete(s.keys, h)
+			return nil
+		}
+	}
+	return auth.ErrUnknownKey
+}

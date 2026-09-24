@@ -29,7 +29,8 @@ SNIP_API_KEY=$KEY ./scripts/smoke.sh           # end-to-end check → [smoke] PA
 export SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable"
 export SNIP_REDIS_ADDR="localhost:6379"
 go run ./cmd/snip migrate
-go run ./cmd/snip keys create me        # copy the snip_… key it prints
+go run ./cmd/snip keys create me        # copy the snip_… key it prints (and note the owner id)
+# later: go run ./cmd/snip keys revoke <owner id>   — the key stops working immediately
 go run ./cmd/snip &                     # the API
 go run ./cmd/snip-worker &              # counts clicks from the queue
 
