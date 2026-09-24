@@ -21,6 +21,7 @@ type Config struct {
 	RateLimit   int           // SNIP_RATE_LIMIT: link creations per key per minute, default 60
 	LogLevel    slog.Level    // SNIP_LOG_LEVEL: debug|info|warn|error, default info
 	LogFormat   string        // SNIP_LOG_FORMAT: json|text, default json
+	DebugAddr   string        // SNIP_DEBUG_ADDR: pprof profiler, e.g. "localhost:6060"; empty = off (chapter 13.6)
 
 	WorkerMetricsAddr string // SNIP_WORKER_METRICS_ADDR: the worker's /metrics and /healthz, default ":9091"
 }
@@ -35,6 +36,7 @@ func Load() (Config, error) {
 		DatabaseURL: os.Getenv("SNIP_DATABASE_URL"),
 		RedisAddr:   os.Getenv("SNIP_REDIS_ADDR"),
 		LogFormat:   env("SNIP_LOG_FORMAT", "json"),
+		DebugAddr:   os.Getenv("SNIP_DEBUG_ADDR"),
 
 		WorkerMetricsAddr: env("SNIP_WORKER_METRICS_ADDR", ":9091"),
 	}

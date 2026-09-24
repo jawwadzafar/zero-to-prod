@@ -27,6 +27,7 @@ import (
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/cache"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/clicks"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/config"
+	"github.com/jawwadzafar/zero-to-prod/snip/internal/debugserver"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/httpapi"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/links"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/metrics"
@@ -204,6 +205,19 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger, st store, p
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
+	}
+
+	if cfg.DebugAddr != "" {
+		// The profiler on its own private address (chapter 13.6). No write
+		// timeout: a CPU profile streams for as many seconds as you ask for.
+		dbg := &http.Server{Addr: cfg.DebugAddr, Handler: debugserver.Handler(), ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			log.Warn("pprof debug server enabled; keep it private", "addr", cfg.DebugAddr)
+			if err := dbg.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("debug server failed", "err", err)
+			}
+		}()
+		defer dbg.Close()
 	}
 
 	errc := make(chan error, 1)

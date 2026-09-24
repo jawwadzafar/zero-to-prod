@@ -68,6 +68,7 @@ Errors always look like `{"error": {"code": "invalid_url", "message": "..."}}`.
 | `SNIP_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `SNIP_LOG_FORMAT` | `json` | `json` or `text` |
 | `SNIP_WORKER_METRICS_ADDR` | `:9091` | The worker's `/metrics` and `/healthz` address |
+| `SNIP_DEBUG_ADDR` | (off) | The Go profiler (pprof), e.g. `localhost:6060`. Keep it private (chapter 13.6) |
 
 ## Layout
 

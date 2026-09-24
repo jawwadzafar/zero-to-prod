@@ -82,6 +82,26 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
       - run: go build ./...
+      - name: Chapter 13.6 lab — git bisect finds the commit that broke 3-character slugs
+        run: |
+          ./examples/bisectlab/make-repo.sh "$RUNNER_TEMP/bisect-demo"
+          cd "$RUNNER_TEMP/bisect-demo"
+          git bisect start HEAD "$(git rev-list --max-parents=0 HEAD)"
+          git bisect run ./slug.sh abc | tee /tmp/bisect.txt
+          grep -q "slug: tidy validation rules" /tmp/bisect.txt
+      - name: Chapter 13.6 lab — CPU profile of snip under load with pprof
+        run: |
+          go build -o /tmp/snip ./cmd/snip && go build -o /tmp/loadgen ./examples/loadgen
+          SNIP_HTTP_ADDR=:8095 SNIP_DEBUG_ADDR=localhost:6060 /tmp/snip serve > /tmp/snip.log 2>&1 &
+          sleep 1
+          KEY=$(grep -o 'snip_[A-Za-z0-9]*' /tmp/snip.log | head -1)
+          curl -fsS -X POST localhost:8095/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"hot"}'
+          /tmp/loadgen -url http://localhost:8095/hot -c 20 -d 8s &
+          sleep 1
+          go tool pprof -top -cum -nodecount=40 "http://localhost:6060/debug/pprof/profile?seconds=5" | tee /tmp/prof.txt
+          wait
+          grep -q "httpapi.(\*Server).redirect" /tmp/prof.txt
+          curl -s "localhost:6060/debug/pprof/goroutine?debug=1" | head -3
 
   snip-image:
     name: snip container image builds
