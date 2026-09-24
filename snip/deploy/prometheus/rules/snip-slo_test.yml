@@ -1,0 +1,81 @@
+# Unit tests for snip's alerts (chapter 13.4):  promtool test rules snip-slo_test.yml
+# Each test feeds invented time series and checks which alerts fire, and when.
+rule_files:
+  - snip-slo.yml
+evaluation_interval: 1m
+
+tests:
+  # 1. Healthy traffic: 600 requests/min, no errors. Nothing may fire.
+  - interval: 1m
+    input_series:
+      - series: 'snip_http_requests_total{route="GET /{slug}", code="302"}'
+        values: '0+600x120'
+      - series: 'snip_http_requests_total{route="GET /{slug}", code="500"}'
+        values: '0x120'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: SnipErrorBudgetFastBurn
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: SnipErrorBudgetSlowBurn
+        exp_alerts: []
+
+  # 2. An outage: 20% of requests fail for an hour. The fast-burn page fires.
+  - interval: 1m
+    input_series:
+      - series: 'snip_http_requests_total{route="GET /{slug}", code="302"}'
+        values: '0+480x120'
+      - series: 'snip_http_requests_total{route="GET /{slug}", code="500"}'
+        values: '0+120x120'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: SnipErrorBudgetFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              slo: availability
+            exp_annotations:
+              summary: "snip is failing 20% of requests"
+              description: "At this rate the 30-day error budget is gone in about 2 days. Runbook: snip/docs/runbook.md#high-error-rate"
+
+  # 3. A 10-minute incident: half the requests fail from minute 50 to 60, then
+  #    snip recovers. The page fires while it's happening, and stops once the
+  #    5-minute window is healthy again, even though the 1-hour window still
+  #    remembers the incident. That's why the rule checks both windows.
+  - interval: 1m
+    input_series:
+      - series: 'snip_http_requests_total{route="GET /{slug}", code="302"}'
+        values: '0+600x50 30300+300x9 33600+600x60'
+      - series: 'snip_http_requests_total{route="GET /{slug}", code="500"}'
+        values: '0x50 300+300x9 3000x60'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: SnipErrorBudgetFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              slo: availability
+            exp_annotations:
+              summary: "snip is failing 8.345% of requests"
+              description: "At this rate the 30-day error budget is gone in about 2 days. Runbook: snip/docs/runbook.md#high-error-rate"
+      - eval_time: 75m
+        alertname: SnipErrorBudgetFastBurn
+        exp_alerts: []
+
+  # 4. The worker falls behind: the backlog stays above 1000 for 15 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'snip_worker_lag_events{job="snip-worker", instance="worker:9091"}'
+        values: '0+100x30'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: SnipClickBacklogGrowing
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: SnipClickBacklogGrowing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+            exp_annotations:
+              summary: "3000 clicks waiting for the worker"
+              description: "Counts are delayed but not lost. Runbook: snip/docs/runbook.md#click-backlog"

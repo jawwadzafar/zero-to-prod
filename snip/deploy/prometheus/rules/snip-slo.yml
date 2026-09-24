@@ -1,0 +1,103 @@
+# snip's service level objectives and alerts (chapter 13.4).
+#
+# SLO 1, availability: 99.5% of requests succeed (anything but 5xx), over 30 days.
+# SLO 2, latency:      99% of redirects complete within 250 ms, over 30 days.
+#
+# Alerts use multi-window, multi-burn-rate rules: page when the error budget is
+# burning fast (and still burning now), open a ticket when it burns slowly.
+groups:
+  - name: snip-slo
+    rules:
+      # Error ratio: failed requests / all requests, over several windows.
+      - record: snip:request_errors:ratio_rate5m
+        expr: |
+          sum(rate(snip_http_requests_total{code=~"5.."}[5m]))
+            / sum(rate(snip_http_requests_total[5m]))
+      - record: snip:request_errors:ratio_rate30m
+        expr: |
+          sum(rate(snip_http_requests_total{code=~"5.."}[30m]))
+            / sum(rate(snip_http_requests_total[30m]))
+      - record: snip:request_errors:ratio_rate1h
+        expr: |
+          sum(rate(snip_http_requests_total{code=~"5.."}[1h]))
+            / sum(rate(snip_http_requests_total[1h]))
+      - record: snip:request_errors:ratio_rate6h
+        expr: |
+          sum(rate(snip_http_requests_total{code=~"5.."}[6h]))
+            / sum(rate(snip_http_requests_total[6h]))
+      # Slow redirects: the share NOT finished within 250 ms (the 0.25 bucket).
+      - record: snip:redirect_slow:ratio_rate5m
+        expr: |
+          1 - (
+            sum(rate(snip_http_request_duration_seconds_bucket{route="GET /{slug}", le="0.25"}[5m]))
+              / sum(rate(snip_http_request_duration_seconds_count{route="GET /{slug}"}[5m]))
+          )
+      - record: snip:redirect_slow:ratio_rate1h
+        expr: |
+          1 - (
+            sum(rate(snip_http_request_duration_seconds_bucket{route="GET /{slug}", le="0.25"}[1h]))
+              / sum(rate(snip_http_request_duration_seconds_count{route="GET /{slug}"}[1h]))
+          )
+
+      # Alerts live in the SAME group as the recording rules they read: rules in
+      # a group run in order, while separate groups run concurrently and could
+      # read a recording from the previous evaluation (chapter 13.4).
+
+      # Availability SLO 99.5% → error budget 0.5%. A burn rate of 14.4 spends
+      # 2% of a 30-day budget in one hour: page a human now.
+      - alert: SnipErrorBudgetFastBurn
+        expr: |
+          snip:request_errors:ratio_rate1h > (14.4 * 0.005)
+          and
+          snip:request_errors:ratio_rate5m > (14.4 * 0.005)
+        labels:
+          severity: page
+          slo: availability
+        annotations:
+          summary: "snip is failing {{ $value | humanizePercentage }} of requests"
+          description: "At this rate the 30-day error budget is gone in about 2 days. Runbook: snip/docs/runbook.md#high-error-rate"
+      # A burn rate of 6 spends 5% of the budget in 6 hours: still a page.
+      - alert: SnipErrorBudgetSlowBurn
+        expr: |
+          snip:request_errors:ratio_rate6h > (6 * 0.005)
+          and
+          snip:request_errors:ratio_rate30m > (6 * 0.005)
+        labels:
+          severity: ticket
+          slo: availability
+        annotations:
+          summary: "snip's error budget is burning steadily ({{ $value | humanizePercentage }} errors)"
+          description: "Not an emergency yet; investigate during working hours. Runbook: snip/docs/runbook.md#high-error-rate"
+      # Latency SLO 99% → 1% of redirects may be slower than 250 ms.
+      - alert: SnipRedirectLatencyBudgetBurn
+        expr: |
+          snip:redirect_slow:ratio_rate1h > (14.4 * 0.01)
+          and
+          snip:redirect_slow:ratio_rate5m > (14.4 * 0.01)
+        labels:
+          severity: page
+          slo: latency
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of redirects are slower than 250 ms"
+          description: "Runbook: snip/docs/runbook.md#slow-redirects"
+
+  - name: snip-symptoms
+    rules:
+      # The worker is falling behind: clicks are queueing up (chapter 8.2).
+      - alert: SnipClickBacklogGrowing
+        expr: sum(snip_worker_lag_events) > 1000
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "{{ $value }} clicks waiting for the worker"
+          description: "Counts are delayed but not lost. Runbook: snip/docs/runbook.md#click-backlog"
+      # Prometheus can't scrape a snip process at all.
+      - alert: SnipTargetDown
+        expr: up{job=~"snip-.*"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.job }} at {{ $labels.instance }} is not responding to scrapes"
+          description: "Runbook: snip/docs/runbook.md#target-down"

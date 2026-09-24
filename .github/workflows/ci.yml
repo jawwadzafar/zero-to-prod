@@ -39,6 +39,18 @@ jobs:
       - run: npm run check:sql
       - run: npm run build
 
+  alerts:
+    name: Alert rules are valid and their unit tests pass (chapter 13.4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: promtool check and test
+        run: |
+          docker run --rm -v "$PWD/snip/deploy/prometheus/rules:/rules:ro" -w /rules \
+            --entrypoint promtool prom/prometheus:v3.5.0 check rules snip-slo.yml
+          docker run --rm -v "$PWD/snip/deploy/prometheus/rules:/rules:ro" -w /rules \
+            --entrypoint promtool prom/prometheus:v3.5.0 test rules snip-slo_test.yml
+
   snip:
     name: snip (Go) — vet, test, build
     runs-on: ubuntu-latest
@@ -187,6 +199,7 @@ jobs:
           echo "--- worker lag";                       q 'sum(snip_worker_lag_events)'
           q 'sum(rate(snip_http_requests_total[1m]))' | jq -e '.[0].value[1] | tonumber > 0'
           q 'sum(snip_worker_clicks_processed_total)' | jq -e '.[0].value[1] | tonumber > 0'
+          curl -s localhost:9090/api/v1/rules | jq -e '.data.groups[] | select(.name == "snip-slo")' > /dev/null   # SLO rules loaded (13.4)
           docker compose --profile observability up -d grafana
           for _ in $(seq 1 30); do curl -fsS localhost:3000/api/health > /dev/null 2>&1 && break; sleep 2; done
           curl -s 'localhost:3000/api/search?query=snip' | jq -e '.[] | select(.uid == "snip-overview")'
