@@ -109,11 +109,13 @@ resource "aws_ecs_task_definition" "worker" {
   }])
 }
 
+#trivy:ignore:AWS-0053 snip's load balancer is its public front door: internet-facing on purpose
 resource "aws_lb" "this" {
-  name               = local.name
-  load_balancer_type = "application"
-  subnets            = module.network.public_subnet_ids
-  security_groups    = [aws_security_group.alb.id]
+  name                       = local.name
+  load_balancer_type         = "application"
+  drop_invalid_header_fields = true # reject malformed headers (request smuggling defence)
+  subnets                    = module.network.public_subnet_ids
+  security_groups            = [aws_security_group.alb.id]
 }
 
 resource "aws_lb_target_group" "api" {
@@ -131,6 +133,7 @@ resource "aws_lb_target_group" "api" {
 
 # HTTP only, to keep the example free of a domain. In production, add an HTTPS
 # listener with an ACM certificate and redirect HTTP to it (chapter 7.1).
+#trivy:ignore:AWS-0054 example without a domain; production must add HTTPS with an ACM certificate
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.this.arn
   port              = 80

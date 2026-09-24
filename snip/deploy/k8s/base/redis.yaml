@@ -24,6 +24,13 @@ spec:
       labels:
         app.kubernetes.io/name: redis
     spec:
+      securityContext:                      # the alpine image's redis user
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000                       # volumes writable by the redis group
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
           image: redis:7-alpine
@@ -36,3 +43,14 @@ spec:
           resources:
             requests: { cpu: 50m, memory: 64Mi }
             limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data                    # where redis may write its snapshot
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}

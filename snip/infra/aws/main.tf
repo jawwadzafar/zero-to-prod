@@ -48,10 +48,33 @@ resource "aws_vpc_security_group_ingress_rule" "app_from_alb" {
   to_port                      = 8080
 }
 
-resource "aws_vpc_security_group_egress_rule" "app_out" {
+# Outbound from snip's tasks: HTTPS to the internet (image pulls from ghcr.io,
+# AWS APIs like Secrets Manager and CloudWatch Logs), plus the database and
+# cache — and nothing else. (Chapter 12.6 describes the scanner finding this
+# narrowed down.)
+#trivy:ignore:AWS-0104 HTTPS egress is required for image pulls and AWS APIs; add VPC endpoints to remove it
+resource "aws_vpc_security_group_egress_rule" "app_https_out" {
   security_group_id = aws_security_group.app.id
-  cidr_ipv4         = "0.0.0.0/0" # image pulls, AWS APIs, the database and cache
-  ip_protocol       = "-1"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+}
+
+resource "aws_vpc_security_group_egress_rule" "app_to_db" {
+  security_group_id            = aws_security_group.app.id
+  referenced_security_group_id = aws_security_group.data.id
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+}
+
+resource "aws_vpc_security_group_egress_rule" "app_to_redis" {
+  security_group_id            = aws_security_group.app.id
+  referenced_security_group_id = aws_security_group.data.id
+  ip_protocol                  = "tcp"
+  from_port                    = 6379
+  to_port                      = 6379
 }
 
 resource "aws_security_group" "data" {
