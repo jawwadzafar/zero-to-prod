@@ -1,0 +1,321 @@
+---
+title: "6.7 Redis & caching"
+sidebar_label: "6.7 Redis & caching"
+description: Redis, the in-memory data store behind countless fast backends — its data types and expiry — and caching done properly: cache-aside, TTLs, invalidation, stale data, stampedes, and why a cache must never be the source of truth. Built from snip's real Redis cache.
+---
+
+# 6.7 Redis & caching
+
+Every time someone clicks a snip link, snip must look up where it goes. With Postgres and the right index (chapter 6.4), that takes about a millisecond — impressive, until a link goes viral and gets 5,000 clicks a second, all asking the database the exact same question. The answer never changes, yet the database does the same work 5,000 times a second. A **cache** remembers recent answers in fast memory, so most requests never reach the database at all. The tool nearly everyone uses for this is **Redis**. This chapter covers what Redis is, how snip uses it as a cache, and the famous quip that there are only two hard things in computer science — and one of them is **cache invalidation**.
+
+## What you'll learn
+
+- What **Redis** is: an in-memory data store — and its core **data types** (strings, hashes, lists, sets, sorted sets, streams) and **expiry**.
+- **Caching** with the **cache-aside** pattern, exactly as snip's redirect path does it.
+- **TTLs**, **invalidation** and **stale data** — the trade-offs every cache makes.
+- Failure modes: **cache stampedes**, a **down cache**, caching **misses**, and why the cache is never the **source of truth**.
+- The other jobs Redis does in snip — **rate limiting** and a **queue** — previewed for Part 8.
+
+---
+
+## Redis: a data structure server in memory
+
+**Redis** is a server (chapter 1.6, default port **6379**) that keeps all its data **in memory** — the "countertop" from chapter 1.1. That makes it extraordinarily fast: a typical command takes well under a millisecond, and one Redis server can handle on the order of 100,000 simple commands per second.
+
+At its simplest it's a giant **key–value map** (chapter 4.2's map, as a network service):
+
+```text
+SET snip:url:godoc "https://go.dev/doc/"      → OK
+GET snip:url:godoc                              → "https://go.dev/doc/"
+DEL snip:url:godoc                              → (integer) 1
+```
+
+But values can be richer **data types**, each with its own atomic commands:
+
+| Type | Is | Handy commands | Typical use |
+|---|---|---|---|
+| **String** | text, a number or bytes | `SET`, `GET`, `INCR`, `EXPIRE` | caches, counters |
+| **Hash** | a small map of fields | `HSET`, `HGET`, `HINCRBY` | an object: a user session |
+| **List** | ordered list | `LPUSH`, `RPOP` | simple queues |
+| **Set** | unordered, unique members | `SADD`, `SISMEMBER` | "who has seen this?" |
+| **Sorted set** | members ordered by a score | `ZADD`, `ZRANGE` | leaderboards, "top links" |
+| **Stream** | an append-only log of entries | `XADD`, `XREADGROUP`, `XACK` | reliable queues (snip's clicks, chapter 8.2) |
+
+Two properties make Redis special for backends:
+
+- **Every command is atomic.** Redis executes commands one at a time, so `INCR counter` from a thousand clients at once never loses an update — chapter 6.5's lost update, solved by design.
+- **Keys can expire.** Give a key a **TTL** (time to live, chapter 1.4) and Redis deletes it automatically when time's up.
+
+:::note[Everyday anchor]
+If Postgres is the library's archive — complete, permanent, carefully catalogued, in the basement — Redis is the librarian's desk: a small pile of the books people asked for recently, within arm's reach. Most requests are answered from the desk. When a book isn't there, the librarian walks down to the archive, and leaves a copy on the desk for the next person.
+:::
+
+### Is Redis a database?
+
+Partly. Redis *can* save to disk (periodic snapshots called **RDB**, and/or an append-only log called **AOF**), but its design is memory-first, and depending on configuration a crash can lose the last second or more of writes. So the rule in snip — and in most systems — is: **Postgres holds the truth; Redis holds copies and short-lived data** that can be lost or rebuilt.
+
+---
+
+## Cache-aside: how snip caches redirects
+
+The most common caching pattern is **cache-aside** (also called lazy loading): the application checks the cache first; on a **miss**, it reads the database and puts the answer in the cache for next time.
+
+```mermaid
+sequenceDiagram
+    participant S as snip
+    participant R as Redis (cache)
+    participant P as Postgres (truth)
+    S->>R: GET snip:url:godoc
+    alt cache hit
+        R-->>S: https://go.dev/doc/
+    else cache miss
+        R-->>S: (nil)
+        S->>P: SELECT … WHERE slug = 'godoc'
+        P-->>S: https://go.dev/doc/
+        S->>R: SET snip:url:godoc … EX 3600
+    end
+```
+
+Here it is in snip's real code. The business logic, in `internal/links/service.go`:
+
+```go
+// Resolve finds the URL for slug: cache first, then the store (filling the
+// cache on the way out). Cache errors are never fatal — a broken cache makes
+// snip slower, not broken.
+func (s *Service) Resolve(ctx context.Context, slug string) (ResolveResult, error) {
+	if s.cache != nil {
+		if u, ok, err := s.cache.GetURL(ctx, slug); err == nil && ok {
+			return ResolveResult{URL: u, CacheHit: true}, nil
+		}
+	}
+	l, err := s.store.Get(ctx, slug)
+	if err != nil {
+		return ResolveResult{}, err
+	}
+	if s.cache != nil {
+		_ = s.cache.SetURL(ctx, slug, l.URL) // best effort
+	}
+	return ResolveResult{URL: l.URL}, nil
+}
+```
+
+And the Redis side, in `internal/cache/redis.go`:
+
+```go
+func key(slug string) string { return "snip:url:" + slug }
+
+func (c *Redis) GetURL(ctx context.Context, slug string) (string, bool, error) {
+	u, err := c.rdb.Get(ctx, key(slug)).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", false, nil // a miss, not an error
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return u, true, nil
+}
+
+func (c *Redis) SetURL(ctx context.Context, slug, url string) error {
+	return c.rdb.Set(ctx, key(slug), url, c.ttl).Err()
+}
+```
+
+Things worth noticing:
+
+- **The Service only knows the `Cache` interface** (chapter 4.3). With no `SNIP_REDIS_ADDR`, there's no cache at all and snip still works — just every redirect reads Postgres.
+- **Keys are namespaced**: `snip:url:<slug>`. The same Redis holds rate-limit counters (`snip:rl:…`) and the click stream (`snip:clicks`); prefixes keep them apart and make them easy to find.
+- **Cache errors never fail a redirect.** If Redis is down, `GetURL` errors, snip treats it as a miss, and serves from Postgres. A cache should make things *faster*, never make them *break*.
+- **Hits and misses are counted** (`snip_redirects_total{cache="hit|miss"}`, chapter 13.2). The **hit ratio** — hits ÷ all lookups — tells you whether the cache is earning its keep. For a link shortener, where a few links get most clicks, it's typically very high.
+
+---
+
+## The hard part: keeping the cache honest
+
+A cache holds **copies**. The moment the original changes, the copy is wrong — **stale**. Every cache design is a set of answers to "how stale is acceptable, and how do we limit it?"
+
+### TTL: an upper bound on staleness
+
+Every entry snip caches expires after `SNIP_CACHE_TTL` (default **1 hour**). Whatever else goes wrong, a copy can't be more than an hour out of date. Short TTLs mean fresher data and more database load; long TTLs mean the opposite. There's no universally right value — it depends on how often data changes and how bad staleness is.
+
+### Invalidation: remove the copy when the truth changes
+
+When a link is deleted, waiting up to an hour for the cache to notice would mean deleted links keep redirecting. So snip **invalidates** — deletes the cached copy — as part of the delete (`service.go`):
+
+```go
+func (s *Service) Delete(ctx context.Context, ownerID int64, slug string) error {
+	if err := s.store.Delete(ctx, slug, ownerID); err != nil {
+		return err
+	}
+	if s.cache != nil {
+		_ = s.cache.Delete(ctx, slug)   // evict it so redirects stop immediately
+	}
+	return nil
+}
+```
+
+Order matters: delete from the **database first**, then the cache. The other way round, a request arriving in between could re-read the old value from the database and put it straight back into the cache.
+
+:::info[In the real world]
+The famous quote — *"There are only two hard things in computer science: cache invalidation and naming things"* — is attributed to Phil Karlton. The joke lands because it's true: invalidation is easy with one cache and one writer, and fiendish with many copies, many writers, and messages that arrive out of order. Big systems accept some staleness (bounded by TTLs) rather than chase perfect freshness.
+:::
+
+### Negative caching
+
+What about slugs that **don't** exist? Every request for `/nope123` misses the cache and hits Postgres. A bot requesting millions of random slugs sails straight past the cache. Some systems cache "not found" too (briefly, say 30 seconds). snip doesn't — the index lookup is cheap, and rate limiting (chapter 8.4) handles abuse — but it's a classic knob to know about.
+
+---
+
+## When caches go wrong
+
+### Cache stampede
+
+A viral link's cache entry expires. In the next instant, 5,000 requests all miss **at the same time**, and all 5,000 query Postgres for the same row — the very load the cache existed to prevent. This is a **cache stampede** (or "thundering herd"). Fixes:
+
+- **Request coalescing**: only one request fetches; the others wait for its answer (Go's `golang.org/x/sync/singleflight` does exactly this).
+- **Jittered TTLs**: add randomness so many keys don't expire at the same moment.
+- **Refresh ahead**: refresh popular entries shortly *before* they expire.
+
+For snip's traffic, the database handles a burst of identical, indexed lookups comfortably — but at larger scale, stampedes cause real outages.
+
+### A down cache
+
+If a service can't cope *without* its cache — because the database was sized assuming 99% of reads never reach it — then the cache has quietly become a **critical dependency**, and a Redis outage becomes a database outage. Know how your system behaves with a cold or missing cache before production teaches you.
+
+### Treating the cache as the truth
+
+Writing data **only** to Redis because it's fast, then losing it on a restart or eviction. Redis also **evicts** keys when it runs out of memory (per its `maxmemory-policy`) — a cache that's full quietly forgets things. Anything that matters goes to the database.
+
+:::warning[What can go wrong]
+- **No TTL.** Entries live forever, staleness is unbounded, and memory fills up.
+- **Forgetting to invalidate** on update or delete — users see old data for hours.
+- **Invalidating before writing the database** — a racing request re-caches the old value.
+- **Caching personalised data under a shared key** — one user sees another's data. Keys must include everything the answer depends on.
+- **Cache as source of truth** — data lost on restart or eviction.
+:::
+
+---
+
+## Redis's other jobs in snip
+
+The same Redis does two more jobs, each covered properly later:
+
+- **Rate limiting** (chapter 8.4): a counter per API key per minute, increased with atomic `INCR` and expired with a TTL — shared by every copy of snip, which a counter in one process's memory couldn't be.
+- **The click queue** (chapter 8.2): each redirect appends an event to the Redis **stream** `snip:clicks` with `XADD`; the worker reads batches, updates Postgres, and acknowledges them. Redirects stay instant; counting happens in the background.
+
+---
+
+## Lab
+
+Free, on your own computer, using Docker.
+
+1. **Talk to Redis directly.**
+   ```bash
+   docker run -d --name snip-redis -p 6379:6379 redis:7-alpine
+   docker exec -it snip-redis redis-cli
+   ```
+   At the `127.0.0.1:6379>` prompt:
+   ```text
+   SET snip:url:godoc "https://go.dev/doc/" EX 30
+   GET snip:url:godoc
+   TTL snip:url:godoc          (seconds left — run it again and watch it count down)
+   INCR demo:counter           (1, 2, 3… atomic, however many clients call it)
+   ZADD top 910 launch 388 sale 42 godoc
+   ZREVRANGE top 0 1 WITHSCORES      (the two most-clicked)
+   KEYS snip:*                 (fine on a laptop; never on a big production Redis — it scans everything)
+   ```
+   Wait 30 seconds and `GET snip:url:godoc` again: `(nil)`. It expired by itself.
+
+2. **Run snip with a cache.** Start Postgres as in chapter 6.6's lab (or reuse it), then:
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   export SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable"
+   export SNIP_REDIS_ADDR=localhost:6379
+   go run ./cmd/snip keys create me       # copy the key
+   go run ./cmd/snip &                    # the API, now with Redis
+   sleep 3
+   ```
+
+3. **Watch hits and misses.** In a second terminal, watch every command Redis receives:
+   ```bash
+   docker exec -it snip-redis redis-cli MONITOR
+   ```
+   Back in the first terminal, create a link and follow it three times:
+   ```bash
+   KEY=snip_paste_it_here
+   curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"cached"}' >/dev/null
+   for i in 1 2 3; do curl -s -o /dev/null localhost:8080/cached; done
+   curl -s localhost:8080/metrics | grep snip_redirects_total
+   ```
+   In `MONITOR`, the first follow shows `GET` (miss) then `SET … EX 3600`; the next two only `GET` (hits) — plus an `XADD` to `snip:clicks` for every click. The metrics agree: 1 miss, 2 hits.
+
+4. **Invalidation.** Delete the link (`curl -X DELETE localhost:8080/api/links/cached -H "Authorization: Bearer $KEY"`) and watch `MONITOR` show a `DEL snip:url:cached`. Following it now gives 404 immediately.
+
+5. **Kill the cache.** `docker stop snip-redis`, then follow a link that exists. It still works (slower, from Postgres), and snip's log shows warnings rather than errors. The cache made snip faster; losing it didn't make snip broken. Clean up: `kill %1; docker rm -f snip-redis`.
+
+## Self-check
+
+<Quiz
+  id="data-redis-and-caching"
+  questions={[
+    {
+      q: 'In the cache-aside pattern, what happens on a cache miss?',
+      options: [
+        'The request fails',
+        'The application reads the database, returns the answer, and stores it in the cache for next time',
+        'Redis fetches from Postgres by itself',
+        'The cache is cleared',
+      ],
+      answer: 1,
+      explain: 'The application owns the logic: try the cache, fall back to the source of truth, and fill the cache on the way out.',
+    },
+    {
+      q: 'Why does snip delete from Postgres first and only then evict the cache entry?',
+      options: [
+        'Redis is slower than Postgres',
+        'If the cache were cleared first, a racing request could re-read the old row from the database and re-cache it',
+        'Postgres requires it',
+        'It does not matter',
+      ],
+      answer: 1,
+      explain: 'Evicting first leaves a window where the old value is still in the database. Change the truth first, then remove the copy.',
+    },
+    {
+      q: 'A popular key expires and thousands of requests hit the database at once. What is this called?',
+      options: [
+        'A deadlock',
+        'A cache stampede (thundering herd)',
+        'Negative caching',
+        'A cold start',
+      ],
+      answer: 1,
+      explain: 'Many simultaneous misses for the same key overwhelm the origin. Request coalescing, jittered TTLs and refresh-ahead are common fixes.',
+    },
+    {
+      q: 'Why must Redis not be snip’s source of truth?',
+      options: [
+        'Redis cannot store URLs',
+        'Redis is memory-first: depending on configuration it can lose recent writes on a crash and evicts keys when memory is full',
+        'Redis is too slow',
+        'Redis does not support TTLs',
+      ],
+      answer: 1,
+      explain: 'Caches may forget things at any time — that is their contract. Durable, correct data lives in Postgres; Redis holds copies that can be rebuilt.',
+    },
+  ]}
+/>
+
+<details>
+<summary>How would you choose a TTL for snip's redirect cache? What are you trading off?</summary>
+
+You're trading **freshness** against **database load**. A redirect only changes if a link is deleted (or, in future, edited). Deletes invalidate immediately, so the TTL only bounds staleness in rare edge cases (a failed eviction, a future "edit link" feature without invalidation). That argues for a fairly **long** TTL — an hour is reasonable — which keeps the hit ratio high and Postgres quiet. If snip added link editing without careful invalidation, you'd want a shorter TTL, accepting more misses. Measure the hit ratio (`snip_redirects_total`) and database load, and adjust.
+
+</details>
+
+<details>
+<summary>snip's redirect code ignores cache errors. Why is that the right choice here, and when might it not be?</summary>
+
+Because the cache only exists to **speed things up**: every answer it could give is also in Postgres. Failing a redirect because Redis is unavailable would turn an optimisation into an outage. Treating an error as a miss keeps snip working, just slower, and the errors are still logged and visible in metrics.
+
+It might not be right when the cache has become **load-bearing** — if the database can't survive full traffic without it, silently falling through during a Redis outage could overload and take down the database too. Then you'd need protection such as rate limiting, load shedding or a circuit breaker (chapter 8.4) around the fallback.
+
+</details>

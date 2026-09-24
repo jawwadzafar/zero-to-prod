@@ -101,6 +101,11 @@ func run(args []string) error {
 		if len(args) != 3 || args[1] != "create" {
 			return errors.New(`usage: snip keys create NAME`)
 		}
+		if pg != nil { // make sure the api_keys table exists on a fresh database
+			if _, err := pg.Migrate(ctx); err != nil {
+				return err
+			}
+		}
 		key, owner, err := auth.CreateKey(ctx, st, args[2])
 		if err != nil {
 			return err
