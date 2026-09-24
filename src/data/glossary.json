@@ -903,5 +903,215 @@
   "term": "Eventual consistency",
   "def": "Copies may disagree briefly but converge once updates have spread.",
   "doc": "data/choosing-a-datastore"
+ },
+ {
+  "term": "Encoding vs hashing vs encryption",
+  "def": "Encoding changes format (anyone can reverse it); hashing is a one-way fingerprint; encryption hides data and needs a key to reverse.",
+  "doc": "security/security-literacy"
+ },
+ {
+  "term": "Hash function (SHA-256)",
+  "def": "Turns any input into a fixed-size fingerprint; the same input always gives the same hash, and it can't be reversed.",
+  "doc": "security/security-literacy"
+ },
+ {
+  "term": "Salt",
+  "def": "A random value added to each password before hashing, so identical passwords get different hashes.",
+  "doc": "security/security-literacy"
+ },
+ {
+  "term": "bcrypt / Argon2",
+  "def": "Deliberately slow, salted password-hashing algorithms that make stolen hashes expensive to crack.",
+  "doc": "security/security-literacy"
+ },
+ {
+  "term": "Symmetric / asymmetric encryption",
+  "def": "Symmetric uses one shared key (AES); asymmetric uses a public/private key pair (RSA, Ed25519).",
+  "doc": "security/security-literacy"
+ },
+ {
+  "term": "Digital signature",
+  "def": "Proof, made with a private key and checked with the public key, that data came from the key holder and wasn't changed.",
+  "doc": "security/security-literacy"
+ },
+ {
+  "term": "Certificate / Certificate Authority (CA)",
+  "def": "A certificate binds a site's name to its public key; a CA is a trusted organisation that signs it.",
+  "doc": "security/security-literacy"
+ },
+ {
+  "term": "crypto/rand",
+  "def": "Go's cryptographically secure random generator — use it for every key, token and salt, never math/rand.",
+  "doc": "security/security-literacy"
+ },
+ {
+  "term": "Authentication vs authorization",
+  "def": "Authentication proves who you are (401 if it fails); authorization decides what you may do (403/404 if it fails).",
+  "doc": "security/authentication"
+ },
+ {
+  "term": "MFA (multi-factor authentication)",
+  "def": "Requiring two or more kinds of proof — something you know, have, or are.",
+  "doc": "security/authentication"
+ },
+ {
+  "term": "Passkey",
+  "def": "A phishing-resistant login using public-key cryptography stored on your device, replacing passwords.",
+  "doc": "security/authentication"
+ },
+ {
+  "term": "Session",
+  "def": "Server-side record of a logged-in user, referenced by a random ID stored in a cookie.",
+  "doc": "security/authentication"
+ },
+ {
+  "term": "HttpOnly / Secure / SameSite",
+  "def": "Cookie flags: hide the cookie from scripts, send it only over HTTPS, and don't send it on most cross-site requests.",
+  "doc": "security/authentication"
+ },
+ {
+  "term": "Bearer token",
+  "def": "A token that grants access to whoever holds it, sent as Authorization: Bearer ….",
+  "doc": "security/authentication"
+ },
+ {
+  "term": "JWT (JSON Web Token)",
+  "def": "A signed (not encrypted) token carrying claims like the user ID and expiry, verifiable without a lookup.",
+  "doc": "security/authentication"
+ },
+ {
+  "term": "API key",
+  "def": "A long-lived secret identifying a program or account; store only its hash, show it once, allow revocation.",
+  "doc": "security/authentication"
+ },
+ {
+  "term": "OAuth 2.0",
+  "def": "A standard for granting an app limited, revocable access to your data elsewhere without sharing your password.",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "Authorization code flow / PKCE",
+  "def": "OAuth's main flow: redirect to log in, get a one-time code, exchange it for tokens. PKCE stops stolen codes being used.",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "Scope",
+  "def": "A named permission requested by an app and recorded in its token, like links:read.",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "Access token / refresh token",
+  "def": "A short-lived token sent to APIs, and a longer-lived, revocable token used to get new access tokens.",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "OpenID Connect (OIDC)",
+  "def": "A login standard built on OAuth: adds the signed ID token, discovery and published keys.",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "ID token",
+  "def": "A JWT from an identity provider stating who logged in (iss, sub, aud, exp).",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "JWKS",
+  "def": "A JSON document of an issuer's public keys, used to verify its tokens' signatures.",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "Client credentials",
+  "def": "The OAuth grant where a program authenticates as itself, with no user involved.",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "Identity provider (IdP)",
+  "def": "A service that handles logins and issues tokens — Okta, Entra ID, Keycloak, Auth0 and others.",
+  "doc": "security/oauth-and-oidc"
+ },
+ {
+  "term": "RBAC / ABAC",
+  "def": "Role-based access control grants permissions through roles; attribute-based access control decides from attributes and policies.",
+  "doc": "security/authorization-multi-tenancy"
+ },
+ {
+  "term": "BOLA / IDOR",
+  "def": "Broken object-level authorization: fetching objects by ID without checking the caller may access them. #1 API risk.",
+  "doc": "security/authorization-multi-tenancy"
+ },
+ {
+  "term": "Multi-tenancy / tenant",
+  "def": "Serving many customers (tenants) from shared infrastructure while keeping their data separate.",
+  "doc": "security/authorization-multi-tenancy"
+ },
+ {
+  "term": "Row-level security (RLS)",
+  "def": "Postgres policies that automatically restrict every query to the rows the current user or tenant may see.",
+  "doc": "security/authorization-multi-tenancy"
+ },
+ {
+  "term": "Deny by default",
+  "def": "Refusing access unless a rule explicitly allows it, so forgotten rules fail safe.",
+  "doc": "security/authorization-multi-tenancy"
+ },
+ {
+  "term": "XSS (cross-site scripting)",
+  "def": "Injecting script into pages other people view, so it runs in their browsers as the site.",
+  "doc": "security/web-attacks"
+ },
+ {
+  "term": "CSRF (cross-site request forgery)",
+  "def": "Tricking a logged-in browser into sending requests the user never intended.",
+  "doc": "security/web-attacks"
+ },
+ {
+  "term": "SSRF (server-side request forgery)",
+  "def": "Making a server fetch attacker-chosen URLs, often to reach internal systems.",
+  "doc": "security/web-attacks"
+ },
+ {
+  "term": "Open redirect",
+  "def": "An endpoint that redirects anywhere a parameter says — abused to make phishing links look trustworthy.",
+  "doc": "security/web-attacks"
+ },
+ {
+  "term": "Content-Security-Policy (CSP)",
+  "def": "A response header telling browsers which scripts and resources may load — a strong XSS defence.",
+  "doc": "security/web-attacks"
+ },
+ {
+  "term": "CORS",
+  "def": "Headers that let chosen other origins' browser scripts read your responses. Not a server-side access control.",
+  "doc": "security/web-attacks"
+ },
+ {
+  "term": "OWASP Top 10",
+  "def": "A widely used list of the most critical web application security risks, published by OWASP.",
+  "doc": "security/web-attacks"
+ },
+ {
+  "term": "Secret",
+  "def": "Any value that grants access or proves identity: passwords, keys, tokens, private keys.",
+  "doc": "security/secrets-management"
+ },
+ {
+  "term": "Secret manager",
+  "def": "A service that stores secrets encrypted, controls who may read them, audits access and supports rotation.",
+  "doc": "security/secrets-management"
+ },
+ {
+  "term": "Secret rotation",
+  "def": "Replacing a secret with a new one, regularly and immediately after any suspected leak.",
+  "doc": "security/secrets-management"
+ },
+ {
+  "term": "Secret scanning",
+  "def": "Automatically detecting secrets in code, commits, images or logs, often blocking pushes.",
+  "doc": "security/secrets-management"
+ },
+ {
+  "term": "Workload identity",
+  "def": "Giving a running program an identity so the platform issues it short-lived credentials — no stored secret.",
+  "doc": "security/secrets-management"
  }
 ]
