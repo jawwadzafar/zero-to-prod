@@ -102,8 +102,10 @@ That's why snip's config says `SNIP_REDIS_ADDR: redis:6379` and its database URL
 
 ```bash
 kubectl -n snip run dns --rm -it --image=alpine:3.22 --restart=Never -- \
-  sh -c 'nslookup api; nslookup api.snip.svc.cluster.local; wget -qO- http://api/healthz'
+  sh -c 'nslookup api.snip.svc.cluster.local; wget -qO- http://api/healthz'
 ```
+
+The `nslookup` shows the full name resolving to the Service's ClusterIP; the `wget` to plain `api` works thanks to the search domains. (busybox's `nslookup` may not apply search domains itself, so give it the full name.)
 
 ---
 
