@@ -74,3 +74,38 @@ jobs:
         with:
           node-version: 22
       - run: npx -y @redocly/cli@latest lint --config snip/api/redocly.yaml snip/api/openapi.yaml
+
+  snip-stack:
+    name: snip full stack (compose) works end to end
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: snip
+    steps:
+      - uses: actions/checkout@v5
+      - name: Start postgres, redis, 2 × api, worker, nginx
+        run: docker compose up -d --build --wait
+      - name: Smoke test through nginx
+        run: |
+          KEY=$(docker compose exec -T api snip keys create ci | grep -o 'snip_[A-Za-z0-9]*')
+          SNIP_API_KEY="$KEY" ./scripts/smoke.sh http://localhost:8080
+      - name: Both api copies serve traffic, and /metrics is blocked at the edge
+        run: |
+          KEY=$(docker compose exec -T api snip keys create ci2 | grep -o 'snip_[A-Za-z0-9]*')
+          curl -fsS -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"lb"}'
+          for i in $(seq 1 10); do curl -s -o /dev/null localhost:8080/lb; done
+          COPIES=$(docker compose logs api | grep '"route":"GET /{slug}"' | cut -d'|' -f1 | sort -u | wc -l)
+          echo "api copies that served redirects: $COPIES"; test "$COPIES" -eq 2
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8080/metrics)" = 403
+      - name: The worker counts clicks
+        run: |
+          KEY=$(docker compose exec -T api snip keys create ci3 | grep -o 'snip_[A-Za-z0-9]*')
+          curl -fsS -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"counted"}'
+          for i in $(seq 1 5); do curl -s -o /dev/null localhost:8080/counted; done
+          for i in $(seq 1 20); do
+            N=$(curl -s localhost:8080/api/links/counted -H "Authorization: Bearer $KEY" | jq .clicks)
+            [ "$N" = 5 ] && exit 0; sleep 1
+          done
+          echo "clicks = $N, want 5"; docker compose logs worker; exit 1
+      - if: failure()
+        run: docker compose logs
