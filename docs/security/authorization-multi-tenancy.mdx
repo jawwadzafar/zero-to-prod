@@ -1,0 +1,307 @@
+---
+title: "7.4 Authorization & multi-tenancy"
+sidebar_label: "7.4 Authorization & multi-tenancy"
+description: "Deciding what an authenticated caller may do — ownership checks, roles and policies, deny-by-default, the #1 API vulnerability (broken object-level authorization), and keeping customers' data apart in a multi-tenant system, including Postgres row-level security you can try live."
+---
+
+export const rlsSetup = `
+CREATE TABLE links (
+  slug text PRIMARY KEY,
+  url text NOT NULL,
+  tenant_id int NOT NULL
+);
+INSERT INTO links VALUES
+  ('godoc',  'https://go.dev/doc/', 1),
+  ('pgdocs', 'https://www.postgresql.org/docs/', 1),
+  ('launch', 'https://blog.example/launch', 2),
+  ('sale',   'https://shop.example/sale', 3);
+CREATE ROLE app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON links TO app_user;
+ALTER TABLE links ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON links
+  USING (tenant_id = current_setting('app.tenant_id')::int)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id')::int);
+`;
+
+# 7.4 Authorization & multi-tenancy
+
+Chapter 7.2 answered *who is this?* Now the harder question: *what may they do?* Authentication is usually one well-tested piece of code at the front door. **Authorization** is scattered through every endpoint and every query: may this user see this link, delete that one, change these settings, read that invoice? Miss the check in just one place and one customer can read — or delete — another customer's data. That's not a hypothetical: **broken object-level authorization** has topped the OWASP list of API security risks since the list began. This chapter shows how to get authorization right, how snip does it, and how systems that serve many customers from one database — **multi-tenant** systems — keep each customer's data walled off.
+
+## What you'll learn
+
+- The core rule: **check authorization on the server, for every request, on every object — deny by default.**
+- **Ownership checks**, **roles** (RBAC), and **attributes and policies** (ABAC) — when to use each.
+- **Broken object-level authorization (BOLA / IDOR)**: how it happens, and how snip prevents it by construction.
+- **Multi-tenancy**: shared tables, separate schemas or separate databases — the trade-offs.
+- **Postgres row-level security**: making the *database* refuse to show one tenant another's rows — live in your browser.
+
+---
+
+## Deny by default, check every time
+
+Three rules cover most of authorization:
+
+1. **Enforce on the server.** Hiding a "Delete" button in the app is decoration, not security — anyone can call the API directly (chapter 5.3).
+2. **Deny by default.** Access is refused unless a rule explicitly allows it. Forgetting a rule then fails *closed* (a bug report) rather than *open* (a breach).
+3. **Check every request, on every object.** Not "the user logged in, so they can do things" — "this user may perform *this action* on *this specific object*, right now."
+
+:::note[Everyday anchor]
+A hotel key card is authorization done well. It opens **your** room, the gym and the lift to **your** floor, until **your** checkout date — and nothing else. Being a hotel guest (authenticated) doesn't open every door. And the check happens at every door, every time, not once at reception.
+:::
+
+---
+
+## Models of authorization
+
+### Ownership: "is this yours?"
+
+The simplest and most common rule: users may act on the things they own. It's snip's whole model — every link has an `owner_id`, and management operations only work on your own links.
+
+### Roles: RBAC
+
+**Role-based access control** groups permissions into **roles**, and gives users roles:
+
+| Role | Can |
+|---|---|
+| `viewer` | read links and stats |
+| `editor` | + create and delete links |
+| `admin` | + manage members and API keys |
+
+Checking a role is simple (`if user.Role == "admin"`), and roles map well onto organisations and teams. The classic trap is **role explosion** — dozens of near-identical roles for every special case.
+
+### Attributes and policies: ABAC
+
+**Attribute-based access control** decides from attributes of the user, the object, the action and the context: *"editors may delete links in their own team's workspace, created in the last 30 days, during business hours."* Powerful, and harder to reason about. Large systems often move such rules into a dedicated **policy engine** (for example Open Policy Agent, Cedar, or relationship-based systems modelled on Google's Zanzibar) so they're written once and tested.
+
+### Scopes
+
+OAuth **scopes** (chapter 7.3) limit what a *token* may do, independently of what the *user* may do: a dashboard token with `links:read` can't delete links even if its user could. Effective access is the **intersection** of both.
+
+---
+
+## The #1 API vulnerability: broken object-level authorization
+
+Picture an API with this endpoint:
+
+```http
+GET /api/invoices/10432
+Authorization: Bearer <alice's valid token>
+```
+
+The server authenticates Alice, then runs `SELECT * FROM invoices WHERE id = 10432` and returns it. Alice changes the number to `10433` — and gets **Bob's** invoice. Then `10434`… Authentication was perfect; the **authorization check on the object** was missing.
+
+This is **BOLA** (Broken Object Level Authorization), also called **IDOR** (Insecure Direct Object Reference). It's number one on the OWASP API Security Top 10 because it's so easy to write: the code *works* in every test where users only ask for their own things. Sequential IDs make it trivial to exploit, but random IDs don't fix it — they only make it harder to find.
+
+### How snip prevents it: scope the query, not the result
+
+snip doesn't fetch a link and *then* check its owner in scattered handler code. The ownership condition is **part of the query**, or checked in the one shared service method every endpoint uses. Deleting (`internal/store/postgres/postgres.go`):
+
+```go
+tag, err := s.pool.Exec(ctx, `DELETE FROM links WHERE slug = $1 AND owner_id = $2`, slug, ownerID)
+```
+
+Reading (`internal/links/service.go`):
+
+```go
+// Get returns a link's details, but only to its owner.
+func (s *Service) Get(ctx context.Context, ownerID int64, slug string) (Link, error) {
+	l, err := s.store.Get(ctx, slug)
+	if err != nil {
+		return Link{}, err
+	}
+	if l.OwnerID != ownerID {
+		return Link{}, ErrNotFound // don't reveal that someone else's link exists
+	}
+	return l, nil
+}
+```
+
+Listing: `SELECT … WHERE owner_id = $1`. And `ownerID` always comes from the **authenticated key** placed in the request context by `requireKey` (chapter 7.2) — **never** from the request body or URL, which the caller controls.
+
+Two details matter:
+
+- **Same answer for "not yours" and "doesn't exist"**: `404 not_found`. A `403` would confirm the object exists, letting attackers map other customers' data (chapter 5.2).
+- **The owner comes from authentication, not input.** An API that accepts `{"owner_id": 7}` in the request and trusts it has handed authorization to the attacker.
+
+snip's HTTP tests check this path (chapter 4.4), and it's exactly the kind of test worth adding for every endpoint: *user B tries user A's object and must fail.*
+
+---
+
+## Multi-tenancy: many customers, one system
+
+A **tenant** is a customer whose data must stay separate from everyone else's: a company on a team plan, a workspace, an organisation. A **multi-tenant** system serves many tenants from shared infrastructure. snip is multi-tenant in a small way — each API key's links are its own. There are three main ways to separate tenants in the database:
+
+| Model | How | Pros | Cons |
+|---|---|---|---|
+| **Shared tables** | Every table has a `tenant_id` column | Cheapest; simplest to run; easy cross-tenant analytics | One forgotten `WHERE tenant_id = …` leaks data; noisy neighbours share resources |
+| **Schema per tenant** | Each tenant gets its own set of tables | Stronger separation; per-tenant restore | Thousands of schemas to migrate; harder analytics |
+| **Database per tenant** | Each tenant gets its own database (or cluster) | Strongest isolation; per-tenant scaling and data location | Most expensive; operationally heavy |
+
+Most SaaS products start with **shared tables** — and then must make sure the `tenant_id` filter can never be forgotten. Some offer separate databases to their largest customers, for isolation or data-residency requirements.
+
+---
+
+## Row-level security: let the database enforce it
+
+In the shared-tables model, the danger is one query somewhere without `WHERE tenant_id = …`. Postgres can make that mistake **harmless** with **row-level security** (RLS): a **policy** on the table that the database applies to *every* query from the application's role, automatically.
+
+```sql
+ALTER TABLE links ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON links
+  USING      (tenant_id = current_setting('app.tenant_id')::int)   -- which rows you can see/change
+  WITH CHECK (tenant_id = current_setting('app.tenant_id')::int);  -- which rows you can write
+```
+
+At the start of each request (or transaction), the application tells Postgres which tenant it's acting for — `SET app.tenant_id = '1'` — and from then on Postgres silently adds the tenant filter to everything.
+
+The playground below has links for three tenants and the policy above. It switches to an ordinary application role (`app_user` — RLS doesn't restrict superusers), acts as tenant 1, and runs a query with **no `WHERE` clause at all**:
+
+<SqlPlayground setup={rlsSetup} sql={`SET ROLE app_user;
+SET app.tenant_id = '1';
+
+SELECT slug, tenant_id FROM links;   -- no WHERE clause, yet only tenant 1's rows`} />
+
+Now as tenant 2, try to reach tenant 1's `godoc` link by name — and to change it:
+
+<SqlPlayground setup={rlsSetup} sql={`SET ROLE app_user;
+SET app.tenant_id = '2';
+
+SELECT count(*) AS can_see_godoc FROM links WHERE slug = 'godoc';        -- 0: invisible
+UPDATE links SET url = 'https://evil.example' WHERE slug = 'godoc'
+RETURNING slug;                                                           -- 0 rows changed`} />
+
+And if tenant 2 tries to *insert* a row labelled as tenant 1 (paste this into either box):
+
+```sql
+SET ROLE app_user;
+SET app.tenant_id = '2';
+INSERT INTO links VALUES ('sneaky', 'https://evil.example', 1);
+-- ERROR: new row violates row-level security policy for table "links"
+```
+
+The `WITH CHECK` clause refuses it. Even a buggy query in application code can't cross the wall.
+
+:::info[In the real world]
+RLS is **defence in depth**, not a replacement for application checks: keep scoping queries in code (clear, testable), and let RLS catch the one you forget. It has costs — policies must be written carefully, connection pools must reset `app.tenant_id` between requests, and complex policies can slow queries. Platforms such as Supabase build their whole security model on Postgres RLS. snip keeps things simple with ownership conditions in every query, but a team version of snip with workspaces would be a natural fit for RLS.
+:::
+
+---
+
+## Admins, support staff and audit logs
+
+Real systems need people who can see across tenants: support engineers, administrators, automated jobs. Handle that power carefully:
+
+- **Separate, explicit admin paths** — not a hidden `?admin=true` flag.
+- **Least privilege**: support gets read-only access to what they need, not everything.
+- **"Act as user" with consent and an expiry**, rather than shared admin passwords.
+- **Audit logs**: record who accessed what, when and why — append-only, stored separately, and reviewed. When a customer asks "who looked at my data?", you must be able to answer.
+
+:::warning[What can go wrong]
+- **BOLA / IDOR.** Fetching objects by ID without checking ownership. Scope every query by the authenticated owner or tenant.
+- **Trusting IDs from the request.** `owner_id` or `tenant_id` in the body or URL, taken at face value. Derive them from authentication.
+- **Checks only in the frontend.** Hidden buttons don't stop API calls.
+- **Inconsistent checks.** Five endpoints check ownership, the sixth (added in a hurry) doesn't. Centralise checks in shared code, and test "user B tries user A's object" for every endpoint.
+- **403 that reveals existence.** Prefer 404 for objects the caller shouldn't know about.
+- **Mass assignment.** Binding a JSON body straight onto a database row lets a caller set fields like `role` or `owner_id`. Accept only the fields you intend (snip's strict decoding, chapter 5.3).
+:::
+
+---
+
+## Lab
+
+Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
+
+1. **Explore RLS.** In a playground, switch between tenants 1, 2 and 3 with `SET app.tenant_id = '…';` and run `SELECT * FROM links;` each time. Then run `RESET ROLE;` (back to the superuser) and select again: you see everything, because superusers bypass RLS — which is exactly why applications must connect as an ordinary role.
+
+2. **Write a policy.** Press **Reset** and, before switching role, add a second policy that lets a special tenant `0` (support staff) *read* everything but change nothing:
+   ```sql
+   CREATE POLICY support_read ON links FOR SELECT
+     USING (current_setting('app.tenant_id')::int = 0);
+   SET ROLE app_user;
+   SET app.tenant_id = '0';
+   SELECT slug, tenant_id FROM links;          -- every tenant's rows
+   UPDATE links SET url = 'x' RETURNING slug;  -- 0 rows: support can read, not write
+   ```
+   Policies for the same command are combined with **OR**, so support gets visibility without write access.
+
+3. **Attack snip's authorization.** With snip running (Postgres mode, chapter 6.6), create **two** keys and a link with the first:
+   ```bash
+   go run ./cmd/snip keys create alice     # KEY_A
+   go run ./cmd/snip keys create bob       # KEY_B
+   curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY_A" -d '{"url":"https://go.dev","slug":"alices"}'
+   ```
+   Now, as Bob, try to read, delete and list Alice's link:
+   ```bash
+   curl -si localhost:8080/api/links/alices -H "Authorization: Bearer $KEY_B" | head -1          # 404
+   curl -si -X DELETE localhost:8080/api/links/alices -H "Authorization: Bearer $KEY_B" | head -1 # 404
+   curl -s localhost:8080/api/links -H "Authorization: Bearer $KEY_B" | jq '.links | length'     # 0
+   curl -si localhost:8080/api/links/alices -H "Authorization: Bearer $KEY_A" | head -1          # 200 for Alice
+   ```
+   Notice Bob can't even tell whether `alices` exists. (Following the short link `localhost:8080/alices` works for anyone — redirects are public by design.)
+
+## Self-check
+
+<Quiz
+  id="security-authorization-multi-tenancy"
+  questions={[
+    {
+      q: 'A logged-in user changes /api/invoices/100 to /api/invoices/101 in the URL and sees another customer’s invoice. What is this vulnerability?',
+      options: [
+        'SQL injection',
+        'Broken object-level authorization (BOLA / IDOR)',
+        'Cross-site scripting',
+        'A weak password',
+      ],
+      answer: 1,
+      explain: 'The user was authenticated, but the server never checked that this specific object belonged to them. Scope every lookup by the authenticated owner or tenant.',
+    },
+    {
+      q: 'Where should snip get the owner_id used in its queries?',
+      options: [
+        'From a field in the JSON request body',
+        'From a query-string parameter',
+        'From the authenticated API key, placed in the request context by middleware',
+        'From a cookie the client sets',
+      ],
+      answer: 2,
+      explain: 'Anything in the request is controlled by the caller. Identity must come from authentication, never from user-supplied input.',
+    },
+    {
+      q: 'What does Postgres row-level security add in a shared-tables multi-tenant system?',
+      options: [
+        'Faster queries',
+        'The database automatically restricts every query to the current tenant’s rows, so a forgotten WHERE clause cannot leak data',
+        'Encryption of each row',
+        'Automatic backups per tenant',
+      ],
+      answer: 1,
+      explain: 'RLS policies are applied by the database to every query from the application role — a safety net under the application’s own checks.',
+    },
+    {
+      q: 'Why does snip answer 404, not 403, when someone requests a link they don’t own?',
+      options: [
+        '403 is not a real status code',
+        'A 403 would confirm the link exists, helping attackers map other users’ data',
+        '404 is faster',
+        'Browsers cannot display 403',
+      ],
+      answer: 1,
+      explain: 'Returning the same response for "not yours" and "does not exist" reveals nothing about other tenants.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Why is "scope the query" safer than "fetch, then check the owner" — even though both can be correct?</summary>
+
+Because **"fetch, then check"** relies on remembering the check in every handler, forever. The day someone adds a new endpoint and forgets the `if l.OwnerID != ownerID`, data leaks — and every test using the object's own owner still passes. **Scoping the query** (`WHERE slug = $1 AND owner_id = $2`) makes the safe behaviour the *default shape* of the code: the wrong rows are never loaded, so there's nothing to forget to filter. Row-level security goes one step further, making the database itself enforce it for every query.
+
+</details>
+
+<details>
+<summary>You're designing tenancy for a new SaaS product. When would you choose database-per-tenant over shared tables?</summary>
+
+Start with **shared tables** (with a `tenant_id` everywhere, scoped queries, and ideally RLS) — it's the cheapest and simplest to operate. Move a tenant to a **separate database** when a concrete need appears: a very large customer whose load would affect others (a noisy neighbour); contractual or regulatory **isolation** or **data-residency** requirements (their data must live in a specific country); a need to **back up and restore** one tenant independently; or per-tenant performance guarantees. Many products mix both: shared tables for most customers, dedicated databases for enterprise tiers.
+
+</details>
