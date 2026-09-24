@@ -175,6 +175,22 @@ jobs:
             [ "${N:-0}" -ge 2 ] && echo "prometheus targets up: $N" && exit 0; sleep 2
           done
           curl -s localhost:9090/api/v1/targets; exit 1
+      - name: Chapter 13.2 lab — PromQL answers questions; Grafana has snip's dashboard
+        run: |
+          for _ in $(seq 1 30); do curl -s -o /dev/null localhost:8080/counted; done
+          sleep 25                                    # let Prometheus scrape a couple of times
+          q() { curl -s --data-urlencode "query=$1" localhost:9090/api/v1/query | jq -c '.data.result'; }
+          echo "--- requests per second, by route";    q 'sum by (route) (rate(snip_http_requests_total[1m]))'
+          echo "--- p99 latency (seconds)";            q 'histogram_quantile(0.99, sum by (le) (rate(snip_http_request_duration_seconds_bucket[5m])))'
+          echo "--- redirect cache hit ratio";         q 'sum(rate(snip_redirects_total{cache="hit"}[5m])) / sum(rate(snip_redirects_total[5m]))'
+          echo "--- worker clicks processed (total)";  q 'sum(snip_worker_clicks_processed_total)'
+          echo "--- worker lag";                       q 'sum(snip_worker_lag_events)'
+          q 'sum(rate(snip_http_requests_total[1m]))' | jq -e '.[0].value[1] | tonumber > 0'
+          q 'sum(snip_worker_clicks_processed_total)' | jq -e '.[0].value[1] | tonumber > 0'
+          docker compose --profile observability up -d grafana
+          for _ in $(seq 1 30); do curl -fsS localhost:3000/api/health > /dev/null 2>&1 && break; sleep 2; done
+          curl -s 'localhost:3000/api/search?query=snip' | jq -e '.[] | select(.uid == "snip-overview")'
+          curl -s localhost:3000/api/datasources/uid/prometheus/health | jq -e '.status == "OK"'
       - name: Chapter 9.3 lab — data survives down/up (named volume), and is gone after down -v
         run: |
           docker compose --profile observability down
