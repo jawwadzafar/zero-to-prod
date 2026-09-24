@@ -1,0 +1,261 @@
+---
+title: "12.3 Compute, storage & managed databases"
+sidebar_label: "12.3 Compute, storage & DBs"
+description: "The building blocks you rent: compute (VMs, containers on ECS/Fargate and Cloud Run, Kubernetes, functions), the three kinds of storage (block, object, file) with a hands-on look at object storage over plain HTTP, and managed databases — Multi-AZ failover, read replicas, backups and point-in-time recovery, connection limits — through snip's real AWS configuration."
+---
+
+# 12.3 Compute, storage & managed databases
+
+Chapter 12.2 built snip a network. Now it needs things to put in it: somewhere to **run** snip, somewhere to **keep files**, and a **database** that doesn't lose data when a machine dies. Every cloud offers several versions of each, from "here's a raw virtual machine, good luck" to "give us your container and forget about servers". The skill is choosing the least work that meets your needs. This chapter surveys the options for compute, storage and databases, explains what "managed" really buys you, and walks through the choices in snip's AWS configuration: containers on **ECS Fargate**, a managed **Postgres** and **Redis**, and logs in the cloud's log service. You'll also use real **object storage** over plain HTTP, no account needed, to see how it differs from the filesystem on your laptop.
+
+## What you'll learn
+
+- The compute options (**VMs**, **containers**, **Kubernetes**, **functions**) and how to choose.
+- The three kinds of storage: **block**, **object** and **file**, and when to use each.
+- **Object storage** in practice: buckets, keys, public access, pre-signed URLs, lifecycle rules.
+- **Managed databases**: failover, read replicas, backups, point-in-time recovery, connection limits.
+- How snip's AWS configuration puts it all together.
+
+---
+
+## Compute: where snip runs
+
+| Option | You provide | The provider handles | Scales by | Good for |
+|---|---|---|---|---|
+| **Virtual machines** (EC2, Compute Engine, Azure VMs) | An OS image, patches, your service (systemd, chapter 2.6) | Hardware, hypervisor | Adding machines (autoscaling groups) | Special OS needs, legacy software, full control |
+| **Containers, serverless** (ECS on **Fargate**, **Cloud Run**, Azure Container Apps, App Runner) | An image and its settings | Servers, OS, placement, scaling | Adding tasks, automatically | Most web services and APIs, including snip |
+| **Managed Kubernetes** (EKS, GKE, AKS) | Workloads (Part 10) and some cluster settings | Control plane (and optionally nodes) | Pods and nodes | Many services and teams, the Kubernetes ecosystem |
+| **Functions** (Lambda, Cloud Functions, Azure Functions) | A function per event or route | Everything else; scales to zero | Per request | Event handlers, glue, spiky low-volume work |
+
+:::note[Everyday anchor]
+Feeding people at an event: you can hire a **kitchen** and cook everything yourself (VMs); hire **caterers** who bring their own kitchen and just need your recipes (serverless containers); run a **food court** with many vendors and a manager allocating stalls (Kubernetes); or order **per portion from a delivery app** when someone's hungry (functions). Each step hands more work to someone else, and trades control for convenience.
+:::
+
+snip's AWS configuration uses **ECS on Fargate**: AWS's container service, in the mode where you never see a server. You give it a **task definition** (image, CPU, memory, environment, secrets, logging) and a **service** ("keep 2 copies running behind this load balancer"), much like a Kubernetes Deployment and Service:
+
+```hcl
+resource "aws_ecs_service" "api" {
+  name            = "api"
+  task_definition = aws_ecs_task_definition.api.arn
+  desired_count   = var.api_count
+  launch_type     = "FARGATE"
+  network_configuration {
+    subnets         = module.network.private_subnet_ids   # spread across both zones
+    security_groups = [aws_security_group.app.id]
+  }
+  deployment_minimum_healthy_percent = 100                # like maxUnavailable: 0
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true                                       # a deploy that never gets healthy rolls itself back
+  }
+}
+```
+
+Every idea from Parts 9–11 is here with different names: the image, readiness via the load balancer's health check on `/readyz`, rolling deploys that keep capacity, automatic rollback, secrets injected at runtime, and logs to a central service. The task definition even runs snip on **ARM** processors (`cpu_architecture = "ARM64"`), which are cheaper on AWS, possible because snip's image is multi-architecture (chapter 9.4).
+
+**How to choose:** start at the top of "least work" that fits. For a typical HTTP service, serverless containers (Fargate, Cloud Run) are hard to beat: no servers, no cluster to upgrade, scaling built in. Move to Kubernetes when you have many services and the platform investment pays off (chapter 10.1). Use functions for event-driven glue. Use VMs when nothing else fits.
+
+---
+
+## Storage: three different things
+
+| Kind | What it is | Accessed as | Examples | Use for |
+|---|---|---|---|---|
+| **Block** | A virtual disk attached to one machine | A filesystem (`/var/lib/postgresql`) | EBS, Persistent Disk, Azure Disk | A VM's or database's disk; Kubernetes PersistentVolumes (chapter 10.4) |
+| **Object** | A huge key → file store, over HTTP | An API: `PUT`/`GET` by key | S3, Cloud Storage, Azure Blob | Uploads, backups, logs, static websites, data lakes, build artefacts |
+| **File** | A shared network filesystem | A filesystem mounted by many machines | EFS, Filestore, Azure Files | Shared files that several servers must see (ReadWriteMany) |
+
+**Object storage** is the one that surprises people used to disks, and the one you'll use most. It holds **objects** (files, up to terabytes each) in **buckets**, each object named by a **key**. There are no real folders: `csv.gz/1763.csv.gz` is just a key that contains a slash, and the console *shows* it as a folder. You read and write whole objects over HTTPS; you don't edit a byte in the middle. In exchange, it's cheap, effectively unlimited, extremely durable (providers design for "eleven nines", 99.999999999% durability, by storing copies across zones), and reachable from anywhere with the right permissions.
+
+Things to know about object storage:
+
+- **Block public access** is on by default on modern accounts. Keep it on. Public buckets are the most common cloud data leak (chapter 12.1).
+- **Pre-signed URLs** let your API give a user temporary permission to upload or download one object directly, without making the bucket public and without the file passing through your servers. This is how most apps handle user uploads.
+- **Versioning** keeps old versions of each object, which protects against accidental deletes and overwrites (and ransomware).
+- **Lifecycle rules** move old objects to cheaper **storage classes** (infrequent access, archive) or delete them after a time. Logs from last year shouldn't cost the same as today's.
+- **Egress**: downloading lots of data out of the cloud costs money (chapter 12.1). Put a CDN in front of public, popular files (chapter 8.6).
+
+---
+
+## Managed databases: what "managed" buys
+
+Running Postgres yourself means installing, configuring, patching, backing up, monitoring, and failing over at 3 a.m. A **managed database** (Amazon RDS and Aurora, Cloud SQL, Azure Database for PostgreSQL) does the operational work. You still own the schema, queries, indexes and data (chapters 6.x).
+
+| Feature | What it gives you | snip's configuration |
+|---|---|---|
+| **Automated backups** + **point-in-time recovery** (PITR) | Restore the database to any second in the retention window: "just before the bad migration at 14:03" | `backup_retention_period = 7` |
+| **Multi-AZ** | A synchronous **standby** in another zone. If the primary's zone or machine fails, it fails over automatically, typically in a minute or two, with the same endpoint | `multi_az = true` in production, `false` in staging to save money |
+| **Read replicas** | Extra copies for read traffic (chapter 8.6), in the same or another region | (not needed yet) |
+| **Patching and upgrades** | Minor versions applied in a maintenance window you choose | automatic minor upgrades |
+| **Encryption at rest** | Disk and backups encrypted with managed keys | `storage_encrypted = true` |
+| **Monitoring** | Metrics, slow-query insights | `performance_insights_enabled = true` |
+| **Deletion protection** | Refuses deletion until the flag is turned off | on for `production` |
+
+```hcl
+resource "aws_db_instance" "postgres" {
+  engine                  = "postgres"
+  engine_version          = "16"
+  instance_class          = var.db_instance_class     # db.t4g.micro in staging
+  storage_encrypted       = true
+  multi_az                = var.multi_az
+  publicly_accessible     = false                      # private subnets only (chapter 12.2)
+  backup_retention_period = 7
+  deletion_protection     = var.environment == "production"
+  password_wo             = ephemeral.random_password.db.result   # never stored in state (chapter 12.6)
+}
+```
+
+Things managed databases **don't** do for you:
+
+- **Connection limits** still apply (chapter 8.6). Twenty snip tasks with ten connections each can exhaust a small instance. Size pools, or use a proxy like **RDS Proxy** (a managed PgBouncer).
+- **Bad queries are still slow.** Managed hardware doesn't fix a missing index (chapter 6.4).
+- **Backups you've never restored are hopes, not backups.** Test a restore regularly.
+- **Major version upgrades** still need planning and testing.
+
+snip's **Redis** is managed too (**ElastiCache**; Memorystore on Google Cloud). For snip it's a cache and a queue that can be rebuilt, so a single node is acceptable in staging. Production would use a replicated setup with automatic failover. Other managed building blocks you'll meet: **queues** (SQS, Pub/Sub), **streams** (Kinesis, managed Kafka), and **search** (OpenSearch).
+
+:::warning[What can go wrong]
+- **Choosing the biggest instance "to be safe"**: databases bill every hour. Start small, watch the metrics, resize (a few minutes' interruption, or none with Multi-AZ).
+- **Public databases**: `publicly_accessible = true` plus a loose security group equals a breach waiting to happen.
+- **No tested restore**: the backup is there, but nobody knows how long a restore takes or whether the application works afterwards.
+- **Hidden costs**: I/O charges on busy databases, snapshots kept forever, cross-zone traffic between tasks and the database.
+- **Storing files in the database**: images and uploads belong in object storage, with just the key in the database.
+:::
+
+:::info[In the real world]
+A very common production stack, on any cloud: containers on a serverless container platform or managed Kubernetes, a managed relational database with Multi-AZ and PITR, a managed Redis, object storage for files and backups behind a CDN, a managed queue for background work, and the provider's log and metrics services, often forwarded to a third-party observability tool (Part 13). Almost none of it runs on a server anyone logs into.
+:::
+
+---
+
+## Lab
+
+Free, and **no cloud account needed**. NOAA publishes global weather records in a **public** S3 bucket as open data, so you can use real object storage with nothing but `curl`.
+
+1. **List objects.** Object storage is an HTTP API. List the first three keys:
+   ```bash
+   curl -s "https://noaa-ghcn-pds.s3.amazonaws.com/?list-type=2&max-keys=3"
+   ```
+   The XML shows each object's **Key** (`csv.gz/1763.csv.gz`), **Size**, **LastModified**, **ETag** (a content fingerprint) and **StorageClass**.
+
+2. **See that folders are an illusion.** Ask S3 to group keys by `/`:
+   ```bash
+   curl -s "https://noaa-ghcn-pds.s3.amazonaws.com/?list-type=2&delimiter=/" | grep -o "<Prefix>[^<]*</Prefix>"
+   ```
+   ```text
+   <Prefix>csv.gz/</Prefix>
+   <Prefix>csv/</Prefix>
+   <Prefix>parquet/</Prefix>
+   ```
+   These "folders" are just shared key prefixes that S3 summarises for you.
+
+3. **Read an object.** Download the oldest file and decompress it:
+   ```bash
+   curl -s https://noaa-ghcn-pds.s3.amazonaws.com/csv.gz/1763.csv.gz | gunzip | head -3
+   ```
+   ```text
+   ITE00100554,17630101,TMAX,-36,,,E,
+   ITE00100554,17630101,TMIN,-50,,,E,
+   ITE00100554,17630102,TMAX,-26,,,E,
+   ```
+   A station in Milan, on 1 January 1763: a maximum of −3.6 °C (the values are in tenths of a degree). Try `curl -sI` on the same URL to see only the headers: size, ETag, last modified.
+
+4. **Read snip's choices.** Open `snip/infra/aws/compute.tf` and `main.tf` and answer: How many API tasks run in staging and in production? (`envs/*.tfvars`: 1 and 3.) What makes the production database survive a zone failure? (`multi_az = true`.) Where do snip's logs go, and for how long? (A CloudWatch log group, kept 14 days.) What happens if a new version of snip never becomes healthy? (The deployment circuit breaker rolls it back.)
+
+5. **Design exercise.** snip adds custom QR-code images for each link. Where should the images live, how should the browser get them, and what goes in Postgres? (In object storage, with a lifecycle rule if old ones can go; served through a CDN or via pre-signed URLs; Postgres stores only the object key.)
+
+## Self-check
+
+<Quiz
+  id="cloud-compute-storage-databases"
+  questions={[
+    {
+      q: 'What is the main difference between block and object storage?',
+      options: [
+        'Object storage is always faster',
+        'Block storage is a disk attached to one machine and used as a filesystem; object storage stores whole files by key over an HTTP API, cheaply and at huge scale',
+        'Block storage is only for backups',
+        'There is no difference',
+      ],
+      answer: 1,
+      explain: 'Databases want block storage; uploads, backups and logs want object storage.',
+    },
+    {
+      q: 'In S3, what is csv.gz/1763.csv.gz?',
+      options: [
+        'A file inside a folder called csv.gz',
+        'A single key that happens to contain a slash; "folders" are a display convenience over shared prefixes',
+        'A bucket name',
+        'A compressed bucket',
+      ],
+      answer: 1,
+      explain: 'Object storage is a flat key-value store. The delimiter listing groups keys by prefix.',
+    },
+    {
+      q: 'How do most applications let users upload large files without making a bucket public or routing the bytes through their servers?',
+      options: [
+        'Email attachments',
+        'Pre-signed URLs: the API grants short-lived permission to upload one specific object directly to storage',
+        'Public write access',
+        'Storing files in the database',
+      ],
+      answer: 1,
+      explain: 'The API stays in control of who uploads what, and the storage service handles the heavy lifting.',
+    },
+    {
+      q: 'What does Multi-AZ give a managed database?',
+      options: [
+        'Faster queries',
+        'A synchronous standby in another zone with automatic failover, so a zone or machine failure doesn’t lose the database',
+        'Read replicas for scaling reads',
+        'Cheaper storage',
+      ],
+      answer: 1,
+      explain: 'It’s for availability. Read replicas are for scaling reads and are asynchronous.',
+    },
+    {
+      q: 'A bad migration at 14:03 corrupted a table. What managed-database feature helps most?',
+      options: [
+        'Multi-AZ failover',
+        'Point-in-time recovery: restore to a copy of the database as it was at 14:02',
+        'A bigger instance',
+        'Read replicas',
+      ],
+      answer: 1,
+      explain: 'Standbys and replicas faithfully copy the bad change too. PITR goes back in time.',
+    },
+    {
+      q: 'Why does snip’s AWS config run on Fargate rather than VMs?',
+      options: [
+        'VMs cannot run containers',
+        'Fargate runs the container without any servers to patch or scale, which is less work for a typical HTTP service like snip',
+        'Fargate is free',
+        'VMs are not available in eu-west-1',
+      ],
+      answer: 1,
+      explain: 'Choose the least operational work that meets your needs.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Compare running snip's Postgres yourself on a VM with using a managed database. List what you'd have to build yourself.</summary>
+
+Self-managed on a VM, you'd build and run: OS and Postgres installation and **patching**; **backups** (scheduled dumps or WAL archiving to object storage) and **tested restores**; **point-in-time recovery** (WAL archiving plus tooling); **high availability**, meaning a replica in another zone, failover logic and client redirection (often a tool like Patroni); **monitoring** and alerts; **disk growth**; **encryption**; **major version upgrades**; and on-call for all of it.
+
+A managed database includes most of that for a higher per-hour price. For most teams the engineering time saved, and the risk of a home-made backup that doesn't restore, easily justify the cost. Self-managing makes sense with deep database expertise, unusual extensions or configurations, or very large scale where the price difference is large.
+
+</details>
+
+<details>
+<summary>Your storage bill doubled in six months though traffic didn't grow. Where would you look?</summary>
+
+- **Snapshots and backups** accumulating without a retention policy: database snapshots, disk snapshots, old AMIs.
+- **Object storage without lifecycle rules**: logs and build artefacts kept forever in the most expensive storage class, and **old versions** piling up in versioned buckets.
+- **Unattached block volumes** left behind by deleted VMs.
+- **Egress**: files downloaded directly from storage without a CDN, or cross-region replication nobody needs.
+- **Incomplete multipart uploads** (partial uploads that never finished), which are billed but invisible in normal listings.
+
+Tools: the billing console's breakdown by service and usage type, storage analytics (e.g. S3 Storage Lens), and **tags**, so each cost has an owner (chapter 12.7).
+
+</details>
