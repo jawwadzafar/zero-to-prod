@@ -30,6 +30,9 @@ services:
       SNIP_DATABASE_URL: postgres://snip:snip@postgres:5432/snip?sslmode=disable
       SNIP_REDIS_ADDR: redis:6379
       SNIP_BASE_URL: http://localhost:8080
+      # Tracing (chapter 13.3) is off unless you set it, e.g.:
+      #   OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -68,6 +71,11 @@ services:
     volumes:                                    # a Prometheus datasource and snip's dashboard, ready to use (chapter 13.2)
       - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0      # receives OTLP traces on 4318; UI on 16686 (chapter 13.3)
+    profiles: ["observability"]
+    ports: ["16686:16686"]
 
 volumes:
   pgdata:

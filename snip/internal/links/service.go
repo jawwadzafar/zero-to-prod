@@ -5,7 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
+
+// tracer creates spans for the steps inside a request (chapter 13.3). When
+// tracing is off, the global provider is a no-op and spans cost almost nothing.
+var tracer = otel.Tracer("github.com/jawwadzafar/zero-to-prod/snip/internal/links")
 
 // Cache is an optional fast lookup in front of the Store (Redis in snip).
 // A cache is allowed to forget anything at any time; the Store is the truth.
@@ -68,24 +76,43 @@ type ResolveResult struct {
 // cache on the way out). Cache errors are never fatal — a broken cache makes
 // snip slower, not broken.
 func (s *Service) Resolve(ctx context.Context, slug string) (ResolveResult, error) {
+	ctx, span := tracer.Start(ctx, "links.Resolve")
+	defer span.End()
+
 	if s.cache != nil {
-		if u, ok, err := s.cache.GetURL(ctx, slug); err == nil && ok {
+		cctx, cspan := tracer.Start(ctx, "cache.GetURL")
+		u, ok, err := s.cache.GetURL(cctx, slug)
+		cspan.SetAttributes(attribute.Bool("cache.hit", err == nil && ok))
+		cspan.End()
+		if err == nil && ok {
+			span.SetAttributes(attribute.Bool("cache.hit", true))
 			return ResolveResult{URL: u, CacheHit: true}, nil
 		}
 	}
-	l, err := s.store.Get(ctx, slug)
+	sctx, sspan := tracer.Start(ctx, "store.Get")
+	l, err := s.store.Get(sctx, slug)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		sspan.RecordError(err)
+		sspan.SetStatus(codes.Error, "store lookup failed")
+	}
+	sspan.End()
 	if err != nil {
 		return ResolveResult{}, err
 	}
 	if s.cache != nil {
-		_ = s.cache.SetURL(ctx, slug, l.URL) // best effort
+		cctx, cspan := tracer.Start(ctx, "cache.SetURL")
+		_ = s.cache.SetURL(cctx, slug, l.URL) // best effort
+		cspan.End()
 	}
+	span.SetAttributes(attribute.Bool("cache.hit", false))
 	return ResolveResult{URL: l.URL}, nil
 }
 
 // RecordClick reports a visit. Errors are returned so the caller can log
 // them, but a failed click must never block the redirect.
 func (s *Service) RecordClick(ctx context.Context, slug string) error {
+	ctx, span := tracer.Start(ctx, "links.RecordClick")
+	defer span.End()
 	if s.clicks == nil {
 		return s.store.AddClicks(ctx, slug, 1)
 	}

@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/auth"
 )
 
@@ -61,10 +64,17 @@ func (s *Server) observe(next http.Handler) http.Handler {
 				s.metrics.Requests.WithLabelValues(route, r.Method, strconv.Itoa(rec.status)).Inc()
 				s.metrics.RequestDuration.WithLabelValues(route).Observe(elapsed.Seconds())
 			}
+			attrs := []any{"request_id", id, "method", r.Method, "route", route, "path", r.URL.Path,
+				"status", rec.status, "duration_ms", elapsed.Milliseconds()}
+			// With tracing on (chapter 13.3), name the request's span by its route and
+			// put the trace ID in the log line, so logs and traces link to each other.
+			if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+				span.SetName(route)
+				span.SetAttributes(attribute.String("http.route", route), attribute.String("snip.request_id", id))
+				attrs = append(attrs, "trace_id", span.SpanContext().TraceID().String())
+			}
 			if route != "GET /healthz" && route != "GET /metrics" { // keep logs about real traffic
-				s.log.InfoContext(ctx, "request",
-					"request_id", id, "method", r.Method, "route", route, "path", r.URL.Path,
-					"status", rec.status, "duration_ms", elapsed.Milliseconds())
+				s.log.InfoContext(ctx, "request", attrs...)
 			}
 		}()
 		next.ServeHTTP(rec, r)

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/auth"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/cache"
@@ -32,6 +33,7 @@ import (
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/ratelimit"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/store/memory"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/store/postgres"
+	"github.com/jawwadzafar/zero-to-prod/snip/internal/tracing"
 )
 
 func main() {
@@ -131,6 +133,20 @@ func run(args []string) error {
 }
 
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger, st store, pg *postgres.Store) error {
+	// Tracing (chapter 13.3): on only when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+	shutdownTracing, tracingOn, err := tracing.Setup(ctx, "snip-api")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = shutdownTracing(flushCtx) // send any spans still in memory
+	}()
+	if tracingOn {
+		log.Info("tracing enabled", "endpoint", os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	}
+
 	m := metrics.New()
 	ready := map[string]httpapi.Pinger{}
 	if pg != nil {
@@ -168,8 +184,8 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger, st store, p
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           api.Handler(),
-		ReadHeaderTimeout: 5 * time.Second, // don't let slow clients hold connections open forever
+		Handler:           otelhttp.NewHandler(api.Handler(), "snip"), // a span per request; named by route in observe
+		ReadHeaderTimeout: 5 * time.Second,                            // don't let slow clients hold connections open forever
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,

@@ -191,6 +191,21 @@ jobs:
           for _ in $(seq 1 30); do curl -fsS localhost:3000/api/health > /dev/null 2>&1 && break; sleep 2; done
           curl -s 'localhost:3000/api/search?query=snip' | jq -e '.[] | select(.uid == "snip-overview")'
           curl -s localhost:3000/api/datasources/uid/prometheus/health | jq -e '.status == "OK"'
+      - name: Chapter 13.3 lab — traces reach Jaeger, one per request, with cache spans
+        env:
+          OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+        run: |
+          docker compose --profile observability up -d --wait
+          docker compose restart nginx                   # the api copies were recreated with new IPs (chapter 8.6)
+          sleep 3
+          for _ in $(seq 1 5); do curl -s -o /dev/null localhost:8080/counted; done
+          sleep 8                                        # spans are batched before export
+          curl -s localhost:16686/api/v3/services | jq -e '.services | index("snip-api")'
+          START=$(date -u -d '-10 min' +%Y-%m-%dT%H:%M:%SZ); END=$(date -u -d '+1 min' +%Y-%m-%dT%H:%M:%SZ)
+          curl -s "localhost:16686/api/v3/traces?query.service_name=snip-api&query.start_time_min=$START&query.start_time_max=$END" \
+            | jq -r '[.result.resourceSpans[].scopeSpans[].spans[]] | group_by(.traceId)[] | [.[].name] | join(" | ")' | tee /tmp/traces.txt
+          grep -q "cache.GetURL" /tmp/traces.txt
+          docker compose logs api | grep -m1 '"trace_id"'  # the same trace IDs are in the logs
       - name: Chapter 9.3 lab — data survives down/up (named volume), and is gone after down -v
         run: |
           docker compose --profile observability down
