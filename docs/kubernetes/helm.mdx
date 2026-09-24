@@ -1,0 +1,358 @@
+---
+title: "10.6 Helm: packaging for Kubernetes"
+sidebar_label: "10.6 Helm"
+description: "Packaging a whole application for Kubernetes: what Helm charts, values, templates and releases are, how installs, upgrades and rollbacks work, installing other people's charts safely, Helm vs kustomize — by reading, installing, upgrading and rolling back snip's own chart."
+---
+
+# 10.6 Helm: packaging for Kubernetes
+
+snip's manifests are thirteen objects across nine files, with values like the image tag, the replica count and the database password repeated in several places. Now imagine installing snip three times (development, staging and production), each with different settings, or handing it to another team who wants their own database. Copy-and-edit YAML doesn't scale. **Helm** is Kubernetes' package manager. A **chart** is an application's manifests turned into templates, with the adjustable parts pulled out into **values**. `helm install` renders and applies them as a named **release**, and Helm remembers every revision so you can upgrade and roll back the whole application as one unit. It's also how most third-party software is installed on Kubernetes: you've already used it for Envoy Gateway and metrics-server. This chapter walks through snip's own chart, then installs, upgrades and rolls it back.
+
+## What you'll learn
+
+- What **charts**, **templates**, **values** and **releases** are.
+- Reading a real chart: snip's `deploy/helm/snip`.
+- `helm install`, `upgrade`, `rollback`, `history` and `uninstall`, and what a release revision is.
+- Installing **third-party charts** responsibly.
+- **Helm vs kustomize**, and when to use which.
+
+---
+
+## Charts, values, releases
+
+:::note[Everyday anchor]
+A chart is a **flat-pack furniture kit**: the parts and instructions (templates) are the same for everyone, and the order form (values) says which colour, which size, how many shelves. `helm install` is assembling one; the assembled piece in your room is a **release**. You can assemble the same kit in three rooms with three different order forms, and each keeps its own receipt of every change (revisions).
+:::
+
+| Term | What it is | snip's |
+|---|---|---|
+| **Chart** | A directory (or packaged `.tgz`) of templates, default values and metadata | `snip/deploy/helm/snip` |
+| **`Chart.yaml`** | The chart's name, **chart version**, and the **app version** it deploys | `version: 0.1.0`, `appVersion: "main"` |
+| **Templates** | Kubernetes manifests with placeholders, written in Go's template language | `templates/api.yaml`, `postgres.yaml`, … |
+| **Values** | The settings that fill the placeholders: defaults in `values.yaml`, overridden per install | image, replicas, resources, config, which parts to enable |
+| **Release** | One installed instance of a chart, with a name, in a namespace | `snip` in namespace `snip-helm` |
+| **Revision** | A numbered version of a release; every install, upgrade and rollback adds one | 1, 2, 3… |
+
+Helm stores each revision's rendered manifests and values inside the cluster (as Secrets in the release's namespace). That's what makes `helm rollback` possible, and `helm get values` / `helm get manifest` show exactly what's deployed.
+
+---
+
+## Reading snip's chart
+
+```text
+snip/deploy/helm/snip/
+├── Chart.yaml
+├── values.yaml              # every setting, with defaults and comments
+└── templates/
+    ├── _helpers.tpl         # shared snippets: names, labels, security settings
+    ├── config.yaml          # ConfigMap (+ database Secret, if the chart runs Postgres)
+    ├── api.yaml             # Deployment, Service, HPA, PodDisruptionBudget
+    ├── worker.yaml
+    ├── postgres.yaml        # only if postgres.enabled
+    ├── redis.yaml           # only if redis.enabled
+    ├── networkpolicy.yaml
+    └── NOTES.txt            # printed after install: how to use it
+```
+
+### Values: the chart's interface
+
+`values.yaml` is the part users read, so it's written as documentation:
+
+```yaml
+image:
+  repository: ghcr.io/jawwadzafar/snip
+  tag: ""                 # empty = the chart's appVersion
+
+api:
+  replicas: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+
+config:
+  logLevel: info
+  rateLimit: 60
+
+database:
+  existingSecret: ""      # name a Secret you manage (recommended), or…
+
+postgres:
+  enabled: true           # …let the chart run a development Postgres
+  password: snip-dev-only
+```
+
+Users override values without touching templates, either with files (`-f prod-values.yaml`, the usual way, kept in Git) or with single settings (`--set api.replicas=4`).
+
+### Templates: YAML with placeholders
+
+Templates are ordinary manifests with `{{ }}` expressions. From `templates/config.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "snip.fullname" . }}-config
+data:
+  SNIP_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  SNIP_RATE_LIMIT: {{ .Values.config.rateLimit | quote }}
+  {{- if .Values.redis.enabled }}
+  SNIP_REDIS_ADDR: {{ include "snip.fullname" . }}-redis:6379
+  {{- end }}
+```
+
+- `.Values.config.logLevel` reads a value; `.Release.Name` and `.Chart.AppVersion` are built in.
+- `| quote` pipes a value through a function (Helm includes dozens: `default`, `toYaml`, `sha256sum`…).
+- `{{- if }}…{{- end }}` includes a block conditionally; the `-` trims surrounding whitespace so the YAML stays valid.
+- `include "snip.fullname" .` calls a named snippet from `_helpers.tpl`, so names and labels are defined once.
+
+Three details in snip's chart are worth copying:
+
+**A config checksum that forces rollouts.** Chapter 10.4 showed that changing a ConfigMap doesn't restart Pods. snip's Deployments carry a hash of the rendered config:
+
+```yaml
+annotations:
+  checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+```
+
+Change any config value, and the hash changes. That changes the Pod template, so `helm upgrade` rolls the Pods automatically.
+
+**Fail early on impossible combinations.** The worker reads clicks from Redis, so:
+
+```yaml
+{{- if not .Values.redis.enabled }}
+{{- fail "worker.enabled needs redis.enabled: the worker reads clicks from Redis" }}
+{{- end }}
+```
+
+A mistaken setting gives a clear error at install time instead of a crash-looping Pod later.
+
+**Production-friendly defaults.** The same hardened security context as chapter 10.2's manifests, and a `database.existingSecret` option so a real deployment can take its database URL from a Secret managed elsewhere (chapter 10.4). `postgres.enabled: false` then removes the in-cluster database entirely.
+
+:::info[If you've written code]
+`helm template` renders a chart to plain YAML without touching a cluster: `helm template snip deploy/helm/snip --set postgres.enabled=false`. It's the fastest way to check what a values change actually produces. CI can pipe it into schema validation (kubeconform) or policy checks. `helm lint` catches template errors and missing fields. Charts can also include a `values.schema.json` so bad values (a string where a number belongs) are rejected before rendering.
+:::
+
+---
+
+## Install, upgrade, roll back
+
+```bash
+helm install snip deploy/helm/snip -n snip-helm --create-namespace --wait
+helm -n snip-helm list                          # releases: name, revision, status, chart, app version
+helm -n snip-helm upgrade snip deploy/helm/snip --reuse-values --set config.logLevel=debug --wait
+helm -n snip-helm history snip                  # revision 1: install, 2: upgrade
+helm -n snip-helm rollback snip 1 --wait        # back to revision 1's values and manifests (as revision 3)
+helm -n snip-helm uninstall snip                # remove everything the release created
+```
+
+- **`--wait`** waits until the resources are ready (Deployments rolled out and so on), so a broken upgrade fails the command, which is what you want in CI and pipelines.
+- **`--reuse-values`** keeps the values from the last revision and applies only your new `--set`. Without it, an upgrade uses the chart defaults plus whatever you pass now, which is a classic way to reset settings by accident. In real pipelines, the whole values file is passed every time, so this doesn't come up.
+- **`helm upgrade --install`** installs if the release doesn't exist, upgrades if it does: the usual form in CI/CD (chapter 11.3).
+- A rollback is itself a new revision: history is never rewritten.
+
+:::warning[What can go wrong]
+- **Values that silently don't apply**: a typo like `api.replica: 4` is simply ignored, since it matches nothing in the templates. `helm get values` and `helm template` show what's really in effect. A values schema prevents it.
+- **Secrets in values files**: `postgres.password` in a values file in Git is a password in Git (chapter 10.4). Reference an existing Secret instead.
+- **Editing resources by hand** (`kubectl edit`) behind Helm's back: the next upgrade overwrites the change, or fails on the conflict. Change the values instead.
+- **Huge, clever templates**: a chart full of conditionals and loops becomes a programming language nobody can debug. Keep templates simple, and render them with `helm template` to review.
+:::
+
+---
+
+## Other people's charts
+
+Most infrastructure is installed from public charts: ingress and gateway controllers, cert-manager, Prometheus, databases. You did it in this Part:
+
+```bash
+helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 -n envoy-gateway-system --create-namespace
+helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+helm install metrics-server metrics-server/metrics-server -n kube-system
+```
+
+Charts come either from **OCI registries** (the same registries that store images, chapter 9.4) or from classic **chart repositories** (`helm repo add`). Treat installing a chart like running someone's code with cluster-wide permissions, which it often is:
+
+- **Pin the chart version** (`--version v1.9.1`), exactly as you pin images. An unpinned install gets whatever is newest.
+- **Read the values** before installing: `helm show values oci://…/gateway-helm --version v1.9.1`. Defaults are often not production settings.
+- **Render and review** what it creates: `helm template …`, especially RBAC (ClusterRoles), and any privileged Pods.
+- **Prefer official sources**: the project's own chart, from its documented location.
+
+---
+
+## Helm or kustomize?
+
+snip ships both: kustomize manifests (`deploy/k8s`) and a Helm chart. They solve overlapping problems differently.
+
+| | kustomize | Helm |
+|---|---|---|
+| Approach | Plain YAML plus **patches** and overlays | **Templates** plus values |
+| Built into kubectl | Yes (`-k`) | No, separate tool |
+| Logic (ifs, loops) | None, by design | Full template language |
+| Release tracking, history, rollback | No: `kubectl apply` just applies | Yes: revisions, `rollback`, `uninstall` |
+| Distributing to others | Awkward | The standard: charts in registries |
+| Readability | What you see is what's applied | Must render to see the result |
+
+A common combination: **Helm for third-party software** (the ecosystem is built around charts) and **either** for your own apps, based on team taste. Kustomize suits a few environments with small differences; Helm suits many configurations or distributing to other teams. GitOps tools (chapter 11.4) support both.
+
+:::info[In the real world]
+In mature setups, nobody runs `helm install` by hand in production. A **GitOps** controller like Argo CD or Flux watches a Git repository listing which charts, at which versions, with which values files, should be installed in which clusters, and continuously reconciles the cluster to match (chapter 11.4). Chart versions and values changes go through pull requests like code, and a rollback is a revert of a commit.
+:::
+
+---
+
+## Lab
+
+Free, on your kind cluster (chapters 10.1–10.2) with the `snip:dev` image loaded. Every step runs in snip's CI.
+
+1. **Install Helm.** macOS: `brew install helm`. Linux/WSL: follow [helm.sh/docs/intro/install](https://helm.sh/docs/intro/install/) (a script or your package manager). Check with `helm version`.
+
+2. **Render before installing.**
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   helm lint deploy/helm/snip
+   helm template snip deploy/helm/snip | less
+   helm template snip deploy/helm/snip --set postgres.enabled=false --set database.existingSecret=prod-db | grep -E "^kind:"
+   helm template snip deploy/helm/snip --set redis.enabled=false        # the chart's own error message
+   ```
+
+3. **Install a second, independent snip** next to the kustomize one, in its own namespace:
+   ```bash
+   helm install snip deploy/helm/snip -n snip-helm --create-namespace \
+     --set image.repository=snip --set image.tag=dev --wait
+   helm -n snip-helm list
+   kubectl -n snip-helm get pods
+   ```
+   Read the printed notes, then follow them to port-forward, create a key and run `./scripts/smoke.sh` against it.
+
+4. **Upgrade, and watch the checksum roll the Pods.**
+   ```bash
+   kubectl -n snip-helm get deploy snip-api -o jsonpath='{.spec.template.metadata.annotations.checksum/config}'; echo
+   helm -n snip-helm upgrade snip deploy/helm/snip --reuse-values --set config.logLevel=debug --wait
+   kubectl -n snip-helm get deploy snip-api -o jsonpath='{.spec.template.metadata.annotations.checksum/config}'; echo
+   kubectl -n snip-helm get rs                          # a new ReplicaSet: the Pods were replaced
+   ```
+
+5. **Roll back and read the history.**
+   ```bash
+   helm -n snip-helm rollback snip 1 --wait
+   helm -n snip-helm history snip
+   helm -n snip-helm get values snip --all | grep -A2 "^config"
+   ```
+
+6. **Uninstall**: `helm -n snip-helm uninstall snip`. Note that the Postgres PersistentVolumeClaim remains (`kubectl -n snip-helm get pvc`). StatefulSet claims are deliberately not deleted with the release (chapter 10.4). Delete it yourself when you're sure.
+
+## Self-check
+
+<Quiz
+  id="kubernetes-helm"
+  questions={[
+    {
+      q: 'What is a Helm release?',
+      options: [
+        'A new version of Helm',
+        'One installed instance of a chart, with a name and namespace, and a history of revisions',
+        'A packaged chart file',
+        'A Git tag',
+      ],
+      answer: 1,
+      explain: 'The same chart can be installed many times as different releases, each with its own values and revisions.',
+    },
+    {
+      q: 'Why does snip’s chart put a checksum of the config in a Pod annotation?',
+      options: [
+        'For security',
+        'So a config change alters the Pod template, which makes the Deployment roll out new Pods that read the new values',
+        'Kubernetes requires it',
+        'To make the chart smaller',
+      ],
+      answer: 1,
+      explain: 'Environment variables are read once at start. Changing the template forces a rollout.',
+    },
+    {
+      q: 'You run helm upgrade --set api.replicas=4 without --reuse-values. What might go wrong?',
+      options: [
+        'Nothing',
+        'Values set in earlier revisions (not in the chart defaults) are dropped, reverting them to defaults',
+        'The release is deleted',
+        'Helm refuses to run',
+      ],
+      answer: 1,
+      explain: 'Without --reuse-values (or passing your full values file), an upgrade starts from defaults plus the new flags.',
+    },
+    {
+      q: 'What should you do before installing a third-party chart?',
+      options: [
+        'Nothing; charts are safe',
+        'Pin its version, read its values, and render it to review what it creates, especially RBAC and privileged Pods',
+        'Always use the latest version',
+        'Disable RBAC',
+      ],
+      answer: 1,
+      explain: 'A chart often installs software with broad cluster permissions. Treat it like running someone’s code.',
+    },
+    {
+      q: 'When is kustomize a better fit than Helm?',
+      options: [
+        'When you need to distribute your app to many other teams',
+        'For your own app with a few environments differing slightly, when you want plain YAML with patches and no template logic',
+        'Never',
+        'When you need rollbacks',
+      ],
+      answer: 1,
+      explain: 'kustomize keeps manifests readable as-is. Helm shines for distribution, many configurations and release management.',
+    },
+    {
+      q: 'What does helm rollback snip 1 do to the release history?',
+      options: [
+        'Deletes revisions 2 and later',
+        'Creates a new revision with revision 1’s manifests and values; history is kept',
+        'Resets the revision counter',
+        'Uninstalls the release',
+      ],
+      answer: 1,
+      explain: 'Rollbacks are recorded like any other change, so you can see exactly what happened and when.',
+    },
+  ]}
+/>
+
+<details>
+<summary>How would you install snip in production with this chart? List the values you'd set and why.</summary>
+
+A `values-prod.yaml` kept in Git (with no secrets in it):
+
+```yaml
+image:
+  tag: sha-0309539              # an immutable tag or digest, never "main" (chapter 9.4)
+api:
+  autoscaling: { enabled: true, minReplicas: 3, maxReplicas: 20 }
+  resources:
+    requests: { cpu: 250m, memory: 128Mi }   # from load tests (chapter 8.5)
+    limits: { memory: 512Mi }
+config:
+  baseURL: https://snip.example.com
+  logLevel: info
+database:
+  existingSecret: snip-db       # created by the External Secrets Operator from the cloud secret manager
+postgres:
+  enabled: false                # a managed database instead (chapter 12.3)
+redis:
+  enabled: false                # would need an external Redis option in the chart: a good exercise
+podDisruptionBudget:
+  minAvailable: 2
+```
+
+Then `helm upgrade --install snip deploy/helm/snip -n snip -f values-prod.yaml --wait`, run by a pipeline or GitOps controller rather than a person (chapter 11). Note the gap it reveals: the chart can't yet point at an *external* Redis, which is how chart interfaces grow. Real requirements expose missing values.
+
+</details>
+
+<details>
+<summary>A teammate's chart has 400 lines of template logic in one file, and nobody dares change it. What would you suggest?</summary>
+
+- **Render it and diff**: build the habit of `helm template` before and after each change (and in CI), so changes are reviewed as plain YAML.
+- **Move repetition into small, named helpers** in `_helpers.tpl`, and keep each template close to plain YAML.
+- **Delete options nobody uses.** Every value is a feature to maintain and test.
+- **Add a `values.schema.json`** so wrong values fail loudly.
+- **Test it**: lint, render the common values combinations in CI, and install into a kind cluster, as snip's CI does.
+- Consider whether some of the variation belongs in **separate charts** or in **kustomize overlays** applied after rendering. Not every difference needs a template branch.
+
+</details>

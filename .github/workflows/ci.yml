@@ -309,6 +309,27 @@ jobs:
           kubectl -n snip top pods
           for i in $(seq 1 40); do kubectl -n snip get hpa api | grep -q 'cpu: [0-9]' && break; sleep 5; done
           kubectl -n snip get hpa api | tee /dev/stderr | grep -q 'cpu: [0-9]'
+      - name: Chapter 10.6 lab — snip's Helm chart installs, upgrades, rolls back
+        run: |
+          set -x
+          helm lint snip/deploy/helm/snip
+          helm install snip snip/deploy/helm/snip -n snip-helm --create-namespace \
+            --set image.repository=snip --set image.tag=dev --wait --timeout 6m
+          helm -n snip-helm list
+          kubectl -n snip-helm get pods
+          kubectl -n snip-helm port-forward svc/snip-api 8084:80 > /dev/null 2>&1 &
+          sleep 3
+          KEY=$(kubectl -n snip-helm exec deploy/snip-api -- snip keys create helm | grep -o 'snip_[A-Za-z0-9]*')
+          SNIP_API_KEY="$KEY" snip/scripts/smoke.sh http://localhost:8084
+          BEFORE=$(kubectl -n snip-helm get deploy snip-api -o jsonpath='{.spec.template.metadata.annotations.checksum/config}')
+          helm -n snip-helm upgrade snip snip/deploy/helm/snip --reuse-values --set config.logLevel=debug --wait --timeout 5m
+          AFTER=$(kubectl -n snip-helm get deploy snip-api -o jsonpath='{.spec.template.metadata.annotations.checksum/config}')
+          test "$BEFORE" != "$AFTER"                              # a config change rolled the Pods
+          kubectl -n snip-helm get cm snip-config -o jsonpath='{.data.SNIP_LOG_LEVEL}' | grep -qx debug
+          helm -n snip-helm rollback snip 1 --wait --timeout 5m
+          kubectl -n snip-helm get cm snip-config -o jsonpath='{.data.SNIP_LOG_LEVEL}' | grep -qx info
+          helm -n snip-helm history snip
+          helm -n snip-helm uninstall snip --wait
       - name: Chapter 10.1 lab — the published image, imperative commands, self-healing, scaling
         run: |
           kubectl create deployment snip --image=ghcr.io/jawwadzafar/snip:main --replicas=3

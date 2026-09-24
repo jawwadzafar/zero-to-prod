@@ -1,0 +1,31 @@
+{{- if .Values.worker.enabled }}
+{{- if not .Values.redis.enabled }}
+{{- fail "worker.enabled needs redis.enabled: the worker reads clicks from Redis" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "snip.fullname" . }}-worker
+  labels: {{- include "snip.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels: {{- include "snip.selector" (dict "root" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "snip.selector" (dict "root" . "component" "worker") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      securityContext: {{- include "snip.podSecurity" . | nindent 8 }}
+      containers:
+        - name: worker
+          image: {{ include "snip.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/snip-worker"]
+          envFrom:
+            - configMapRef: { name: {{ include "snip.fullname" . }}-config }
+            - secretRef: { name: {{ include "snip.dbSecret" . }} }
+          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext: {{- include "snip.containerSecurity" . | nindent 12 }}
+{{- end }}

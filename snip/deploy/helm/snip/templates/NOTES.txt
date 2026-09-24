@@ -1,0 +1,11 @@
+snip {{ .Chart.AppVersion }} is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Try it:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "snip.fullname" . }}-api
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "snip.fullname" . }}-api 8080:80
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "snip.fullname" . }}-api -- snip keys create me
+{{- if .Values.postgres.enabled }}
+
+This release runs its own Postgres with a development password. For anything
+real, set postgres.enabled=false and database.existingSecret (chapter 10.4).
+{{- end }}

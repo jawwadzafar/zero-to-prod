@@ -1,0 +1,54 @@
+# Default settings for the snip chart (chapter 10.6).
+# Override any of these with -f my-values.yaml or --set key=value.
+
+image:
+  repository: ghcr.io/jawwadzafar/snip
+  tag: ""                 # empty = the chart's appVersion
+  pullPolicy: IfNotPresent
+
+api:
+  replicas: 2
+  resources:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits: { memory: 256Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+
+worker:
+  enabled: true
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+# snip's settings (chapter 7.6). They become SNIP_* environment variables.
+config:
+  baseURL: http://localhost:8080
+  logLevel: info
+  rateLimit: 60
+
+# Where the database connection string comes from:
+#  - existingSecret: the name of a Secret you created (key SNIP_DATABASE_URL),
+#    e.g. by the External Secrets Operator (chapter 10.4). Recommended.
+#  - otherwise, with postgres.enabled, the chart builds one for its own Postgres.
+database:
+  existingSecret: ""
+
+postgres:
+  enabled: true           # an in-cluster Postgres for learning; use a managed database in production
+  image: postgres:16-alpine
+  password: snip-dev-only # development only: never put a real password in values files
+  storage: 1Gi
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+
+networkPolicy:
+  enabled: true
+
+podDisruptionBudget:
+  minAvailable: 1

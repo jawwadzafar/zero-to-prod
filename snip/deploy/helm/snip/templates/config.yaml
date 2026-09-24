@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "snip.fullname" . }}-config
+  labels: {{- include "snip.labels" . | nindent 4 }}
+data:
+  SNIP_BASE_URL: {{ .Values.config.baseURL | quote }}
+  SNIP_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  SNIP_RATE_LIMIT: {{ .Values.config.rateLimit | quote }}
+  {{- if .Values.redis.enabled }}
+  SNIP_REDIS_ADDR: {{ include "snip.fullname" . }}-redis:6379
+  {{- end }}
+{{- if and (not .Values.database.existingSecret) .Values.postgres.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "snip.dbSecret" . }}
+  labels: {{- include "snip.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  SNIP_DATABASE_URL: postgres://snip:{{ .Values.postgres.password }}@{{ include "snip.fullname" . }}-postgres:5432/snip?sslmode=disable
+{{- end }}
