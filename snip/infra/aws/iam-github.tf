@@ -1,9 +1,15 @@
 # Let GitHub Actions deploy snip with short-lived credentials — no access keys
 # stored anywhere (chapters 11.2 and 12.4).
-variable "github_repository" {
-  description = "owner/name of the repository allowed to deploy."
+variable "github_oidc_subject" {
+  description = <<-EOT
+    The exact "sub" claim of the workflow allowed to deploy. GitHub's format
+    includes immutable owner and repository IDs:
+      repo:OWNER@OWNER_ID/REPO@REPO_ID:ref:refs/heads/main
+    Run the "OIDC claims (lab)" workflow in your repository to see yours
+    (chapter 12.4).
+  EOT
   type        = string
-  default     = "jawwadzafar/zero-to-prod"
+  default     = "repo:jawwadzafar@14356318/zero-to-prod@1386266345:ref:refs/heads/main"
 }
 
 # Trust GitHub's OIDC token issuer (one per AWS account).
@@ -30,7 +36,7 @@ data "aws_iam_policy_document" "github_assume" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:ref:refs/heads/main"]
+      values   = [var.github_oidc_subject]
     }
   }
 }
