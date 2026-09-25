@@ -218,17 +218,17 @@ Free, with a GitHub account. **No cloud account needed.**
   questions={[
     {
       q: 'A request matches one Allow statement and one explicit Deny statement. What happens?',
-      options: ['Allowed', 'Denied: an explicit Deny always wins', 'It depends on the order', 'An error'],
+      options: ['Allowed, since an Allow was found', 'Denied: an explicit Deny wins', 'Whichever statement comes first', 'An error, because the policy conflicts'],
       answer: 1,
       explain: 'Default deny, allows grant, explicit denies override everything. That’s what makes guardrails reliable.',
     },
     {
       q: 'Why are roles with temporary credentials preferred over IAM users with access keys?',
       options: [
-        'Roles are free',
-        'Temporary credentials expire within hours, so a leak has a short useful life, and there’s no long-lived secret to store, rotate or accidentally commit',
-        'Access keys don’t work with the CLI',
-        'Roles have more permissions',
+        'Roles are free, while each IAM user is billed per month',
+        'Temporary credentials expire soon, and there’s no long-lived secret to leak',
+        'Access keys don’t work with the CLI once MFA is enabled on the account',
+        'Roles can be given more permissions than an IAM user is allowed to have',
       ],
       answer: 1,
       explain: 'Most cloud breaches involve long-lived keys. Temporary credentials remove that whole class of problem.',
@@ -236,10 +236,10 @@ Free, with a GitHub account. **No cloud account needed.**
     {
       q: 'How does snip’s CI deploy to AWS without any stored AWS secret?',
       options: [
-        'It uses the root user',
-        'OIDC federation: GitHub issues a signed token about the workflow run, AWS verifies it and the sub condition, and returns temporary credentials for the deploy role',
-        'It stores keys in GitHub Secrets',
-        'It doesn’t deploy',
+        'It uses the root user’s access keys, stored in a protected environment',
+        'OIDC: GitHub signs a token about the run; AWS checks it and returns short-lived credentials',
+        'It stores an access key in GitHub Secrets, which encrypts it',
+        'It doesn’t deploy; a person runs the deploy from their laptop',
       ],
       answer: 1,
       explain: 'Trust is based on a verifiable identity (repository, branch), not on a shared secret.',
@@ -247,10 +247,10 @@ Free, with a GitHub account. **No cloud account needed.**
     {
       q: 'What would happen if the deploy role’s trust policy checked only aud and not sub?',
       options: [
-        'Nothing, aud is enough',
-        'Any GitHub repository could obtain a GitHub-signed token for that audience and assume the role',
-        'No one could assume it',
-        'Only forks could assume it',
+        'Nothing; aud already proves the token came from snip’s repository',
+        'Any GitHub repository could get a token for that audience and assume it',
+        'No one could assume it, since the sub check is required by AWS',
+        'Only forks of snip could assume it, through pull requests',
       ],
       answer: 1,
       explain: 'GitHub signs tokens for everyone. The sub condition is what pins the trust to your repository and branch.',
@@ -258,10 +258,10 @@ Free, with a GitHub account. **No cloud account needed.**
     {
       q: 'Why is iam:PassRole on "*" dangerous?',
       options: [
-        'It costs money',
-        'It lets the holder give any role, including administrator roles, to services they launch: a privilege-escalation path',
-        'It deletes roles',
-        'It disables MFA',
+        'It costs money for each role passed',
+        'It lets them hand any role, even admin, to what they launch',
+        'It lets the holder delete roles other teams depend on',
+        'It bypasses MFA on every role in the account',
       ],
       answer: 1,
       explain: 'Scope PassRole to the exact roles a deployer legitimately hands out.',
@@ -269,10 +269,10 @@ Free, with a GitHub account. **No cloud account needed.**
     {
       q: 'What did reading the real OIDC token reveal about snip’s first trust policy?',
       options: [
-        'The token was expired',
-        'GitHub’s sub claim includes immutable owner and repository IDs, so the tutorial-style condition would never have matched',
-        'The audience was wrong',
-        'GitHub doesn’t support OIDC',
+        'The token was already expired by the time AWS received it',
+        'The sub claim includes fixed owner and repo IDs, so the condition never matched',
+        'The audience was set to GitHub’s own URL instead of AWS’s STS service',
+        'GitHub signs tokens with a key AWS doesn’t trust unless it is uploaded',
       ],
       answer: 1,
       explain: 'Always check real claims. A trust policy that never matches fails closed, safely but confusingly.',

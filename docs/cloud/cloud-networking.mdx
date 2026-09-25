@@ -204,10 +204,10 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
     {
       q: 'What makes a subnet "public"?',
       options: [
-        'Its name',
-        'Its route table sends internet-bound traffic (0.0.0.0/0) to an internet gateway',
-        'It has more addresses',
-        'It is in a special zone',
+        'Its name, which must start with "public-" for the console to treat it so',
+        'Its route table sends 0.0.0.0/0 to an internet gateway',
+        'It has a larger address range than the private subnets beside it',
+        'It is placed in an availability zone that allows public traffic',
       ],
       answer: 1,
       explain: 'Routing decides reachability. Private subnets route outbound traffic through a NAT gateway instead.',
@@ -216,9 +216,9 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
       q: 'What does a NAT gateway allow?',
       options: [
         'Incoming connections from the internet to private resources',
-        'Outgoing connections from private subnets to the internet, while blocking incoming ones',
-        'Traffic between availability zones',
-        'DNS resolution',
+        'Outgoing connections from private subnets, but not incoming ones',
+        'Traffic between availability zones in the same region, at no extra charge',
+        'DNS lookups for private resources from outside the VPC',
       ],
       answer: 1,
       explain: 'Private tasks can pull images and call APIs without being reachable from outside.',
@@ -226,10 +226,10 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
     {
       q: 'Why reference a security group (e.g. "from the app group") instead of an IP range in a rule?',
       options: [
-        'It is faster',
-        'The rule stays correct as tasks come and go with changing IPs, and it expresses intent: only snip may reach the database',
-        'IP ranges aren’t allowed',
-        'It encrypts the traffic',
+        'It is faster, because the firewall compares group names instead of addresses',
+        'It stays right as task IPs change, and says the intent: only snip gets in',
+        'IP ranges aren’t allowed in rules that point at a managed database',
+        'It encrypts the traffic between the two groups automatically',
       ],
       answer: 1,
       explain: 'Like Kubernetes label selectors: identity by role, not by address.',
@@ -237,10 +237,10 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
     {
       q: 'Why do snip’s database and tasks run in private subnets with no public IP?',
       options: [
-        'It is cheaper',
-        'Defence in depth: even if a security group were misconfigured, there is no route from the internet to them',
-        'Private subnets are faster',
-        'Managed databases require it',
+        'It is cheaper, since private subnets don’t pay for public IP addresses at all',
+        'Defence in depth: with a bad security group there’s still no route in',
+        'Private subnets are faster, as traffic never leaves the zone',
+        'Managed databases refuse to start in a subnet that has a public route',
       ],
       answer: 1,
       explain: 'Layers of protection mean one mistake isn’t a breach.',
@@ -248,10 +248,10 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
     {
       q: 'Two VPCs both use 10.0.0.0/16 and now need to be connected. What’s the problem?',
       options: [
-        'Nothing',
-        'Overlapping ranges can’t be routed between; one network must be re-addressed, which usually means rebuilding it',
-        'Peering is too expensive',
-        'They must be in the same zone',
+        'Nothing; peering translates the addresses automatically',
+        'Overlapping ranges can’t be routed; one must be re-addressed, often rebuilt',
+        'Peering two networks of that size costs more than running them apart',
+        'They must first be moved into the same availability zone and account',
       ],
       answer: 1,
       explain: 'Plan non-overlapping address space up front, across all accounts and regions.',

@@ -227,10 +227,10 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
     {
       q: 'Why is a password plus a security question not real multi-factor authentication?',
       options: [
-        'Security questions are too short',
-        'Both are "something you know": anyone who learns them (from a leak, social media or phishing) has both, so there is no second kind of proof',
-        'Security questions are encrypted',
-        'It is, if the answers are long',
+        'Security questions are too short to count as a second factor',
+        'Both are "something you know": whoever learns one can learn the other',
+        'Security questions are stored in plain text, unlike passwords',
+        'It is, as long as the answers are long, not easily guessed, and never reused on other sites',
       ],
       answer: 1,
       explain: 'MFA means factors of different kinds, so that stealing one kind of thing isn’t enough.',
@@ -238,10 +238,10 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
     {
       q: 'An attacker builds a fake login page that relays everything to the real site in real time. Which factor still protects the user?',
       options: [
-        'An SMS code',
-        'A TOTP code from an app',
-        'A passkey: the browser only uses it on the real domain, so the fake page can’t get a valid signature',
-        'A longer password',
+        'An SMS code, since it arrives on a separate device',
+        'A TOTP code, since it changes every 30 seconds',
+        'A passkey: the browser only signs for the real domain',
+        'A longer password that the attacker can’t guess',
       ],
       answer: 2,
       explain: 'Codes can be typed into the wrong site and relayed. Passkeys are bound to the origin by the browser, not by the user’s attention.',
@@ -249,10 +249,10 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
     {
       q: 'Why can’t a server store TOTP secrets as hashes, the way it stores passwords?',
       options: [
-        'They are too long',
-        'The server must compute each expected code from the secret itself, so it needs the secret: encrypt it at rest instead',
-        'Hashes are too slow',
-        'TOTP secrets are public',
+        'They are too long for password-hashing functions to accept',
+        'The server needs the secret itself to compute each code; encrypt it',
+        'Hashing them makes every login too slow to verify',
+        'TOTP secrets are public, like the QR code they come from',
       ],
       answer: 1,
       explain: 'Both sides compute HMAC(secret, time). Only the side that keeps a public key (passkeys) avoids storing a secret.',
@@ -260,10 +260,10 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
     {
       q: 'What defends against MFA fatigue attacks on push approvals?',
       options: [
-        'Sending more prompts',
-        'Number matching (the user types a number shown on the login screen), limits on prompts, and alerting on repeated denials',
-        'Longer passwords',
-        'Turning off MFA at night',
+        'Sending prompts more often, so a real login is approved quickly',
+        'Number matching, a cap on prompts, and alerts on repeated denials',
+        'Longer passwords, so fewer attackers reach the push prompt',
+        'Pausing push prompts at night, when attacks are most common',
       ],
       answer: 1,
       explain: 'A blind tap should never be enough to approve a login the user didn’t start.',
@@ -271,10 +271,10 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
     {
       q: 'Once MFA is widely enabled, where do attackers typically turn next?',
       options: [
-        'Brute-forcing the TOTP secret',
-        'Account recovery and support desks: "I lost my phone, please remove the second factor"',
-        'Breaking HMAC-SHA1',
-        'Nowhere; MFA stops everything',
+        'Brute-forcing the TOTP secret from a handful of codes they watched the user type in',
+        'Recovery and support desks: "I lost my phone, remove the factor"',
+        'Breaking HMAC-SHA1, the algorithm underneath TOTP codes',
+        'Nowhere new; they keep trying passwords at a much lower rate',
       ],
       answer: 1,
       explain: 'The recovery path must be at least as strong as the login it bypasses.',

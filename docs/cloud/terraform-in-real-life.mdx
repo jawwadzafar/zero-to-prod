@@ -263,10 +263,10 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
     {
       q: 'Why does a team need remote state with locking?',
       options: [
-        'It makes plans faster',
-        'Everyone must work from the same state, and locking stops two concurrent applies from corrupting it',
-        'Terraform refuses to run locally',
-        'To hide the code',
+        'It makes plans faster, since state is downloaded once and cached for all',
+        'Everyone shares one state; locking stops two applies corrupting it',
+        'Terraform refuses to apply to a cloud account from a local state file',
+        'To keep the code private, since state holds a copy of it',
       ],
       answer: 1,
       explain: 'One shared, locked, encrypted, versioned copy is the team’s record of what exists.',
@@ -274,10 +274,10 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
     {
       q: 'Does sensitive = true on an output keep the value out of the state file?',
       options: [
-        'Yes',
-        'No: it only hides the value in terminal output. It’s still stored in state in plain text',
-        'Only on AWS',
-        'Only with remote state',
+        'Yes; it is encrypted in state with the backend’s key',
+        'No: it only hides it on screen; state still has it in plain text',
+        'Only on AWS, where the provider encrypts marked values',
+        'Only with remote state, which drops sensitive values when saving',
       ],
       answer: 1,
       explain: 'To keep secrets out of state, use ephemeral values and write-only arguments, or let the provider manage the secret.',
@@ -285,10 +285,10 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
     {
       q: 'How does snip’s AWS configuration keep the database password out of state?',
       options: [
-        'It uses a weak password',
-        'An ephemeral random_password feeds write-only arguments (password_wo, secret_string_wo), which are sent to AWS but never recorded',
-        'It stores the password in Git',
-        'It has no database password',
+        'It asks for the password at apply time, and Terraform forgets it afterwards',
+        'An ephemeral password goes into write-only arguments, never recorded',
+        'It marks the password output sensitive, which keeps it out of state',
+        'It has no password; the database only accepts IAM login',
       ],
       answer: 1,
       explain: 'The value exists only during the apply; a version number triggers rotation.',
@@ -296,10 +296,10 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
     {
       q: 'You rename a resource in code. What prevents Terraform from destroying and recreating it?',
       options: [
-        'Nothing can',
-        'A moved block mapping the old address to the new one',
-        'terraform fmt',
-        'Deleting the state file',
+        'Nothing can; renaming always recreates the resource',
+        'A moved block from the old address to the new one',
+        'terraform fmt, which updates the addresses in state',
+        'terraform refresh, which rewrites the old address in the state file to match',
       ],
       answer: 1,
       explain: 'moved tells Terraform it’s the same object under a new name. The plan shows a move, not a replacement.',
@@ -307,10 +307,10 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
     {
       q: 'Why apply the exact saved plan file in CI instead of running apply fresh?',
       options: [
-        'It’s required by AWS',
-        'So what reviewers approved is exactly what happens, even if something changed between review and apply',
-        'Plans expire',
-        'It skips validation',
+        'AWS requires every change to arrive as a signed plan file',
+        'So exactly what reviewers approved is what runs, even if things moved',
+        'A fresh apply would skip the lock and could clash with another run',
+        'It skips validation and refresh, so the apply finishes much sooner',
       ],
       answer: 1,
       explain: 'A fresh apply computes a new plan, which might differ from the reviewed one.',
@@ -318,10 +318,10 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
     {
       q: 'Why did snip’s lock files need checksums for five platforms?',
       options: [
-        'For speed',
-        'Provider packages differ per OS and CPU; a lock with only Linux checksums makes terraform init fail on Macs and Windows',
-        'Terraform requires exactly five',
-        'For state encryption',
+        'For speed, so each machine downloads only its own provider build',
+        'Providers differ per OS and CPU; Linux-only checksums fail on Mac and Windows',
+        'Terraform requires a checksum for each platform it has a release for',
+        'For state encryption, with one key for each developer’s machine',
       ],
       answer: 1,
       explain: 'terraform providers lock -platform=… records checksums for every platform your team and CI use.',

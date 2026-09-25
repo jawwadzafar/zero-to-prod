@@ -159,17 +159,17 @@ Free, and **no cloud account needed**.
   questions={[
     {
       q: 'In snip’s staging estimate, what is the single most expensive item?',
-      options: ['The database', 'The NAT gateway, which exists for outbound access, not for snip itself', 'Fargate compute', 'Secrets Manager'],
+      options: ['The database, which runs a large instance even in staging', 'The NAT gateway, there for outbound access, not snip itself', 'Fargate compute for the two API tasks and the worker running all day', 'Secrets Manager, which bills for every secret read'],
       answer: 1,
       explain: 'Fixed infrastructure often outweighs the application at small scale. VPC endpoints or a different architecture can remove it.',
     },
     {
       q: 'What is the first cost control every cloud account should have?',
       options: [
-        'Reserved instances',
-        'A budget with alerts (and anomaly detection), so surprises arrive as an email, not a statement',
-        'Spot instances',
-        'A bigger free tier',
+        'Reserved instances, bought for a year so every hour is discounted',
+        'A budget with alerts, so surprises come as an email, not a bill',
+        'Spot instances for everything, since they cost a fraction of the price',
+        'A bigger free tier, requested from support when the account is new',
       ],
       answer: 1,
       explain: 'Visibility first. You can’t fix what you don’t see.',
@@ -177,10 +177,10 @@ Free, and **no cloud account needed**.
     {
       q: 'Why tag resources with project and environment?',
       options: [
-        'Tags make resources faster',
-        'Cost allocation: the bill can be grouped by owner and purpose, and untagged spend (often waste) becomes visible',
-        'AWS requires tags',
-        'Tags encrypt data',
+        'Tags let the provider place related resources closer together',
+        'Cost allocation: group the bill by owner and purpose, and spot waste',
+        'AWS refuses to create resources without a project tag',
+        'Tags turn on discounted pricing for non-production environments',
       ],
       answer: 1,
       explain: 'snip’s Terraform applies default_tags to everything it creates.',
@@ -188,10 +188,10 @@ Free, and **no cloud account needed**.
     {
       q: 'Which workloads suit spot or preemptible capacity?',
       options: [
-        'A single primary database',
-        'Interruption-tolerant work: CI jobs, batch processing, stateless workers that can be restarted elsewhere',
-        'Anything important',
-        'Nothing',
+        'A single primary database, since spot capacity is cheapest for large machines',
+        'Work that tolerates interruption: CI, batch jobs, restartable workers',
+        'Anything important, since spot machines are the newest hardware',
+        'Nothing; spot capacity is only for testing the provider’s own systems',
       ],
       answer: 1,
       explain: 'Deep discounts in exchange for possible reclamation at short notice.',
@@ -199,10 +199,10 @@ Free, and **no cloud account needed**.
     {
       q: 'Traffic grew 50% and the bill grew 19%. What does unit economics say?',
       options: [
-        'Costs are out of control',
-        'Cost per unit (e.g. per 1,000 redirects) fell: the system got more efficient while growing',
-        'Nothing useful',
-        'Traffic must be reduced',
+        'Costs are out of control and growing faster than they should',
+        'Cost per 1,000 redirects fell: it got more efficient as it grew',
+        'Nothing useful; only the total bill matters for a service this size',
+        'The bill will catch up with traffic next month, once the discounts end',
       ],
       answer: 1,
       explain: 'Totals alone mislead. Divide by a unit of value.',
@@ -210,10 +210,10 @@ Free, and **no cloud account needed**.
     {
       q: 'You finished a Terraform lab in your own account. What should you do?',
       options: [
-        'Leave it running for next time',
-        'Run terraform destroy, then check the console for leftovers (snapshots, log groups, IP addresses) in that region',
-        'Delete the state file',
-        'Nothing, it’s free tier',
+        'Leave it running for next time, since recreating it costs more than idling',
+        'terraform destroy, then check the console for leftovers in that region',
+        'Delete the state file, which removes everything it tracked',
+        'Nothing, because lab resources are free tier for the first year',
       ],
       answer: 1,
       explain: 'Destroy is one command. Deleting the state file makes Terraform forget, but the resources keep billing.',

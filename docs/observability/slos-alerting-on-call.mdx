@@ -190,10 +190,10 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
     {
       q: 'What is an error budget?',
       options: [
-        'Money set aside for outages',
-        'The amount of unreliability an SLO allows (e.g. 0.5% of requests for 99.5%), used to decide between shipping and stabilising',
-        'The number of bugs allowed per release',
-        'A monitoring tool',
+        'Money set aside each quarter to pay customers for outages',
+        'The unreliability an SLO allows, used to choose between shipping and fixing',
+        'The number of bugs a release may ship with before it is blocked',
+        'The time the on-call may spend on incidents before escalating',
       ],
       answer: 1,
       explain: 'Budget left: move fast. Budget spent: prioritise reliability.',
@@ -201,10 +201,10 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
     {
       q: 'Why not set snip’s SLO to 100%?',
       options: [
-        'Prometheus can’t measure 100%',
-        'It’s impossible to achieve, extremely expensive to approach, leaves no room for change, and users can’t tell beyond a point',
-        '100% is the default',
-        'SLAs forbid it',
+        'Prometheus can’t measure 100%, as its rates are estimates',
+        'It’s unreachable, very costly to approach, and leaves no room for change',
+        'A 100% SLO would page on every error, including clients’ own mistakes',
+        'SLAs with customers forbid promising more than 99.9%',
       ],
       answer: 1,
       explain: 'Each extra nine costs roughly ten times more. Choose the reliability users actually need.',
@@ -212,10 +212,10 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
     {
       q: 'Why does SnipErrorBudgetFastBurn check both a 1-hour and a 5-minute window?',
       options: [
-        'To double the alerts',
-        'The long window proves the burn is significant; the short one proves it’s still happening, so the alert clears soon after a fix',
-        'Prometheus requires two windows',
-        'To measure latency',
+        'To page twice, once early and once if nobody acknowledges it',
+        'The long window shows it matters; the short one that it’s still happening',
+        'Prometheus needs two windows to extrapolate a rate for an alert',
+        'To measure latency in the short window and errors in the long one',
       ],
       answer: 1,
       explain: 'Test 3 shows it: the page fires during the incident and stops once the 5-minute window recovers.',
@@ -223,10 +223,10 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
     {
       q: 'Which is a better paging alert for snip?',
       options: [
-        'CPU above 80% for 5 minutes',
-        'The error budget burning at 14.4× (a symptom users feel)',
-        'Any Pod restart',
-        'Disk above 70%',
+        'CPU above 80% for 5 minutes on any API Pod',
+        'The error budget burning at 14.4×',
+        'Any Pod restart, since it means something crashed',
+        'Postgres disk above 70% on the primary',
       ],
       answer: 1,
       explain: 'Page on symptoms. Causes like CPU belong on dashboards or tickets.',
@@ -234,10 +234,10 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
     {
       q: 'What bug did snip’s alert unit tests reveal?',
       options: [
-        'A typo in a metric name',
-        'Recording rules and alerts in separate groups, which run concurrently, so alerts sometimes read the previous evaluation’s value',
-        'A wrong SLO target',
-        'Too many alerts',
+        'A typo in a metric name, so the alert could never fire',
+        'Rules and alerts in separate groups ran concurrently, so alerts read stale values',
+        'A wrong SLO target, 95% instead of 99.5%, in the burn-rate maths',
+        'Alerts that fired during every deploy, because Pods restart',
       ],
       answer: 1,
       explain: 'Rules within a group run in order; separate groups don’t. The fix was one group.',
@@ -245,10 +245,10 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
     {
       q: 'An alert fires most nights and the on-call always ignores it because nothing is wrong. What should happen?',
       options: [
-        'Keep it; better safe than sorry',
-        'Treat it as a bug in the alerting: tune it, turn it into a ticket-level alert, or delete it',
-        'Page two people instead',
-        'Mute the pager at night',
+        'Keep it; a noisy alert is better than missing a real problem',
+        'Treat it as an alerting bug: tune it, make it a ticket, or delete it',
+        'Page two people instead, so one of them always checks it properly',
+        'Mute the pager at night and review the alerts each morning',
       ],
       answer: 1,
       explain: 'Alert fatigue makes people miss real incidents. Every non-actionable page must be fixed.',

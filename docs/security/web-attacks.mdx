@@ -265,10 +265,10 @@ Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
     {
       q: 'What single idea connects SQL injection, command injection and XSS?',
       options: [
-        'They all need weak passwords',
-        'Untrusted data is mixed into something interpreted as code, and the interpreter cannot tell data from instructions',
-        'They only affect old browsers',
-        'They all use JavaScript',
+        'They all need a logged-in victim with a weak password',
+        'Untrusted data ends up inside something run as code',
+        'They only affect old browsers and servers without HTTPS',
+        'They all run attacker JavaScript on the server itself',
       ],
       answer: 1,
       explain: 'Keep data and code separate with the interpreter’s safe mechanism: SQL parameters, argument lists for commands, escaping templates for HTML.',
@@ -276,10 +276,10 @@ Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
     {
       q: 'Why is snip’s API not vulnerable to classic CSRF?',
       options: [
-        'It uses HTTPS',
-        'It authenticates with an Authorization header, which browsers never attach automatically to cross-site requests',
-        'It has no POST endpoints',
-        'It sets CORS headers',
+        'It uses HTTPS, so other sites can’t read or change its requests',
+        'It uses an Authorization header, which browsers never add by themselves',
+        'Its POST endpoints only accept JSON, which forms cannot send',
+        'Its CORS headers tell browsers to stop other sites from sending it any requests',
       ],
       answer: 1,
       explain: 'CSRF relies on browsers automatically sending cookies. Bearer tokens in headers must be added deliberately by code, so another site cannot forge authenticated requests.',
@@ -287,10 +287,10 @@ Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
     {
       q: 'A new snip feature fetches each link’s page to show a preview. What attack must it defend against?',
       options: [
-        'Clickjacking',
-        'Server-side request forgery — attacker URLs pointing at internal addresses like the cloud metadata service',
-        'Password spraying',
-        'SQL injection',
+        'Clickjacking, via previews shown in a hidden frame',
+        'Server-side request forgery: URLs aimed at internal addresses',
+        'Stored XSS, via script tags hidden in the preview page’s title or description',
+        'SQL injection, via quotes inside the fetched page’s text',
       ],
       answer: 1,
       explain: 'The server can reach private networks that attackers cannot. Refuse private and link-local addresses (after redirects too), isolate the fetcher, and use IMDSv2 on AWS.',
@@ -298,10 +298,10 @@ Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
     {
       q: 'Which statement about CORS is true?',
       options: [
-        'It prevents curl and scripts from calling your API',
-        'It only controls which origins’ browser scripts may read your responses; it is not server-side access control',
-        'It encrypts responses',
-        'It replaces authentication',
+        'It stops curl and server scripts from calling your API',
+        'It only controls which sites’ browser scripts may read responses',
+        'It encrypts responses for origins that are not on the list',
+        'It replaces authentication for requests from browsers',
       ],
       answer: 1,
       explain: 'CORS relaxes the browser’s same-origin policy. Non-browser clients ignore it, so your API still needs real authentication and authorization.',

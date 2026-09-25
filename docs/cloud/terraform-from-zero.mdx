@@ -261,10 +261,10 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
     {
       q: 'What does terraform plan compare to decide what to do?',
       options: [
-        'Only your code',
-        'Your code (desired), the state (what Terraform created) and reality (refreshed from the provider)',
-        'Only the cloud console',
-        'Two Git branches',
+        'Only your code and the last successful plan',
+        'Your code, the state, and reality refreshed from the provider',
+        'Only the cloud console, which it reads through the provider’s API',
+        'Your code on this branch and your code on main',
       ],
       answer: 1,
       explain: 'The plan is the difference between desired and actual, computed before anything changes.',
@@ -272,10 +272,10 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
     {
       q: 'A plan shows -/+ for your database. What does that mean?',
       options: [
-        'A small in-place update',
-        'The database will be destroyed and a new one created: its data will be lost unless you intervene',
-        'It will be backed up',
-        'Nothing will happen',
+        'A small in-place update to one setting of the database',
+        'Destroy and recreate: the data is lost unless you step in',
+        'It will be backed up, then updated, then the backup removed',
+        'Nothing will change; -/+ marks a resource that is already correct',
       ],
       answer: 1,
       explain: 'Some changes force replacement. Read every -/+ before approving.',
@@ -283,10 +283,10 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
     {
       q: 'You run terraform apply twice with no code changes. What does the second one do?',
       options: [
-        'Creates everything again',
-        'Nothing: the plan shows no changes, because state and reality already match the code (idempotency)',
-        'Destroys everything',
-        'Fails',
+        'Creates a second copy of everything, with new names',
+        'Nothing: state and reality already match the code',
+        'Destroys everything and recreates it from scratch to be safe',
+        'Fails, because the resources already exist',
       ],
       answer: 1,
       explain: 'Idempotency is what makes IaC safe to automate and re-run.',
@@ -294,10 +294,10 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
     {
       q: 'How does Terraform know to create the Docker network before the containers that use it?',
       options: [
-        'Alphabetical order',
-        'The containers reference docker_network.snip.id, so the dependency graph orders them; depends_on covers hidden dependencies',
-        'The order in the file',
-        'It guesses',
+        'Alphabetical order of resource names, and "network" follows "container"',
+        'The containers reference docker_network.snip.id, so the graph orders them',
+        'The order the blocks appear in the file, top to bottom',
+        'It retries anything that fails until everything succeeds',
       ],
       answer: 1,
       explain: 'References build the graph. Independent resources are created in parallel.',
@@ -305,10 +305,10 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
     {
       q: 'Why commit .terraform.lock.hcl?',
       options: [
-        'It contains the state',
-        'It pins exact provider versions and checksums so everyone and CI use identical providers',
-        'It holds secrets',
-        'Terraform requires it for destroy',
+        'It contains the state, so the team shares one copy of it',
+        'It pins exact provider versions and checksums for everyone',
+        'It holds the provider credentials, encrypted for the team',
+        'It stops two people running apply at the same time',
       ],
       answer: 1,
       explain: 'Like go.sum or package-lock.json: reproducible, verified dependencies. (The state file is never committed.)',
@@ -316,10 +316,10 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
     {
       q: 'Why can for_each be safer than count for a list of named things?',
       options: [
-        'It’s faster',
-        'Items are addressed by key, so removing one doesn’t renumber and replace the others',
-        'count is deprecated',
-        'for_each creates backups',
+        'It’s faster, since Terraform can create keyed items in parallel',
+        'Items have keys, so removing one doesn’t renumber the rest',
+        'count is deprecated and will be removed in the next version',
+        'for_each keeps a copy of removed items until the next apply',
       ],
       answer: 1,
       explain: 'With count, deleting item 1 of 3 shifts item 2 into slot 1, and Terraform replaces it.',

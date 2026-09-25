@@ -219,10 +219,10 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
     {
       q: 'Why are production logs usually structured JSON rather than free text?',
       options: [
-        'JSON is smaller',
-        'Each fact is a named field, so tools can filter, group and chart reliably without fragile text parsing',
-        'Free text is not allowed',
-        'JSON is encrypted',
+        'JSON is smaller than free text, so logs cost less to store',
+        'Each fact is a named field, so tools filter and chart without parsing',
+        'Free text can’t hold numbers, so durations would be lost',
+        'JSON is escaped, so secrets in log lines stay hidden',
       ],
       answer: 1,
       explain: 'Logs are read by machines at scale. Structure makes queries like status >= 500 by route trivial.',
@@ -230,10 +230,10 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
     {
       q: 'What is a request ID for?',
       options: [
-        'Authentication',
-        'Correlating every log line about one request, letting users and support refer to a specific request, and following it across services',
-        'Rate limiting',
-        'Caching',
+        'Authenticating the request, alongside the API key',
+        'Tying together every log line about one request, across services too',
+        'Rate limiting, by counting how many IDs each client uses',
+        'Caching, so a repeated request ID returns the saved answer',
       ],
       answer: 1,
       explain: 'snip returns it in X-Request-Id and logs it on every line for that request.',
@@ -241,10 +241,10 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
     {
       q: 'Why does snip not log /healthz and /metrics requests?',
       options: [
-        'They have no status code',
-        'Probes and scrapers call them every few seconds; logging them would add noise and cost and bury real traffic',
-        'They are secret',
-        'Go can’t log them',
+        'They have no status code, so the log line would be incomplete',
+        'Probes call them every few seconds; logging them buries real traffic',
+        'They reveal internal details that must stay out of the logs',
+        'Go’s server handles them before the logging middleware runs',
       ],
       answer: 1,
       explain: 'Good logs are about events that matter. Health checks are better observed through metrics.',
@@ -252,10 +252,10 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
     {
       q: 'Which of these should never appear in production logs?',
       options: [
-        'Request IDs',
-        'Passwords, API keys, tokens and full connection strings',
-        'HTTP status codes',
-        'Route patterns',
+        'Request IDs, since they identify individual users',
+        'Passwords, API keys, tokens, connection strings',
+        'HTTP status codes, which reveal how the service fails',
+        'Route patterns, which map out the API for attackers',
       ],
       answer: 1,
       explain: 'Logs are copied widely and kept for months. Redact secrets at source.',
@@ -263,10 +263,10 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
     {
       q: 'Why does snip write logs to stdout instead of managing log files?',
       options: [
-        'Files are slower',
-        'The platform (systemd, Docker, Kubernetes, ECS) collects stdout and ships it on; the app stays simple and works the same everywhere',
-        'Go can’t write files',
-        'stdout is encrypted',
+        'Files are slower to write than a terminal, so stdout keeps requests fast',
+        'The platform collects stdout and ships it on, so the app stays simple',
+        'Go can’t rotate log files by itself, so they would fill the disk',
+        'stdout is encrypted by the container runtime, while files are not',
       ],
       answer: 1,
       explain: 'Separating "produce logs" from "route and store logs" is a core cloud-native practice.',
@@ -274,10 +274,10 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
     {
       q: 'Metrics say the error rate rose at 14:03. What do logs add?',
       options: [
-        'Nothing',
-        'The exact failing requests and error messages, filterable by route, status and time, so you can see what specifically went wrong',
-        'A graph of CPU usage',
-        'The cost of the incident',
+        'Nothing new; logs and metrics hold the same information',
+        'The exact failing requests and their error messages',
+        'A graph of CPU and memory usage for each Pod at 14:03',
+        'A count of the errors, more precise than the metric’s estimate',
       ],
       answer: 1,
       explain: 'Metrics detect and quantify; logs explain specific events.',

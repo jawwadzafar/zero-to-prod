@@ -309,10 +309,10 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
     {
       q: 'Why do you almost never create Pods directly?',
       options: [
-        'Pods cannot be created with YAML',
-        'Pods are disposable and aren’t recreated if they die; a Deployment, StatefulSet or Job manages them and replaces them',
-        'Pods are only for system components',
-        'Pods cost more',
+        'Pods cannot be created from YAML, only by other controllers',
+        'A bare Pod isn’t replaced if it dies; a controller replaces its Pods',
+        'Pods are reserved for system components in kube-system',
+        'Pods created directly skip the scheduler, so they all land on the control-plane node',
       ],
       answer: 1,
       explain: 'A bare Pod that dies stays dead. Controllers keep the desired number of Pods running.',
@@ -320,10 +320,10 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
     {
       q: 'What connects a Deployment or a Service to its Pods?',
       options: [
-        'The Pods’ IP addresses',
-        'Labels on the Pods, matched by the object’s selector',
-        'The order the Pods were created',
-        'The container names',
+        'The Pods’ IP addresses, recorded when each Pod starts',
+        'Labels on the Pods, matched by a selector',
+        'The owner name written into each Pod by the scheduler',
+        'The container names, which must match the Deployment’s name',
       ],
       answer: 1,
       explain: 'Pods come and go with new names and IPs. Labels and selectors keep the connection stable.',
@@ -331,10 +331,10 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
     {
       q: 'snip’s readiness probe checks Postgres, but its liveness probe does not. Why?',
       options: [
-        'Liveness probes cannot make HTTP requests',
-        'If liveness checked the database, a database outage would restart every API Pod repeatedly; readiness just stops sending them traffic until the database recovers',
-        'Readiness probes run less often',
-        'It is a mistake',
+        'Liveness probes cannot make network calls to other services',
+        'A DB outage would then restart every API Pod; readiness only pauses traffic',
+        'Readiness probes run far less often, so checking Postgres there puts less load on it',
+        'It is a mistake; both should check every dependency the API needs',
       ],
       answer: 1,
       explain: 'Liveness failure means "restart me". Readiness failure means "don’t send me traffic right now".',
@@ -342,10 +342,10 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
     {
       q: 'With replicas: 2, maxSurge: 1 and maxUnavailable: 0, what happens if the new version never becomes ready?',
       options: [
-        'Both old Pods are replaced anyway',
-        'The rollout stalls: one new Pod exists but isn’t ready, and the two old Pods keep serving',
-        'The Deployment is deleted',
-        'Kubernetes rolls back automatically and deletes the image',
+        'Both old Pods are replaced anyway once the deadline passes',
+        'It stalls: one new Pod isn’t ready, and both old Pods keep serving',
+        'One old Pod is removed to make room, so capacity drops to one',
+        'Kubernetes rolls back to the previous version automatically',
       ],
       answer: 1,
       explain: 'Old Pods are only removed when new ones are ready. Fix forward, or kubectl rollout undo.',
@@ -353,10 +353,10 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
     {
       q: 'A container uses more memory than its limit. What happens?',
       options: [
-        'It is slowed down',
-        'The kernel OOM-kills it (exit code 137) and the kubelet restarts it',
-        'Kubernetes gives it more memory',
-        'Nothing; limits are advisory',
+        'It is slowed down until its usage falls below the limit again',
+        'It is OOM-killed (exit 137) and restarted',
+        'Kubernetes moves it to a node with more free memory',
+        'Nothing; limits are only used for scheduling decisions',
       ],
       answer: 1,
       explain: 'Memory can’t be throttled, so exceeding the limit kills the container. CPU over its limit is throttled instead.',

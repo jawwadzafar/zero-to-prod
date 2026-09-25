@@ -272,10 +272,10 @@ Free and local; needs Docker and Go.
     {
       q: 'In SSO, what does your application receive from the identity provider?',
       options: [
-        'The user’s password, to check',
-        'A signed statement (an ID token or SAML assertion) saying who the user is and how they authenticated',
-        'A copy of the IdP’s user database',
-        'Nothing; the browser just remembers the login',
+        'The user’s password, encrypted, to check against its own copy',
+        'A signed statement (ID token or SAML assertion) of who the user is',
+        'A copy of the IdP’s user directory, synced on each login',
+        'Nothing; the browser keeps the IdP’s cookie and sends it along to your app on each request',
       ],
       answer: 1,
       explain: 'The relying party verifies a signature and a few claims; it never handles the password.',
@@ -283,10 +283,10 @@ Free and local; needs Docker and Go.
     {
       q: 'Why must a relying party check the ID token’s audience (aud)?',
       options: [
-        'It’s optional metadata',
-        'Otherwise a token the same IdP issued for a different application could be used to sign in to yours',
-        'To know which language to use',
-        'To check the token hasn’t expired',
+        'It’s optional metadata that only some providers include',
+        'Otherwise a token the IdP issued to another app would sign in to yours',
+        'To know which of your tenants the user belongs to',
+        'To check the token hasn’t expired, as aud holds the lifetime',
       ],
       answer: 1,
       explain: 'Many applications share one IdP. The audience says which one a token is for.',
@@ -294,10 +294,10 @@ Free and local; needs Docker and Go.
     {
       q: 'SSO suddenly fails for every user with "unknown key". What’s the most likely cause?',
       options: [
-        'All passwords expired',
-        'The IdP rotated its signing keys and the application still has only the old key set',
-        'The users forgot their MFA',
-        'The database is down',
+        'Every user’s password expired on the same day',
+        'The IdP rotated its signing keys; the app only has the old set',
+        'The IdP’s MFA service is down, so no token says which method the user signed in with',
+        'The application’s session database is down',
       ],
       answer: 1,
       explain: 'Refetch the key set when an unknown kid appears, with a rate limit.',
@@ -305,10 +305,10 @@ Free and local; needs Docker and Go.
     {
       q: 'Why must a customer verify their email domain before their IdP can sign in users with that domain?',
       options: [
-        'For billing',
-        'Otherwise any customer could configure an IdP claiming someone else’s domain and sign in as that company’s employees',
-        'Because DNS is faster',
-        'It improves deliverability',
+        'So the customer can be billed per verified domain',
+        'Otherwise a customer could claim another’s domain and sign in as its staff',
+        'So their IdP can find your application’s sign-in address through a DNS record',
+        'So password-reset emails for those users are not marked as spam by their mail server',
       ],
       answer: 1,
       explain: 'Routing users to an IdP by domain is only safe if the domain’s owner configured that IdP.',
@@ -316,10 +316,10 @@ Free and local; needs Docker and Go.
     {
       q: 'An employee leaves and is disabled at the IdP. What might still work in your product unless you handle it?',
       options: [
-        'Nothing: SSO covers everything',
-        'Their existing sessions and any API keys or tokens they created, which SSO sign-in doesn’t touch',
-        'Only their profile picture',
-        'Password reset emails',
+        'Nothing: disabling the IdP account ends every session everywhere',
+        'Their existing sessions and API keys, which SSO sign-in never touches',
+        'Only signing in with a password, if they had set one before the company turned on SSO',
+        'Only their bookmarked links, which don’t need a session',
       ],
       answer: 1,
       explain: 'Deprovisioning (e.g. via SCIM) should end sessions and revoke credentials, not just block the next login.',

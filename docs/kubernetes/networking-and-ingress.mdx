@@ -259,10 +259,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
     {
       q: 'Why should nothing depend on a Pod’s IP address?',
       options: [
-        'Pod IPs are secret',
-        'Pods are replaced with new IPs all the time; a Service provides a stable address and name in front of whichever Pods are ready',
-        'Pod IPs are IPv6 only',
-        'Pods have no IP addresses',
+        'Pod IPs are private to the node and can’t be reached from others',
+        'Pods are replaced with new IPs; a Service gives a stable name in front',
+        'Pod IPs are IPv6 only, which many clients can’t connect to',
+        'Pods share their node’s IP, so the address isn’t unique to them',
       ],
       answer: 1,
       explain: 'Stable names and virtual IPs (Services) plus DNS are Kubernetes’ answer to constantly changing Pods.',
@@ -270,10 +270,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
     {
       q: 'How does a failing readiness probe remove a Pod from a Service?',
       options: [
-        'The kubelet deletes the Service',
-        'The Pod is dropped from the Service’s EndpointSlices, so kube-proxy stops routing new connections to it',
-        'DNS is changed to NXDOMAIN',
-        'The Pod is restarted',
+        'The kubelet restarts the Pod, so it comes back with a fresh IP address that no Service knows yet',
+        'It’s dropped from the Service’s EndpointSlices, so no new traffic goes to it',
+        'The cluster DNS stops returning the Pod’s name until its probe passes again',
+        'The Pod is restarted, which takes it out of rotation',
       ],
       answer: 1,
       explain: 'Only ready Pods appear in endpoints. The Pod keeps running, just without new traffic.',
@@ -281,10 +281,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
     {
       q: 'A Pod in the monitoring namespace connects to "api:80" and it fails to resolve. Why?',
       options: [
-        'DNS is disabled across namespaces',
-        'Short names resolve within the caller’s own namespace; from another namespace use api.snip or api.snip.svc.cluster.local',
-        'Services can’t be reached from other namespaces',
-        'Port 80 is blocked',
+        'DNS is disabled across namespaces unless a policy allows it',
+        'Short names resolve in the caller’s namespace; use api.snip instead',
+        'Services can only be reached from other namespaces by IP',
+        'Port 80 is reserved for Ingress, so Services use another port',
       ],
       answer: 1,
       explain: 'Search domains start with the Pod’s own namespace. Add the namespace to the name.',
@@ -292,10 +292,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
     {
       q: 'What does the Gateway API improve over Ingress?',
       options: [
-        'It is faster',
-        'Standard, portable objects for richer routing (headers, weights, redirects) and role separation (GatewayClass, Gateway, Routes), instead of controller-specific annotations',
-        'It removes the need for Services',
-        'It only works on one cloud',
+        'It is faster, because routes are compiled into the kernel',
+        'Portable, richer routing and separate roles, instead of controller annotations',
+        'It removes the need for Services, because Routes send traffic straight to Pod IPs',
+        'It adds TLS, which Ingress has no way to configure',
       ],
       answer: 1,
       explain: 'The same HTTPRoute works across implementations. Ingress features beyond host and path lived in annotations that differ per controller.',
@@ -303,10 +303,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
     {
       q: 'You add a default-deny NetworkPolicy to a namespace. What else must you add for the app to keep working?',
       options: [
-        'Nothing',
-        'Policies allowing each needed connection, e.g. api and worker to postgres and redis, and traffic to the API’s port',
-        'A LoadBalancer Service',
-        'A new namespace',
+        'Nothing; traffic inside a namespace is always still allowed',
+        'Allow rules for each needed connection, such as api to postgres',
+        'A LoadBalancer Service, which bypasses NetworkPolicies',
+        'A new namespace for the database, outside the default-deny',
       ],
       answer: 1,
       explain: 'Deny by default, then allow what’s needed. In the lab, snip still worked while an unrelated Pod couldn’t reach Postgres.',
@@ -314,10 +314,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
     {
       q: 'Your NetworkPolicies are applied but traffic is not being blocked. What is a likely cause?',
       options: [
-        'Policies take a day to apply',
-        'The cluster’s CNI plugin doesn’t enforce NetworkPolicies, so they are silently ignored',
-        'Policies only apply to Services',
-        'kubectl apply failed silently',
+        'Policies only apply to connections made after the next restart',
+        'The cluster’s CNI plugin doesn’t enforce them, so they’re ignored',
+        'Policies only apply to traffic that goes through a Service',
+        'kubectl apply stored them, but they need a namespace restart',
       ],
       answer: 1,
       explain: 'Enforcement is the CNI’s job. Always test that a policy actually blocks something.',

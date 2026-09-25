@@ -271,10 +271,10 @@ Free, on your own computer.
     {
       q: 'What problem did OAuth 2.0 originally solve?',
       options: [
-        'Encrypting database backups',
-        'Letting one app access your data on another service without you giving it your password, with limited and revocable permissions',
-        'Making websites load faster',
-        'Replacing HTTPS',
+        'Encrypting the tokens a service hands to other apps',
+        'Letting an app use your data elsewhere without your password, revocably',
+        'Logging users in to many websites with one password, which is where its name comes from',
+        'Replacing HTTPS for API traffic between two companies',
       ],
       answer: 1,
       explain: 'OAuth delegates limited, revocable access via tokens, instead of sharing full credentials.',
@@ -282,10 +282,10 @@ Free, on your own computer.
     {
       q: 'What does PKCE protect against in the authorization code flow?',
       options: [
-        'Weak passwords',
-        'An intercepted authorization code being exchanged for tokens by an attacker',
-        'Slow networks',
-        'Expired certificates',
+        'Weak passwords typed on the provider’s login page',
+        'An intercepted code being exchanged for tokens by an attacker',
+        'Tokens being read out of the browser’s local storage by a malicious extension or script',
+        'A forged ID token signed with the wrong key',
       ],
       answer: 1,
       explain: 'The client proves it started the flow by revealing the code_verifier whose hash it sent earlier. A stolen code alone is useless.',
@@ -293,10 +293,10 @@ Free, on your own computer.
     {
       q: 'What does OpenID Connect add on top of OAuth 2.0?',
       options: [
-        'Encryption of all traffic',
-        'A standard way to log users in: the openid scope, a signed ID token, discovery and published keys',
-        'A replacement for SQL',
-        'Rate limiting',
+        'Encryption of all tokens, so apps can’t read what’s inside',
+        'Standard login: an openid scope, signed ID token, discovery, keys',
+        'Refresh tokens, which OAuth 2.0 on its own doesn’t have',
+        'Scopes, so apps can ask for less than full access',
       ],
       answer: 1,
       explain: 'OAuth is about authorization (what an app may do). OIDC standardises authentication (who the user is) with the ID token.',
@@ -304,10 +304,10 @@ Free, on your own computer.
     {
       q: 'Your API validates token signatures but not the aud claim. What is the risk?',
       options: [
-        'None, the signature is enough',
-        'Tokens issued by the same provider to other apps would be accepted by your API',
-        'Tokens will expire too quickly',
-        'The API will reject all tokens',
+        'None; a valid signature proves the token was meant for you',
+        'Tokens the provider issued to other apps would work on yours',
+        'Tokens would be accepted after they expire, since aud is where the expiry is checked',
+        'The API would reject tokens from its own login page',
       ],
       answer: 1,
       explain: 'The signature proves the provider issued the token, not that it was issued for you. Always check the audience.',

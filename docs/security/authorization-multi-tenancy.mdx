@@ -248,10 +248,10 @@ Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
     {
       q: 'A logged-in user changes /api/invoices/100 to /api/invoices/101 in the URL and sees another customer’s invoice. What is this vulnerability?',
       options: [
-        'SQL injection',
-        'Broken object-level authorization (BOLA / IDOR)',
-        'Cross-site scripting',
-        'A weak password',
+        'SQL injection through the invoice number',
+        'Broken object-level authorization (BOLA)',
+        'Cross-site request forgery (CSRF)',
+        'A session fixation bug in the login flow',
       ],
       answer: 1,
       explain: 'The user was authenticated, but the server never checked that this specific object belonged to them. Scope every lookup by the authenticated owner or tenant.',
@@ -259,10 +259,10 @@ Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
     {
       q: 'Where should snip get the owner_id used in its queries?',
       options: [
-        'From a field in the JSON request body',
-        'From a query-string parameter',
-        'From the authenticated API key, placed in the request context by middleware',
-        'From a cookie the client sets',
+        'From an owner_id field in the JSON request body, checked for format',
+        'From a query-string parameter the frontend adds to each request',
+        'From the authenticated API key, put in the context by middleware',
+        'From a signed cookie the client sends with every request',
       ],
       answer: 2,
       explain: 'Anything in the request is controlled by the caller. Identity must come from authentication, never from user-supplied input.',
@@ -270,10 +270,10 @@ Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
     {
       q: 'What does Postgres row-level security add in a shared-tables multi-tenant system?',
       options: [
-        'Faster queries',
-        'The database automatically restricts every query to the current tenant’s rows, so a forgotten WHERE clause cannot leak data',
-        'Encryption of each row',
-        'Automatic backups per tenant',
+        'Faster queries, since each tenant’s rows are stored separately',
+        'The database limits every query to the tenant’s rows, so a missed WHERE can’t leak',
+        'Encryption of each row with a key belonging to its tenant, so other tenants can’t decrypt it',
+        'A separate schema per tenant, created automatically',
       ],
       answer: 1,
       explain: 'RLS policies are applied by the database to every query from the application role — a safety net under the application’s own checks.',
@@ -281,10 +281,10 @@ Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
     {
       q: 'Why does snip answer 404, not 403, when someone requests a link they don’t own?',
       options: [
-        '403 is not a real status code',
-        'A 403 would confirm the link exists, helping attackers map other users’ data',
-        '404 is faster',
-        'Browsers cannot display 403',
+        '403 is meant for a missing API key, not for someone else’s link',
+        'A 403 confirms the link exists, helping attackers map others’ data',
+        '404 responses can be cached by the CDN in front of snip, while 403 responses must reach the server',
+        'Clients retry a 403 automatically, which would double the load',
       ],
       answer: 1,
       explain: 'Returning the same response for "not yours" and "does not exist" reveals nothing about other tenants.',

@@ -266,10 +266,10 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
     {
       q: 'Why should "may user X change link Y?" be decided in the service rather than only at the API gateway?',
       options: [
-        'Gateways are slow',
-        'Only the service knows who owns link Y; gateways can check tokens and scopes, but object-level decisions need the object',
-        'Gateways can’t read headers',
-        'It shouldn’t; gateways are enough',
+        'Gateways are slow, and every check there adds a network hop',
+        'Only the service knows who owns link Y; a gateway only sees the token',
+        'Gateways can’t read request headers, so they never see the token',
+        'It shouldn’t; one check at the edge is safer than many copies of the same rule spread across services',
       ],
       answer: 1,
       explain: 'Broken object-level authorization is what happens when the object check is missing.',
@@ -277,10 +277,10 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
     {
       q: 'What is role explosion?',
       options: [
-        'Roles being deleted by accident',
-        'Needing a new role for every combination of permission and specific resource, until roles outnumber people',
-        'Too many admins',
-        'A denial-of-service attack',
+        'Roles being deleted by accident when a team is reorganised',
+        'Needing a role for each permission-and-resource pair, until roles outnumber people',
+        'Too many admins, because each newly created role starts with admin rights until someone trims it back',
+        'A denial-of-service attack that floods the policy engine with roles',
       ],
       answer: 1,
       explain: 'When permissions depend on which thing, relationships or attributes model it better than roles.',
@@ -288,10 +288,10 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
     {
       q: 'In snip’s Rego policy, what happens for an action no rule mentions, like "export"?',
       options: [
-        'It’s allowed',
-        'It’s denied, because of default allow := false',
-        'OPA errors',
-        'It depends on the role',
+        'It’s allowed, since nothing forbids it',
+        'Denied, by default allow := false',
+        'OPA returns an error, which snip treats as allowed',
+        'It depends on the role: admins may, others may not',
       ],
       answer: 1,
       explain: 'Deny by default: new actions are refused until a rule explicitly allows them.',
@@ -299,10 +299,10 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
     {
       q: 'In a Zanzibar-style system, Grace is removed from team growth. What happens to her access to links in folders shared with the team?',
       options: [
-        'Nothing until an admin cleans each folder',
-        'It disappears immediately, because it was derived from the membership tuple that was removed',
-        'It remains for 30 days',
-        'Only her edit access disappears',
+        'Nothing, until an admin removes her from each folder',
+        'It disappears at once: it came from the tuple that was removed',
+        'It remains until her cached tokens expire, up to 30 days',
+        'Only edit access goes; she keeps viewing, which is the safe default',
       ],
       answer: 1,
       explain: 'Access is computed from relationships at check time, so removing one relationship revokes everything it implied.',
@@ -310,10 +310,10 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
     {
       q: 'Why are tests that assert a refusal ("not allow") especially important for authorization?',
       options: [
-        'They run faster',
-        'A policy that allows everything passes every "allowed" test; only refusal tests catch over-permissive changes',
-        'OPA requires them',
-        'They reduce logging',
+        'They run faster, since OPA stops at the first rule that says no',
+        'An allow-everything policy passes every "allowed" test; only refusals catch it',
+        'OPA refuses to load a policy without at least one refusal test',
+        'They cut logging costs, since refused requests aren’t recorded',
       ],
       answer: 1,
       explain: 'The dangerous bugs are the ones that grant too much.',

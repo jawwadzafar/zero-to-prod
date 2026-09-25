@@ -276,10 +276,10 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
     {
       q: 'Which statement about Base64 is correct?',
       options: [
-        'It is a strong encryption method',
-        'It is an encoding anyone can reverse without a key — it protects nothing',
-        'It is a password hashing algorithm',
-        'It requires a private key to decode',
+        'It is a strong encryption method for data stored at rest',
+        'It’s an encoding anyone can reverse: it protects nothing',
+        'It is a hashing algorithm, suitable for storing passwords',
+        'It needs a private key to decode, so it is safe for tokens',
       ],
       answer: 1,
       explain: 'Encoding changes the format, not the secrecy. Encryption needs a key; hashing is one-way.',
@@ -287,10 +287,10 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
     {
       q: 'Why should passwords be stored with bcrypt or Argon2 rather than plain SHA-256?',
       options: [
-        'SHA-256 output is too short',
-        'Fast hashes let attackers test billions of guesses per second; slow, salted hashes make stolen hashes very expensive to crack',
-        'bcrypt can be decrypted if the user forgets their password',
-        'SHA-256 is not a real hash function',
+        'SHA-256 output is too short to be unique for every password',
+        'Fast hashes allow billions of guesses a second; slow, salted ones cost far more',
+        'bcrypt can be decrypted by the server if a user forgets their password',
+        'SHA-256 was broken years ago, so its outputs can be reversed',
       ],
       answer: 1,
       explain: 'Human passwords are guessable. Salts defeat precomputed tables and duplicate-password detection; deliberate slowness defeats mass guessing.',
@@ -298,10 +298,10 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
     {
       q: 'snip hashes API keys with fast SHA-256. Why is that acceptable?',
       options: [
-        'API keys are not secret',
-        'The keys are long random values (~190 bits), so there is nothing guessable to brute-force — and keys are checked on every request, where speed matters',
-        'SHA-256 is slower than bcrypt',
-        'It is not acceptable; it is a bug',
+        'API keys aren’t secret, since clients send them with every request',
+        'Keys are ~190 random bits, so nothing is guessable, and speed matters per request',
+        'SHA-256 is slower than bcrypt when a salt is added to it',
+        'It isn’t acceptable; every secret, including API keys, should be stored with bcrypt or Argon2',
       ],
       answer: 1,
       explain: 'Slow hashing protects weak, human-chosen secrets. Long random keys are infeasible to guess, so a fast hash is safe and avoids a costly slow hash on every API call.',
@@ -309,10 +309,10 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
     {
       q: 'In TLS, what does the certificate prove?',
       options: [
-        'That the server is fast',
-        'That the public key really belongs to the named site, because a trusted Certificate Authority signed it',
-        'That the data is compressed',
-        'That the user is logged in',
+        'That the connection is encrypted with a strong enough cipher',
+        'That the public key belongs to the named site, signed by a trusted CA',
+        'That the site is safe to use, because the CA checked its content and its owner',
+        'That the user is who they claim, because the browser signed it',
       ],
       answer: 1,
       explain: 'The CA’s signature binds the site’s name to its public key. That is what stops an impostor from pretending to be snip.example.',

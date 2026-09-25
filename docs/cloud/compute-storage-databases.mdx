@@ -172,10 +172,10 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
     {
       q: 'What is the main difference between block and object storage?',
       options: [
-        'Object storage is always faster',
-        'Block storage is a disk attached to one machine and used as a filesystem; object storage stores whole files by key over an HTTP API, cheaply and at huge scale',
-        'Block storage is only for backups',
-        'There is no difference',
+        'Object storage is always faster, because files are spread over many disks',
+        'Block is a disk for one machine; object storage keeps whole files by key over HTTP',
+        'Block storage is for backups and archives; object storage is for live data',
+        'Block storage can be shared by many machines; object storage by one',
       ],
       answer: 1,
       explain: 'Databases want block storage; uploads, backups and logs want object storage.',
@@ -183,10 +183,10 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
     {
       q: 'In S3, what is csv.gz/1763.csv.gz?',
       options: [
-        'A file inside a folder called csv.gz',
-        'A single key that happens to contain a slash; "folders" are a display convenience over shared prefixes',
-        'A bucket name',
-        'A compressed bucket',
+        'A file inside a folder called csv.gz, which S3 creates automatically',
+        'One key that contains a slash; "folders" are only a display of prefixes',
+        'A bucket called csv.gz inside a bucket called 1763',
+        'A compressed archive that S3 unpacks when the file is read',
       ],
       answer: 1,
       explain: 'Object storage is a flat key-value store. The delimiter listing groups keys by prefix.',
@@ -194,10 +194,10 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
     {
       q: 'How do most applications let users upload large files without making a bucket public or routing the bytes through their servers?',
       options: [
-        'Email attachments',
-        'Pre-signed URLs: the API grants short-lived permission to upload one specific object directly to storage',
-        'Public write access',
-        'Storing files in the database',
+        'Email attachments, forwarded to the storage service by a mail rule',
+        'Pre-signed URLs: short-lived permission to upload one object directly',
+        'Public write access on a bucket whose name is kept secret from users',
+        'Storing files in the database, which streams them to storage later',
       ],
       answer: 1,
       explain: 'The API stays in control of who uploads what, and the storage service handles the heavy lifting.',
@@ -205,10 +205,10 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
     {
       q: 'What does Multi-AZ give a managed database?',
       options: [
-        'Faster queries',
-        'A synchronous standby in another zone with automatic failover, so a zone or machine failure doesn’t lose the database',
-        'Read replicas for scaling reads',
-        'Cheaper storage',
+        'Faster queries, since reads are spread across two zones',
+        'A synchronous standby in another zone that takes over automatically',
+        'Read replicas in other zones, for scaling reads as traffic grows',
+        'Cheaper storage, as data is split across zones instead of copied',
       ],
       answer: 1,
       explain: 'It’s for availability. Read replicas are for scaling reads and are asynchronous.',
@@ -216,10 +216,10 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
     {
       q: 'A bad migration at 14:03 corrupted a table. What managed-database feature helps most?',
       options: [
-        'Multi-AZ failover',
-        'Point-in-time recovery: restore to a copy of the database as it was at 14:02',
-        'A bigger instance',
-        'Read replicas',
+        'Multi-AZ failover to the standby, which still has the old table',
+        'Point-in-time recovery to 14:02, as a copy of the database',
+        'The nightly snapshot, which is the latest copy of every table',
+        'A read replica, promoted before the corruption reaches it',
       ],
       answer: 1,
       explain: 'Standbys and replicas faithfully copy the bad change too. PITR goes back in time.',
@@ -227,10 +227,10 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
     {
       q: 'Why does snip’s AWS config run on Fargate rather than VMs?',
       options: [
-        'VMs cannot run containers',
-        'Fargate runs the container without any servers to patch or scale, which is less work for a typical HTTP service like snip',
-        'Fargate is free',
-        'VMs are not available in eu-west-1',
+        'VMs cannot run containers without installing a separate orchestrator first',
+        'Fargate runs containers with no servers to patch or scale: less work',
+        'Fargate is cheaper per hour than an equally sized VM',
+        'VMs in eu-west-1 need a support contract before they can be launched',
       ],
       answer: 1,
       explain: 'Choose the least operational work that meets your needs.',

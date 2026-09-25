@@ -201,17 +201,17 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
   questions={[
     {
       q: 'Which metric type should count HTTP requests?',
-      options: ['A gauge', 'A counter, queried with rate() to get requests per second', 'A histogram', 'A log line'],
+      options: ['A gauge, set to the number of requests in the last minute', 'A counter, read with rate() for requests per second', 'A histogram, which counts requests into buckets by route', 'A summary, which calculates the rate inside the app'],
       answer: 1,
       explain: 'Counters only increase; rate() turns them into per-second throughput, handling restarts.',
     },
     {
       q: 'Why does snip label requests by route ("GET /{slug}") and not by path ("/mlink")?',
       options: [
-        'Paths are secret',
-        'Every distinct label value creates a new time series; paths are unbounded (one per link), routes are a small fixed set',
-        'Prometheus can’t store slashes',
-        'Routes are shorter',
+        'Paths contain users’ link codes, which must stay private',
+        'Each label value makes a new series; paths are unbounded, routes are few',
+        'Prometheus can’t store slashes in label values without escaping',
+        'Routes are shorter, so each sample takes less disk space',
       ],
       answer: 1,
       explain: 'Cardinality is the main way to break a metrics system. Unbounded values belong in logs and traces.',
@@ -219,10 +219,10 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
     {
       q: 'How do you get p99 latency from snip’s metrics?',
       options: [
-        'Average the durations',
+        'quantile(0.99, rate(snip_http_request_duration_seconds_sum[5m]) / rate(snip_http_request_duration_seconds_count[5m]))',
         'histogram_quantile(0.99, sum by (le) (rate(snip_http_request_duration_seconds_bucket[5m])))',
-        'max(snip_http_request_duration_seconds)',
-        'Read it from the logs',
+        'max_over_time(snip_http_request_duration_seconds_count[5m]) * 0.99',
+        'Sort the duration of each request in the logs and take the 99th',
       ],
       answer: 1,
       explain: 'Histograms store bucket counts; percentiles are estimated from them, and can be summed across copies first.',
@@ -230,10 +230,10 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
     {
       q: 'What does the RED method measure for a service?',
       options: [
-        'Redis, Envoy, Docker',
-        'Rate, Errors, Duration: what users experience',
-        'RAM, Energy, Disk',
-        'Retries, Errors, Deploys',
+        'Requests, Endpoints, Dependencies: what the service talks to',
+        'Rate, Errors, Duration',
+        'Resources, Exhaustion, Disk: what the machine is running out of',
+        'Retries, Errors, Deploys: what changed and how it went',
       ],
       answer: 1,
       explain: 'USE (Utilisation, Saturation, Errors) is its partner for resources like CPUs, pools and queues.',
@@ -241,10 +241,10 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
     {
       q: 'increase(counter[5m]) returned 691.7 for exactly 600 requests. Why?',
       options: [
-        'A bug in snip',
-        'rate and increase extrapolate to the window boundaries, giving estimates; fine for trends and alerts, not exact counts',
-        'Some requests were counted twice',
-        'Prometheus lost data',
+        'A bug in snip that counts some requests twice',
+        'increase extrapolates to the window edges: good for trends, not exact counts',
+        'Some requests were counted by two Pods, one for each replica',
+        'Prometheus lost some samples and filled the gap with guesses',
       ],
       answer: 1,
       explain: 'Prometheus samples every few seconds and estimates what happened between the first and last sample and the window edges.',
@@ -252,10 +252,10 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
     {
       q: 'Why is Grafana’s snip dashboard stored as JSON files in the repository?',
       options: [
-        'Grafana can’t save dashboards',
-        'Dashboards as code: versioned, reviewed, and recreated identically in every environment, instead of hand-made and lost',
-        'JSON is faster',
-        'It’s required by Prometheus',
+        'Grafana can’t save dashboards on its own without an external database',
+        'Dashboards as code: versioned, reviewed, and identical everywhere',
+        'JSON dashboards load faster than ones saved in Grafana’s database',
+        'Prometheus reads the JSON to know which metrics to scrape',
       ],
       answer: 1,
       explain: 'The same reasoning as infrastructure as code (chapter 12.5).',

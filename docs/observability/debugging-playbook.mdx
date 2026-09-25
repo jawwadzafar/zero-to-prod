@@ -325,10 +325,10 @@ Stop snip with Ctrl+C when you're done, and delete the practice repository: `rm 
     {
       q: 'A request always fails after exactly 30.0 seconds. What’s the most likely explanation?',
       options: [
-        'The server is doing 30 seconds of slow work',
-        'Something is waiting for a timeout set to 30 seconds to expire',
-        'The network is slow',
-        'Garbage collection',
+        'The server does 30 seconds of slow work on each of these requests',
+        'Something is waiting for a 30-second timeout to expire',
+        'The network is slow and drops packets that then need resending',
+        'A garbage-collection pause that stops the program each time',
       ],
       answer: 1,
       explain: 'Suspiciously round durations are almost always timeouts. Find which component has a 30-second limit, and what it was waiting for.',
@@ -336,10 +336,10 @@ Stop snip with Ctrl+C when you're done, and delete the practice repository: `rm 
     {
       q: 'The log says "dial tcp 10.0.3.7:5432: connect: connection refused". What does that tell you?',
       options: [
-        'The password is wrong',
-        'A packet was dropped by a firewall',
-        'The host answered, but nothing is listening on port 5432, so Postgres isn’t running there, or is on another port',
-        'The query was too slow',
+        'The password is wrong, so Postgres closed the connection straight away',
+        'A firewall dropped the packets on the way to the database',
+        'The host answered, but nothing listens on 5432: Postgres is down or elsewhere',
+        'The query ran too long, and Postgres refused to wait for it',
       ],
       answer: 2,
       explain: '"Refused" means an active rejection from a reachable host. A firewall or frozen process gives a timeout instead; a wrong password gives an authentication error after connecting.',
@@ -353,10 +353,10 @@ Stop snip with Ctrl+C when you're done, and delete the practice repository: `rm 
     {
       q: 'A test fails about once in 20 CI runs. What’s the best response?',
       options: [
-        'Re-run until green; it’s a flaky test',
-        'Delete the test',
-        'Treat it as a real bug: find what differs between runs (timing, leftover state, environment, randomness) and make it fail reliably',
-        'Increase every timeout to 10 minutes',
+        'Re-run it until it’s green; one in twenty is what flaky tests do',
+        'Delete the test, since it can’t be trusted in either direction',
+        'Treat it as a real bug: find what differs between runs and make it fail every time',
+        'Increase every timeout in the test suite to 10 minutes so slow runs pass',
       ],
       answer: 2,
       explain: 'Flaky is a symptom. The alert test in this chapter was a genuine ordering bug that only showed up some of the time.',
@@ -364,10 +364,10 @@ Stop snip with Ctrl+C when you're done, and delete the practice repository: `rm 
     {
       q: 'In snip’s CPU profile, the per-request log line used more CPU than the redirect itself. What should you do?',
       options: [
-        'Remove all logging immediately',
-        'Rewrite snip in another language',
-        'Nothing yet: at 35,000 requests per second on a laptop it isn’t a bottleneck. Keep the number, and revisit if CPU ever becomes a real cost',
-        'Double the log level',
+        'Remove all per-request logging immediately, since it costs more than the work',
+        'Switch to a faster logging library before the next release',
+        'Nothing yet: at 35,000 requests a second it isn’t the bottleneck; note it',
+        'Log only one request in ten, to cut the cost by 90%',
       ],
       answer: 2,
       explain: 'Profiles tell you where time goes; judgment decides whether it matters. Optimise what’s actually limiting you.',

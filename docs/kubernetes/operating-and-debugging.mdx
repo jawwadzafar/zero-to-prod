@@ -193,10 +193,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
     {
       q: 'A Pod is CrashLoopBackOff. Where is the most likely place to find why?',
       options: [
-        'kubectl get nodes',
-        'kubectl logs POD --previous: the output of the container that crashed',
-        'The Service’s endpoints',
-        'The image’s Dockerfile',
+        'kubectl get nodes, to see whether the node is healthy',
+        'kubectl logs POD --previous: output of the crashed container',
+        'The Service’s endpoints, to check whether traffic reaches it',
+        'kubectl describe node, for the node’s memory pressure events',
       ],
       answer: 1,
       explain: 'The current container has only just restarted. The crash reason is in the previous container’s output (and describe’s Last State).',
@@ -204,10 +204,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
     {
       q: 'A Pod is Pending with the event "0/3 nodes are available: 3 Insufficient memory". What does it mean?',
       options: [
-        'The image is too big',
-        'No node has enough unreserved memory to satisfy the Pod’s memory request; lower the request, free capacity or add nodes',
-        'The container ran out of memory',
-        'The Pod is waiting for a Secret',
+        'The image is too big to fit in the nodes’ memory cache',
+        'No node has enough unreserved memory for the Pod’s request',
+        'The container ran out of memory and was OOM-killed three times',
+        'The Pod’s memory limit is higher than the namespace allows',
       ],
       answer: 1,
       explain: 'Scheduling is based on requests. Pending plus FailedScheduling means no node fits.',
@@ -215,10 +215,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
     {
       q: 'You deploy an image tag with a typo. With maxUnavailable: 0, what do users experience?',
       options: [
-        'An outage until you fix it',
-        'Nothing: the new Pod is stuck in ImagePullBackOff and the old Pods keep serving until you undo or fix the rollout',
-        'Half of requests fail',
-        'The cluster rolls back automatically',
+        'An outage until you fix it, since the old Pods are stopped first',
+        'Nothing: the new Pod is stuck pulling, and the old ones keep serving',
+        'Half of requests fail while the new Pod keeps retrying the pull',
+        'A short blip, then the cluster rolls back to the last good image',
       ],
       answer: 1,
       explain: 'Old Pods are only removed after new ones are ready. The rollout stalls; it doesn’t break service.',
@@ -226,10 +226,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
     {
       q: 'Why does snip’s HPA show cpu: <unknown> on a cluster without metrics-server?',
       options: [
-        'snip doesn’t use CPU',
-        'The HPA needs live usage from metrics-server to compute utilisation against requests',
-        'HPAs only work on the cloud',
-        'CPU limits are missing',
+        'snip uses too little CPU for the HPA to measure it',
+        'The HPA needs live usage from metrics-server to compare with requests',
+        'HPAs only read metrics from a cloud provider’s monitoring API',
+        'CPU limits are missing, and the HPA divides CPU usage by the limit, not the request',
       ],
       answer: 1,
       explain: 'Install metrics-server (managed clusters usually have it) and make sure containers have CPU requests.',
@@ -237,10 +237,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
     {
       q: 'How can you inspect a running container whose image has no shell?',
       options: [
-        'You can’t',
-        'kubectl debug adds an ephemeral container from an image with tools, sharing the Pod’s network and (with --target) the container’s processes',
-        'Rebuild the image with a shell and redeploy',
-        'Use kubectl exec with sh',
+        'You can’t, without rebuilding the image with a shell in it',
+        'kubectl debug adds a temporary container with tools, sharing the Pod',
+        'Rebuild the image with a shell and redeploy it to the same Pod',
+        'kubectl exec with sh, which copies its own shell into the container before running it',
       ],
       answer: 1,
       explain: 'Ephemeral containers keep production images minimal while still allowing investigation.',
@@ -248,10 +248,10 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
     {
       q: 'What does a PodDisruptionBudget protect against?',
       options: [
-        'Node crashes',
-        'Voluntary disruptions like drains and upgrades removing too many Pods at once',
-        'Memory leaks',
-        'Bad deployments',
+        'Node crashes, by keeping spare Pods on other nodes',
+        'Drains and upgrades removing too many Pods at once',
+        'Memory leaks, by restarting Pods before they run out',
+        'Bad deployments, by pausing rollouts that lose Pods',
       ],
       answer: 1,
       explain: 'Evictions wait until the budget allows them. Crashes aren’t voluntary; replicas across nodes cover those.',

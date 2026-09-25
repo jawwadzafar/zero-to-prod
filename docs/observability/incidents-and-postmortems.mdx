@@ -345,10 +345,10 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
     {
       q: 'Redirects started failing 4 minutes after a deploy. You don’t yet know why. What should you do first?',
       options: [
-        'Read the diff carefully until you find the bug',
-        'Roll back the deploy, confirm users recover, then investigate',
-        'Wait to see if it recovers on its own',
-        'Restart every service',
+        'Read the diff carefully until you find the change that broke it',
+        'Roll back, confirm users recover, then investigate',
+        'Wait ten minutes in case it recovers on its own as caches warm',
+        'Restart every service, in case something is stuck after the deploy',
       ],
       answer: 1,
       explain: 'Mitigate before you diagnose. The timing points at the deploy, and rolling back stops the harm; understanding can happen afterwards, calmly.',
@@ -356,10 +356,10 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
     {
       q: 'Why shouldn’t the incident commander be the one debugging?',
       options: [
-        'Incident commanders are usually managers who can’t debug',
-        'While they’re deep in logs, nobody is coordinating, deciding, or making sure users are updated',
-        'Debugging is the scribe’s job',
-        'It’s a legal requirement',
+        'Incident commanders are usually managers, who can’t read the code',
+        'Deep in logs, nobody coordinates, decides or keeps users updated',
+        'Debugging is the scribe’s job, as they see the whole timeline',
+        'It’s a compliance requirement that the person debugging can’t also sign off',
       ],
       answer: 1,
       explain: 'The IC steers. Someone else does the hands-on work, and the IC hands the role over explicitly if they need to dig in.',
@@ -367,10 +367,10 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
     {
       q: 'In snip’s game day, why did a Redis outage threaten a total outage in Kubernetes?',
       options: [
-        'Redis stores all links',
-        '/readyz failed when Redis was down, so every API Pod was removed from the Service at once, even though they could serve from Postgres',
-        'Kubernetes restarts Pods when Redis is down',
-        'The worker crashed',
+        'Redis stores every link, and Postgres only keeps the backups',
+        '/readyz failed without Redis, so every Pod left the Service, though Postgres could serve',
+        'Kubernetes restarts every Pod that loses its connection to a dependency',
+        'The worker crashed and took the API Pods’ shared queue down with it',
       ],
       answer: 1,
       explain: 'Redis is a soft dependency. Readiness should only fail for hard ones (Postgres); now Redis is reported as "degraded" instead.',
@@ -378,10 +378,10 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
     {
       q: 'Why was a frozen Redis worse than a stopped one?',
       options: [
-        'A frozen Redis loses data',
-        'Connections to a stopped server are refused immediately; a frozen one never answers, so every call waits for its full timeout',
-        'Docker can’t detect a frozen container',
-        'They behave the same',
+        'A frozen Redis loses all the data it was holding in memory',
+        'A stopped one refuses at once; a frozen one never answers, so calls wait out timeouts',
+        'Docker can’t detect a frozen container, so it never restarts it and the data goes stale',
+        'They behave the same for clients, but a frozen one takes much longer to restart',
       ],
       answer: 1,
       explain: 'Slow is harder than dead. Timeouts are what bound the damage; with the old defaults, a single redirect could wait longer than the server’s 15-second limit.',
@@ -389,10 +389,10 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
     {
       q: 'Which is the best postmortem action item?',
       options: [
-        'Engineers should be more careful with Redis',
-        'Improve reliability',
-        'Add a unit test that fails if /readyz returns 503 when only Redis is down (owner: Sam, due: Friday)',
-        'Consider looking into caching',
+        'Engineers should be more careful when changing anything about Redis',
+        'Improve reliability of the readiness checks across all services',
+        'Test that /readyz stays 200 when only Redis is down (Sam, Friday)',
+        'Consider looking into whether we need Redis at all, and discuss next quarter',
       ],
       answer: 2,
       explain: 'Specific, owned and dated, and it changes the system rather than asking people to be perfect.',

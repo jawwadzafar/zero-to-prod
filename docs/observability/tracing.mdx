@@ -194,10 +194,10 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
     {
       q: 'What is a span?',
       options: [
-        'A log line',
-        'One timed operation within a trace, with a name, duration, status, attributes and a parent',
-        'A metric',
-        'A Kubernetes object',
+        'A log line with a trace ID attached to it',
+        'One timed operation in a trace, with a name, duration and parent',
+        'A histogram of how long each operation takes, per service',
+        'The whole path of one request through every service',
       ],
       answer: 1,
       explain: 'Spans nest into a tree; the trace is the whole tree for one request.',
@@ -205,10 +205,10 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
     {
       q: 'How does a trace continue from service A into service B?',
       options: [
-        'Both services share memory',
-        'A’s instrumentation adds a traceparent header with the trace ID and its span ID; B reads it and makes its spans children',
-        'The load balancer merges them',
-        'B guesses from timestamps',
+        'Both services write to the same collector, which joins them',
+        'A adds a traceparent header with its IDs; B makes its spans children',
+        'The load balancer merges them by matching the client’s IP',
+        'Jaeger matches them afterwards by comparing the timestamps',
       ],
       answer: 1,
       explain: 'W3C Trace Context propagation. Any hop that drops the header breaks the trace.',
@@ -216,10 +216,10 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
     {
       q: 'In snip’s two traces, what shows the request was a cache hit?',
       options: [
-        'It was slower',
-        'There was no store.Get or cache.SetURL span, and cache.GetURL had cache.hit = true',
-        'The status code',
-        'The trace ID',
+        'It was slower, because the cache had to be checked first',
+        'No store.Get span, and cache.GetURL had cache.hit = true',
+        'The status code, 302 for hits and 301 for misses',
+        'The trace ID, which starts with a different prefix for cache hits',
       ],
       answer: 1,
       explain: 'Traces make code paths visible: you can see exactly which steps ran.',
@@ -227,10 +227,10 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
     {
       q: 'Why can snip leave tracing code in place even when tracing is off?',
       options: [
-        'It isn’t compiled',
-        'Without a configured SDK, the OpenTelemetry API returns no-op spans that cost almost nothing',
-        'Go removes unused code at runtime',
-        'Tracing is always on',
+        'It isn’t compiled into the binary unless a build tag is set',
+        'With no SDK set up, the API hands out no-op spans that cost nearly nothing',
+        'Go removes unused code at runtime, once it sees that no exporter exists',
+        'Tracing is always on, but spans are thrown away before they are sent',
       ],
       answer: 1,
       explain: 'The API/SDK split lets code be instrumented once and turned on by configuration.',
@@ -238,10 +238,10 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
     {
       q: 'What is the advantage of tail sampling over head sampling?',
       options: [
-        'It is cheaper',
-        'The keep/drop decision is made after the trace completes, so all errors and slow traces can be kept',
-        'It needs no collector',
-        'It samples fewer traces',
+        'It is cheaper, since fewer spans are ever created in the services',
+        'It decides after the trace ends, so errors and slow traces can be kept',
+        'It needs no collector, because services decide for themselves',
+        'It keeps a fixed share of traces, chosen before any work starts',
       ],
       answer: 1,
       explain: 'Head sampling decides blindly at the start; tail sampling decides with the whole trace in hand.',
@@ -249,10 +249,10 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
     {
       q: 'What links a snip log line to its trace?',
       options: [
-        'The timestamp',
-        'The trace_id field in the log line, the same ID as the trace in Jaeger',
-        'The route',
-        'The status code',
+        'The timestamp, matched to the span with the same start time',
+        'The trace_id field, the same ID as the trace in Jaeger',
+        'The route and status code, matched against the span attributes',
+        'The request ID, which Jaeger stores as the trace’s name',
       ],
       answer: 1,
       explain: 'Shared IDs let you jump between logs and traces during an investigation.',

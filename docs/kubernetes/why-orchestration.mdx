@@ -200,10 +200,10 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
     {
       q: 'What is a reconciliation loop?',
       options: [
-        'A retry loop for failed HTTP requests',
-        'A controller repeatedly comparing the desired state with the actual state and acting to close any gap',
-        'A way to merge Git branches',
-        'The order in which Pods start',
+        'A retry loop that resends failed HTTP requests between services',
+        'A controller comparing desired and actual state, closing the gap',
+        'A loop that merges changes from Git into the cluster every minute',
+        'The order in which Pods start after a node is restarted',
       ],
       answer: 1,
       explain: 'Observe, compare, act, repeat. Self-healing, scaling and rollouts are all this same loop closing different gaps.',
@@ -211,10 +211,10 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
     {
       q: 'You delete one of three snip Pods by hand. What happens and why?',
       options: [
-        'snip runs with two copies until you recreate it',
-        'A new Pod is created shortly, because the desired state still says three and a controller notices only two exist',
-        'The whole Deployment is deleted',
-        'The cluster restarts',
+        'snip runs with two copies until you apply the YAML again',
+        'A new one appears: the desired state says three, and only two exist',
+        'The other two Pods restart as well, so that all three are guaranteed to run the same version',
+        'The Service stops routing to snip until someone investigates',
       ],
       answer: 1,
       explain: 'Kubernetes doesn’t remember that you deleted it. It only sees a gap between desired and actual, and closes it.',
@@ -228,10 +228,10 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
     {
       q: 'What does the kubelet do?',
       options: [
-        'Chooses which node a Pod runs on',
-        'Runs on each node, starts the Pods assigned to that node via the container runtime, runs their health checks and reports status',
-        'Stores configuration',
-        'Provides the cluster’s DNS',
+        'It chooses which node each new Pod should run on',
+        'On each node, it starts that node’s Pods and reports their health',
+        'It stores the cluster’s configuration and desired state',
+        'It routes each Service’s traffic to the right Pods on its node, using iptables rules',
       ],
       answer: 1,
       explain: 'The scheduler chooses the node; the kubelet on that node makes it happen and keeps it running.',
@@ -239,10 +239,10 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
     {
       q: 'A small team has one web API and no plans to grow soon. What is usually the better first platform?',
       options: [
-        'A self-managed multi-node Kubernetes cluster',
-        'A simpler platform such as a serverless container service or a single server, moving to Kubernetes if its specific benefits become needed',
-        'No containers at all',
-        'Several Kubernetes clusters for redundancy',
+        'A self-managed multi-node Kubernetes cluster, to be ready for growth',
+        'A simpler platform, like a serverless container service or one server',
+        'No containers at all, deploying the binary to a VM by hand',
+        'Several managed Kubernetes clusters in different regions for redundancy',
       ],
       answer: 1,
       explain: 'Kubernetes pays off with many services, teams or real scale. For one small app, its complexity often costs more than it saves.',
@@ -250,10 +250,10 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
     {
       q: 'Why does Kubernetes undo changes you make directly on a node or by killing containers?',
       options: [
-        'It has a bug',
-        'Controllers keep enforcing the declared desired state, so anything that differs from it is "corrected"',
-        'Nodes are read-only',
-        'Only administrators may make changes',
+        'It has a bug in how nodes report their state',
+        'Controllers keep enforcing the declared state, "correcting" drift',
+        'Nodes are read-only, so changes are lost on the next sync',
+        'Only changes made through kubectl are recorded as real',
       ],
       answer: 1,
       explain: 'To change the outcome, change the desired state (ideally in version-controlled files), not the actual state.',

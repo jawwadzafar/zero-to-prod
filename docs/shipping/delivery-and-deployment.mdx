@@ -172,10 +172,10 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
     {
       q: 'What is the difference between deploying and releasing?',
       options: [
-        'There is none',
-        'Deploying puts new code on production machines; releasing lets users experience the change. Canaries and feature flags separate the two',
-        'Releasing is for mobile apps only',
-        'Deploying happens after releasing',
+        'There is none; the two words describe the same step',
+        'Deploying puts code on machines; releasing lets users see the change',
+        'Releasing means tagging a version in Git; deploying means running it',
+        'Deploying happens after releasing, once the version is approved',
       ],
       answer: 1,
       explain: 'Separating them turns deployments into routine events and releases into controlled decisions.',
@@ -183,10 +183,10 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
     {
       q: 'A rolling update finishes, all Pods are ready, and users report wrong results. Why didn’t the rollout stop?',
       options: [
-        'Rolling updates never check anything',
-        'Readiness only checks that Pods respond, not that they’re correct; catching wrong behaviour needs metrics-based checks, as in canary analysis',
-        'The rollout was too fast',
-        'Kubernetes ignores readiness during rollouts',
+        'Rolling updates never check anything once the new Pods have started',
+        'Readiness checks that Pods respond, not that answers are right',
+        'The rollout was too fast for the readiness probes to notice anything',
+        'Kubernetes ignores readiness during rollouts, to avoid getting stuck',
       ],
       answer: 1,
       explain: 'Probes answer "is it up?". Business metrics and error rates answer "is it right?".',
@@ -194,10 +194,10 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
     {
       q: 'What is the main advantage of a canary over blue-green?',
       options: [
-        'Canaries need no extra capacity at all',
-        'Only a small share of real users meet the new version at first, limiting the blast radius while testing with real traffic',
-        'Canaries switch everyone at once',
-        'Canaries avoid database changes',
+        'Canaries need no extra capacity at all, while blue-green doubles it',
+        'Only a few real users get the new version at first, limiting the blast radius',
+        'Canaries switch everyone at once, so there’s no mixed-version period',
+        'Canaries test database migrations on a copy before they run',
       ],
       answer: 1,
       explain: 'Blue-green switches everyone together (with instant switch-back). Canaries expose a fraction first.',
@@ -205,10 +205,10 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
     {
       q: 'Why can’t a release that renamed a database column simply be rolled back?',
       options: [
-        'Rollbacks are forbidden',
-        'The old code expects the old column; code rolls back but the schema change remains. Use expand-and-contract so every step works with both versions',
-        'Databases can’t be changed',
-        'The column is cached',
+        'Rollbacks are forbidden after a migration by most deployment tools',
+        'The code rolls back, but the renamed column stays, and old code needs the old name',
+        'The database refuses to rename a column back once it has data',
+        'The old column name is cached by the connection pool until restart',
       ],
       answer: 1,
       explain: 'During any rollout old and new versions share one database, so schema changes must be backwards compatible.',
@@ -216,10 +216,10 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
     {
       q: 'What does a progressive delivery controller like Argo Rollouts add to a canary?',
       options: [
-        'A new database',
-        'Automatic step-by-step traffic shifting with metric checks, promoting on good numbers and rolling back on bad ones',
-        'Faster builds',
-        'Feature flags',
+        'A copy of the database for the canary, so data can’t be damaged',
+        'Step-by-step traffic shifting with metric checks, and automatic rollback',
+        'Faster builds, by reusing the stable version’s image layers',
+        'Feature flags, so the canary can be turned off without a deploy',
       ],
       answer: 1,
       explain: 'It replaces a human watching dashboards with an automated, consistent decision.',

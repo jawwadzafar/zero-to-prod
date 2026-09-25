@@ -275,10 +275,10 @@ Free, on your own computer.
     {
       q: 'Why does snip store only a hash of each API key?',
       options: [
-        'Hashes are shorter to store',
-        'If the database leaks, attackers get useless hashes instead of working keys',
-        'Hashes make requests faster',
-        'Postgres cannot store keys',
+        'Hashes are shorter than keys, so the table uses less disk',
+        'A leaked database gives attackers hashes, not working keys',
+        'Hashes can be compared faster than the original keys',
+        'Postgres cannot store text that looks like a secret',
       ],
       answer: 1,
       explain: 'Storing only a hash means the key itself exists nowhere on the server. A database leak does not hand out working credentials.',
@@ -286,10 +286,10 @@ Free, on your own computer.
     {
       q: 'What is the main drawback of long-lived JWTs compared with server-side sessions?',
       options: [
-        'JWTs are larger than cookies',
-        'They cannot be revoked immediately, because servers verify them without a lookup',
-        'They cannot contain a user ID',
-        'They only work in browsers',
+        'JWTs are larger than cookies, so every request carries more data',
+        'They can’t be revoked at once: servers check them without a lookup',
+        'They cannot carry a user ID, so a database lookup is needed anyway',
+        'They only work in browsers, not in mobile apps or scripts',
       ],
       answer: 1,
       explain: 'A JWT is valid until it expires. The usual fix is short-lived access tokens plus revocable refresh tokens.',

@@ -256,10 +256,10 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
     {
       q: 'Two jobs in the same workflow: can the second use files the first created on disk?',
       options: [
-        'Yes, jobs share a disk',
-        'No, each job runs on its own fresh machine; pass files with artefacts (or a registry) and small values with outputs',
-        'Only on Linux runners',
-        'Only if they have the same name',
+        'Yes, jobs in one workflow share the same disk and workspace',
+        'No: each job gets a fresh machine; pass files as artefacts',
+        'Only on Linux runners, which mount one shared volume',
+        'Only if the second job lists the first in needs:, which copies the files across',
       ],
       answer: 1,
       explain: 'Jobs are isolated and run in parallel by default. Share deliberately: artefacts, outputs, registries.',
@@ -267,10 +267,10 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
     {
       q: 'What do service containers give snip’s test job?',
       options: [
-        'Faster Go compilation',
-        'Real Postgres and Redis running alongside the job, so integration tests use the real databases',
-        'A Kubernetes cluster',
-        'Secret storage',
+        'Faster Go compilation, by caching modules in a sidecar container',
+        'Real Postgres and Redis next to the job, for integration tests',
+        'A small Kubernetes cluster where the test job deploys snip',
+        'Mocked versions of Postgres and Redis that reset between tests',
       ],
       answer: 1,
       explain: 'Testing against real dependencies catches wrong SQL and behaviour that fakes would hide.',
@@ -278,10 +278,10 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
     {
       q: 'Why set permissions: contents: read at the top of a CI workflow?',
       options: [
-        'It makes runs faster',
-        'Least privilege: if a dependency or action is malicious, the GITHUB_TOKEN it can use can only read the code',
-        'GitHub requires it',
-        'To hide the code',
+        'It makes runs faster, since fewer permission checks are made',
+        'Least privilege: a malicious action’s GITHUB_TOKEN can only read code',
+        'GitHub requires it for any workflow that runs on pull requests',
+        'To stop forks from reading the repository’s secrets during runs',
       ],
       answer: 1,
       explain: 'Grant write permissions only to the workflows that need them (like image.yml’s packages: write).',
@@ -289,10 +289,10 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
     {
       q: 'Why is run: echo "${{ github.event.pull_request.title }}" dangerous?',
       options: [
-        'Titles can be long',
-        'The expression is pasted into the script before the shell runs it, so a crafted title can inject commands. Pass it through an environment variable instead',
-        'It leaks the title',
-        'Echo is deprecated',
+        'Titles can be long enough to overflow the runner’s log buffer',
+        'It’s pasted into the script before the shell runs, so a title can inject commands',
+        'It leaks the pull request’s title into the public build log',
+        'echo drops quotes, so the title prints wrongly and the step fails',
       ],
       answer: 1,
       explain: 'Like SQL injection: untrusted text becomes code. Environment variables keep it as data.',
@@ -300,10 +300,10 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
     {
       q: 'What does OIDC replace when deploying from CI to a cloud?',
       options: [
-        'The cloud’s load balancer',
-        'Long-lived cloud access keys stored as secrets: the workflow gets short-lived credentials by proving its identity',
-        'Docker images',
-        'The need for tests',
+        'The cloud’s login page, which a person had to click through',
+        'Long-lived keys in secrets: the workflow proves who it is for short-lived ones',
+        'The container registry password, which is no longer needed',
+        'The deploy approval step, since OIDC checks the code itself before any deploy runs',
       ],
       answer: 1,
       explain: 'No stored secret means nothing to leak. The cloud trusts a specific repository, branch and workflow.',
@@ -311,10 +311,10 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
     {
       q: 'Why cancel superseded runs on pull requests but not on main?',
       options: [
-        'Main is slower',
-        'On a PR only the latest commit matters; on main every commit should keep a result, so you know which commit broke something',
-        'GitHub doesn’t allow cancelling on main',
-        'To save money on main',
+        'Main runs are slower, so cancelling them would waste more work',
+        'On a PR only the latest commit matters; on main, each commit needs a result',
+        'GitHub doesn’t allow cancelling runs on a protected branch like main',
+        'To keep main’s cache warm, since cancelled runs don’t save a cache',
       ],
       answer: 1,
       explain: 'Concurrency saves time without losing the history that matters.',

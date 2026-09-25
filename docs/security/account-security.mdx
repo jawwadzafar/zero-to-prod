@@ -235,10 +235,10 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
     {
       q: 'Why is "lock the account after 5 failed logins" often a bad defence against password guessing?',
       options: [
-        'Five is too many',
-        'It lets an attacker lock any user out on purpose; growing delays, rate limits and MFA stop guessing without handing attackers a denial-of-service button',
-        'Lockouts are illegal',
-        'Attackers never fail five times',
+        'Five is too many; attackers only need two or three guesses per account',
+        'Attackers can lock anyone out on purpose; delays, rate limits and MFA stop guessing without that',
+        'Lockouts leak which usernames exist, and that is its only real weakness',
+        'Attackers guess from many IP addresses at once, and a lockout only counts failures per address, so it never triggers',
       ],
       answer: 1,
       explain: 'A defence that can be triggered by the attacker against the victim is a new attack.',
@@ -246,10 +246,10 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
     {
       q: 'How does the Pwned Passwords range API check a password without learning it?',
       options: [
-        'It encrypts the password first',
-        'Only the first 5 characters of the SHA-1 hash are sent; the service returns all leaked hashes with that prefix, and the comparison happens locally',
-        'It uses a VPN',
-        'It stores the password briefly and deletes it',
+        'It encrypts the password with the service’s public key before sending it',
+        'Only 5 characters of the SHA-1 hash are sent; matching the returned list happens locally',
+        'It sends the full hash, which cannot be reversed into the password',
+        'It checks the password in memory on the service’s side and promises never to write it to disk or logs',
       ],
       answer: 1,
       explain: 'k-anonymity: hundreds of different hashes share any prefix, so the prefix reveals almost nothing.',
@@ -257,10 +257,10 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
     {
       q: 'Why must a new session ID be issued at login?',
       options: [
-        'Session IDs wear out',
-        'Otherwise an attacker who planted a known ID in the victim’s browser before login would share the logged-in session (session fixation)',
-        'To make cookies smaller',
-        'Browsers require it',
+        'Session IDs wear out after one use, so each login needs a new one',
+        'Otherwise an ID an attacker planted before login would share the session',
+        'To make the cookie smaller once the user’s details are added to it',
+        'Browsers delete cookies set before login once the user signs in',
       ],
       answer: 1,
       explain: 'The privilege level changed, so the identifier must change with it.',
@@ -268,10 +268,10 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
     {
       q: 'An already-used refresh token is presented again. What should the server conclude and do?',
       options: [
-        'It’s a harmless retry; accept it',
-        'Two parties have the token, so it was probably stolen: revoke the whole token family and require a fresh login',
-        'Issue two new tokens',
-        'Ignore it silently',
+        'It’s a harmless retry after a network blip; accept it and move on',
+        'Two parties hold it, so it was likely stolen: revoke the family, force a login',
+        'Issue two new tokens, one for each copy, and log the event',
+        'Reject that one request as a stale retry, but leave the newer token in the family working as before',
       ],
       answer: 1,
       explain: 'Rotation with reuse detection turns token theft into a detectable event.',
@@ -279,10 +279,10 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
     {
       q: 'A reset email’s link is built from the request’s Host header. What can an attacker do?',
       options: [
-        'Nothing; the email goes to the real owner',
-        'Request a reset for the victim with a forged Host, so the genuine email contains a link to the attacker’s domain with a valid token',
-        'Read the victim’s inbox',
-        'Change the victim’s password directly',
+        'Nothing; the email still goes to the real owner’s inbox',
+        'Forge the Host so the real email links to the attacker’s site, with a valid token',
+        'Read the victim’s inbox through the link that the email contains',
+        'Change the victim’s password directly, without any token at all',
       ],
       answer: 1,
       explain: 'Build absolute URLs from configuration, never from request headers.',
