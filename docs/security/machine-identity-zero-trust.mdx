@@ -1,0 +1,301 @@
+---
+title: "7.11 Machine identity & zero trust"
+sidebar_label: "7.11 Machine identity & zero trust"
+description: "Most identities in a system aren't people: services, workers, CI jobs. How machines prove who they are without long-lived secrets (workload identity, Kubernetes service account tokens, SPIFFE), mutual TLS built from scratch with a tiny certificate authority, authorizing services by identity instead of network location, zero trust and identity-aware access, and the lifecycle of people's access to infrastructure: joiners, movers, leavers, just-in-time elevation and break-glass."
+---
+
+# 7.11 Machine identity & zero trust
+
+Count the identities in snip's production system. There are people: link owners with API keys, and your team. But most of the "who is calling?" questions are asked about **machines**: the API calling Postgres and Redis, the worker reading the click stream, the CI pipeline deploying new versions (chapter 11.2), Prometheus scraping metrics, the Argo CD controller applying manifests (chapter 11.4). In a larger company, machine identities outnumber people many times over.
+
+For years, the default answer was a **shared secret** for each connection (a database password in an environment variable, an API key in a CI setting) plus **the network**: "it's inside our private network, so it must be one of ours". Both assumptions keep failing in breaches. This chapter covers the modern replacements: identities that machines are *given* by the platform, **mutual TLS**, authorizing by identity instead of IP address, and **zero trust**. It ends with the human side of infrastructure access: how people get, keep and lose it.
+
+## What you'll learn
+
+- Why long-lived secrets and trusted networks fail.
+- **Workload identity**: Kubernetes **service account tokens**, cloud identities and **SPIFFE**.
+- **Mutual TLS** (**mTLS**), built with a tiny certificate authority, and why short-lived certificates beat revocation.
+- **Authorizing services by identity**, not by IP address.
+- **Zero trust** and **identity-aware proxies**.
+- People's infrastructure access: **joiner-mover-leaver**, **access reviews**, **just-in-time** elevation, **break-glass**.
+
+---
+
+## Secrets and networks are weak identities
+
+:::note[Everyday anchor]
+A building where every door opens with the same key, and the key is copied for every new contractor. And once inside the front door, nobody checks anything, because "only staff get in". It works until one copy of the key goes missing, and then there's no way to know who's inside or to change the lock without disrupting everyone.
+:::
+
+A **long-lived shared secret** has predictable problems (chapter 7.6): it gets copied into config files, CI settings, laptops and logs; it's hard to rotate because many things use it; and a stolen copy works until someone notices, from anywhere. snip's own Kubernetes manifests put the database password in a Secret and a connection string, marked "development only". Fine for a lab, and exactly the thing to replace in production.
+
+**Network location as identity** is the other weak assumption: "requests from inside the cluster, or the VPN, are trusted". But networks get breached, and once an attacker is inside (through one vulnerable service, one phished laptop), everything that trusts "inside" trusts them. Moving from one compromised machine to others is called **lateral movement**, and flat, trusting networks make it easy.
+
+The replacements share one idea: **every caller proves who it is on every request, with a credential that's short-lived and bound to it, and every service decides based on that identity.**
+
+---
+
+## Workload identity: let the platform vouch for the machine
+
+A person proves identity with a password and MFA. A **workload** (a running service, job or function) can't type anything. Instead, the **platform that runs it** vouches for it, because the platform knows what it started and where:
+
+- **Kubernetes** gives each pod a **service account** identity, and can mount a signed, short-lived token for it: a JWT (chapter 7.2) saying "this is service account `snip/worker`", with an **audience** (who it's for) and an **expiry**. Other systems can verify it.
+- **Cloud platforms** give each virtual machine or container an identity via a local metadata service, which hands out short-lived credentials for its assigned role (chapter 12.4).
+- **CI systems** issue an OIDC token per job (GitHub Actions does), which a cloud account can be configured to trust: "deploy jobs from this repository's main branch may assume this role". No stored cloud keys at all (chapter 12.4's "CI without keys").
+
+**SPIFFE** (Secure Production Identity Framework For Everyone) standardises this across platforms. Every workload gets an ID like `spiffe://snip.local/worker`, and an **SVID**, an identity document proving it: usually a short-lived X.509 certificate. Its reference implementation, **SPIRE**, issues SVIDs after **attestation**: checking with the platform (Kubernetes, the cloud) that the workload really is what it claims before issuing its identity.
+
+### The least-privilege default: no token if you don't need one
+
+Kubernetes mounts a service account token into every pod by default, whether the pod uses it or not. snip's services never call the Kubernetes API, so the token was a credential with no purpose: if an attacker got into a snip container, they'd find a key to the cluster's API sitting in a file. Writing this chapter, we turned it off in every snip pod (the plain manifests and the Helm chart):
+
+```yaml
+    spec:
+      automountServiceAccountToken: false   # never calls the Kubernetes API, so no token (chapter 7.11)
+```
+
+A small change, and a principle: **don't hand out identities or credentials that nothing uses.**
+
+---
+
+## Mutual TLS: both sides show a certificate
+
+In ordinary HTTPS (chapter 7.1), only the **server** proves its identity, with a certificate signed by a certificate authority (CA) the client trusts. **Mutual TLS** (**mTLS**) adds the other direction: the **client** also presents a certificate, and the server checks it was signed by a CA *it* trusts. After the handshake, each side knows exactly who the other is, and the connection is encrypted.
+
+snip's `examples/mtls` builds the whole thing with Go's standard library: a small internal **CA**, certificates for each workload carrying a SPIFFE ID, and a server that only the worker may call:
+
+```go
+// ServerTLS makes a server that demands a client certificate signed by ca.
+func ServerTLS(ca *CA, cert tls.Certificate) *tls.Config {
+	return &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientCAs:    ca.Pool,
+		ClientAuth:   tls.RequireAndVerifyClientCert, // no valid certificate, no connection
+		MinVersion:   tls.VersionTLS13,
+	}
+}
+```
+
+The identity lives in the certificate's **URI subject alternative name**, and authorization reads it from the verified certificate:
+
+```go
+// Allow wraps a handler: authentication came from TLS; this is authorization,
+// by workload identity rather than by network address.
+func Allow(allowed []string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, err := PeerID(r)
+		if err != nil || !slices.Contains(allowed, id) {
+			http.Error(w, "forbidden for "+id, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+```
+
+Five callers try, in CI:
+
+```text
+worker, certificate from our CA          200 hello spiffe://snip.local/worker
+reporting job, certificate from our CA   connected, then 403: forbidden for spiffe://snip.local/reporting
+no certificate                           refused during the TLS handshake
+'worker' signed by another CA            refused during the TLS handshake
+worker, expired certificate              refused during the TLS handshake
+```
+
+What to notice:
+
+- **Authentication and authorization are separate steps**, even here. The reporting job has a perfectly valid certificate from our CA: it's *authenticated*. It just isn't on the allow list, so it's not *authorized* (403).
+- **The name alone is worthless.** A certificate that says `worker`, signed by someone else's CA, is refused before any HTTP happens. The signature is what makes a name an identity.
+- **Expiry is enforced by the handshake.** The expired certificate fails without any special code.
+
+### Short-lived certificates beat revocation
+
+What if a certificate's private key is stolen? The traditional answer is **revocation**: publish lists of revoked certificates (**CRLs**) or answer "is this one revoked?" online (**OCSP**). In practice, both are slow to propagate and often not checked at all. The modern answer is to make certificates **short-lived** (hours, or less) and **rotate them automatically**: a stolen certificate simply expires soon. The lab's certificates last an hour. SPIRE and **service meshes** (such as Istio and Linkerd, which add mTLS between services in Kubernetes without changing application code) issue and rotate them continuously. That's the same reasoning as short-lived access tokens in chapter 7.3.
+
+The same idea is increasingly used for **people's SSH access**: instead of copying public keys onto every server (chapter 2.6), an SSH certificate authority signs a short-lived certificate for each engineer after they sign in with SSO and MFA. Servers trust the CA, and access ends when the certificate expires.
+
+---
+
+## Authorize services by identity, not by address
+
+With workload identity in place, rules between services can name **who**, not **where**:
+
+| By address (fragile) | By identity (robust) |
+|---|---|
+| "Allow 10.0.3.0/24 to reach Postgres" | "Allow `snip/api` and `snip/worker` to reach Postgres" |
+| Breaks when pods move or IPs are reused | Follows the workload wherever it runs |
+| Anything that lands in that subnet is trusted | Only workloads the platform attested get that identity |
+
+Network rules are still worth having as another layer: snip's Kubernetes **NetworkPolicy** (chapter 10.3) already only lets the API and worker reach Postgres and Redis. The point is not to rely on the network *alone*. Layers that each check a different thing (network policy, then mTLS identity, then per-request authorization) are **defence in depth**: an attacker has to defeat all of them.
+
+---
+
+## Zero trust
+
+**Zero trust** is the name for applying all of this as a design principle: **no request is trusted because of where it comes from.** Every request, from a person or a machine, inside or outside the office network, is authenticated, authorized and encrypted, based on identity and context. Google's **BeyondCorp**, described in a series of papers from 2014 onwards, is the best-known example: after a serious intrusion, Google moved internal applications off the trusted corporate network and made them reachable from anywhere, but only through an access proxy that checks the user's identity *and* the device's state on every request.
+
+In practice, zero trust for people usually means:
+
+- An **identity-aware proxy** in front of internal tools, instead of a VPN that grants access to the whole network. It checks SSO (chapter 7.9), MFA (chapter 7.7) and **device posture** (a managed, encrypted, up-to-date laptop) for each application.
+- **Per-application access**, granted by group, not "on the network means in".
+- **Continuous evaluation**: sessions are re-checked, and a device that falls out of compliance loses access.
+
+And for machines: mTLS or signed tokens between every pair of services, authorization by workload identity, and short-lived credentials everywhere.
+
+:::warning[What can go wrong]
+"Zero trust" is also a heavily marketed phrase, and no single product delivers it. It's a direction, not a purchase. The useful questions are concrete: which of our systems still trust the network? Which credentials live longer than a day? Which services can talk to which, and does anything check? Answering those, one system at a time, is the real work.
+:::
+
+---
+
+## People's access to infrastructure
+
+Machines aren't the only identities with dangerous access. Engineers can reach production databases, cloud consoles and clusters, and their access tends to grow and never shrink. The practices that keep it in check:
+
+- **Joiner, mover, leaver.** Access follows role changes automatically: granted from the identity provider's groups when someone joins, **changed** when they move teams (the most-forgotten step: people accumulate access from every team they've been in), and **removed everywhere** when they leave (chapter 7.9's deprovisioning).
+- **Access reviews.** Regularly, managers or system owners confirm who has access and remove what isn't needed. Automate the list; make removal the default when nobody confirms.
+- **Just-in-time** (**JIT**) **elevation.** Nobody holds production admin rights permanently. An engineer requests elevated access for a reason and a limited time (say, two hours to investigate an incident), possibly with approval, and it expires by itself. Everything done with it is logged.
+- **No shared accounts.** Every action is traceable to a person. Shared "admin" logins make audit logs meaningless.
+- **Break-glass accounts** for when the normal path fails (the identity provider is down during an incident): sealed credentials, stored securely, alerting when used, and reviewed afterwards (chapter 7.10).
+- **Phishing-resistant MFA** for all of it (chapter 7.7), because infrastructure access is exactly what attackers phish for.
+
+:::info[Honesty label]
+**Exists today:** the mTLS example with its CA, tests and CI demo; snip's pods no longer mount Kubernetes service account tokens (changed while writing this chapter); snip's NetworkPolicy (chapter 10.3); GitHub Actions deploying without stored cloud keys is covered in chapter 12.4. **Not built:** mTLS between snip's services, SPIRE or a service mesh, and an identity-aware proxy. snip's API and worker still authenticate to Postgres and Redis with passwords from configuration, which is what the "development only" labels in its manifests are warning about.
+:::
+
+---
+
+## Lab
+
+Free and local. Step 1 needs only Go; step 3 needs the kind cluster from Part 10.
+
+1. **Run the mTLS demo and tests:**
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   go run ./examples/mtls/cmd
+   go test -v ./examples/mtls/...
+   ```
+   Then change the server's allow list in `cmd/main.go` to include `spiffe://snip.local/reporting` and run it again. Which line changes?
+
+2. **Look inside a certificate.** Add a few lines to the demo that write the worker's certificate to `worker.pem` (`pem.Encode` with type `CERTIFICATE`), then:
+   ```bash
+   openssl x509 -in worker.pem -noout -text | grep -A1 -E "Subject Alternative|Not After|Issuer"
+   ```
+   **What to notice:** the SPIFFE ID in the URI field, the issuer (our CA), and the one-hour expiry.
+
+3. **Meet a Kubernetes workload identity.** In your kind cluster from chapter 10.1:
+   ```bash
+   kubectl create serviceaccount demo
+   TOKEN=$(kubectl create token demo --audience=snip-demo --duration=10m)
+   echo "$TOKEN" | python3 -c "import base64,json,sys; p=sys.stdin.read().split('.')[1]; print(json.dumps(json.loads(base64.urlsafe_b64decode(p+'='*(-len(p)%4))), indent=1))"
+   ```
+   Find the `aud`, `exp` and `sub` (`system:serviceaccount:default:demo`) claims. This is a short-lived, audience-bound credential the platform signed, the opposite of a password in a config file. Then redeploy snip (chapter 10.2's `kubectl apply -k`) and check that its pods no longer get a token:
+   ```bash
+   kubectl -n snip get pod -l app.kubernetes.io/name=api -o yaml | grep automountServiceAccountToken
+   kubectl -n snip get pod -l app.kubernetes.io/name=api -o yaml | grep -c kube-api-access   # 0: no token volume
+   ```
+
+4. **Audit your own access.** List every system you can reach at work or in your own projects (cloud accounts, servers, databases, CI settings), and for each: how do you authenticate, does the credential expire, and who would notice if it were used by someone else? Pick the worst one and fix it.
+
+---
+
+## Self-check
+
+<Quiz
+  id="security-machine-identity-zero-trust"
+  questions={[
+    {
+      q: 'Why is "requests from inside our network are trusted" a weak rule?',
+      options: [
+        'Networks are slow',
+        'Once an attacker is inside (one compromised service or laptop), everything that trusts the network trusts them, enabling lateral movement',
+        'IP addresses are encrypted',
+        'It is a strong rule if the network is private',
+      ],
+      answer: 1,
+      explain: 'Zero trust replaces network location with identity checked on every request.',
+    },
+    {
+      q: 'In the mTLS demo, the reporting job has a valid certificate from snip’s CA but gets 403. Why?',
+      options: [
+        'Its certificate expired',
+        'It is authenticated (valid certificate) but not authorized: its identity isn’t on the server’s allow list',
+        'It used the wrong port',
+        'The CA revoked it',
+      ],
+      answer: 1,
+      explain: 'Authentication says who you are; authorization says what that identity may do.',
+    },
+    {
+      q: 'Why do modern systems prefer short-lived certificates over revocation lists?',
+      options: [
+        'They are cheaper to sign',
+        'Revocation is slow to propagate and often unchecked; a stolen short-lived certificate simply stops working soon, if rotation is automated',
+        'Revocation is illegal',
+        'Short certificates are smaller',
+      ],
+      answer: 1,
+      explain: 'Expiry is enforced by every TLS handshake automatically; revocation depends on extra checks that often don’t happen.',
+    },
+    {
+      q: 'Why did snip turn off automountServiceAccountToken for its pods?',
+      options: [
+        'To save disk space',
+        'Its services never call the Kubernetes API, so the mounted token was an unused credential an attacker in a container could use against the cluster',
+        'Kubernetes requires it',
+        'To speed up startup',
+      ],
+      answer: 1,
+      explain: 'Least privilege applies to credentials too: don’t hand out ones nothing needs.',
+    },
+    {
+      q: 'Which practice most directly prevents engineers from accumulating permanent production admin rights?',
+      options: [
+        'Longer passwords',
+        'Just-in-time elevation: time-limited, logged access granted for a reason, expiring by itself',
+        'A bigger VPN',
+        'Shared admin accounts',
+      ],
+      answer: 1,
+      explain: 'Standing privileges are what attackers steal; JIT access removes most of them.',
+    },
+  ]}
+/>
+
+<details>
+<summary>An attacker exploits a bug in snip's API and gets a shell inside one API container. Walk through what they could reach today, and what each practice from this chapter would change.</summary>
+
+**Today**, from inside the API container, they could:
+
+- Read the configuration, including the Postgres connection string with its password, and Redis's address. With those, they can query or change **all** links directly, bypassing the API's authorization.
+- Reach Postgres and Redis over the network (the NetworkPolicy allows the API to).
+- Before this chapter's change, also read a Kubernetes service account token and try it against the cluster's API. That's now gone.
+
+**With this chapter's practices:**
+
+- **Workload identity instead of a password**: the database accepts the API's short-lived certificate or token instead of a static password. The attacker can use it only while inside and only until it expires, and it can't be copied elsewhere for long.
+- **mTLS and identity-based authorization**: Postgres and Redis accept only the specific workload identities that need them, and the database role for the API can have only the permissions the API needs (no `DROP`, no access to other schemas).
+- **Row-level security** (chapter 7.4) limits even direct queries by tenant.
+- **Monitoring**: unusual queries or connection patterns from the API's identity raise alerts.
+
+None of this prevents the initial bug; it limits how far one compromised component can reach. That's the whole idea of defence in depth.
+
+</details>
+
+<details>
+<summary>Your company still uses one VPN that gives every employee access to the whole internal network. Propose a realistic zero-trust migration.</summary>
+
+Do it application by application, not as one big switch:
+
+1. **Inventory** internal applications and who actually needs each.
+2. **Put SSO in front of everything** (chapter 7.9), with phishing-resistant MFA for staff (chapter 7.7).
+3. **Start with the most sensitive applications**: publish them through an identity-aware proxy that checks user identity, group and device posture per request; remove them from VPN reachability once it works.
+4. **Continue with the long tail**, and track the percentage of apps still reachable only by VPN.
+5. **Replace SSH keys** on servers with short-lived SSH certificates issued after SSO, and use just-in-time elevation for production access.
+6. **Inside the platform**, add workload identity and mTLS between services, starting with the ones that hold the most sensitive data.
+7. **Retire the VPN** when nothing needs it, or keep it only for a small set of legacy systems, with tight rules.
+
+Measure progress with concrete numbers: applications behind the proxy, credentials older than a day, services communicating without authentication.
+
+</details>
