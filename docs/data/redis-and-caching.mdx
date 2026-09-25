@@ -116,9 +116,11 @@ func (c *Redis) GetURL(ctx context.Context, slug string) (string, bool, error) {
 }
 
 func (c *Redis) SetURL(ctx context.Context, slug, url string) error {
-	return c.rdb.Set(ctx, key(slug), url, c.ttl).Err()
+	return c.rdb.SetNX(ctx, key(slug), url, c.ttl).Err()
 }
 ```
+
+(`SetNX` means "set only if the key doesn't exist yet". The reason is a bug we found later, explained below in "Even the right order has a gap".)
 
 Things worth noticing:
 
@@ -154,6 +156,43 @@ func (s *Service) Delete(ctx context.Context, ownerID int64, slug string) error 
 ```
 
 Order matters: delete from the **database first**, then the cache. The other way round, a request arriving in between could re-read the old value from the database and put it straight back into the cache.
+
+### Even the right order has a gap
+
+For a long time, that was all snip did, and it has a race that only a careful review found. Picture two things happening at almost the same moment:
+
+```mermaid
+sequenceDiagram
+    participant R as Redirect request
+    participant O as Owner's delete
+    participant P as Postgres
+    participant C as Redis cache
+    R->>C: GET slug → miss
+    R->>P: SELECT slug → found (not deleted yet)
+    O->>P: DELETE slug
+    O->>C: DEL slug (nothing there yet)
+    R->>C: SET slug = url, for 1 hour
+    Note over C: the deleted link redirects again, for an hour
+```
+
+The redirect read the link a moment before it was deleted, and wrote it to the cache a moment after the eviction. For the next hour, a link its owner deleted, perhaps because it turned out to point at a phishing page, keeps redirecting.
+
+The fix uses two small changes in `internal/cache/redis.go`:
+
+```go
+// Delete replaces the entry with a short-lived tombstone rather than just
+// removing it (see tombstone above).
+func (c *Redis) Delete(ctx context.Context, slug string) error {
+	return c.rdb.Set(ctx, key(slug), tombstone, tombstoneTTL).Err()
+}
+```
+
+- **Delete leaves a tombstone**: a marker (an empty value, kept for a minute) instead of an empty key. `GetURL` treats a tombstone as a miss.
+- **Filling the cache only writes to an empty key** (`SET NX`). The late write from the redirect finds the tombstone and does nothing.
+
+snip's links never change after they're created, so "only fill an empty key" loses nothing. The test, `TestLateFillCannotResurrectADeletedLink`, replays the race: delete, then a late fill, then a lookup, which must miss. It fails on the old code and passes on the new.
+
+The general lesson: whenever a cache is filled by readers and invalidated by writers, ask what happens when a slow read finishes after a fast write. Tombstones, version numbers, and "only fill if absent" are the usual answers.
 
 :::info[In the real world]
 The famous quote — *"There are only two hard things in computer science: cache invalidation and naming things"* — is attributed to Phil Karlton. The joke lands because it's true: invalidation is easy with one cache and one writer, and fiendish with many copies, many writers, and messages that arrive out of order. Big systems accept some staleness (bounded by TTLs) rather than chase perfect freshness.
