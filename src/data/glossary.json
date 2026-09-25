@@ -205,6 +205,11 @@
   "doc": "ai/calling-models-from-code"
  },
  {
+  "term": "Batching",
+  "def": "Advancing several requests with one pass over a model's weights, so a server's total throughput rises far above one user's speed.",
+  "doc": "ai/serving-open-models"
+ },
+ {
   "term": "bcrypt / Argon2",
   "def": "Deliberately slow, salted password-hashing algorithms that make stolen hashes expensive to crack.",
   "doc": "security/security-literacy"
@@ -565,6 +570,11 @@
   "doc": "ai/how-llms-work"
  },
  {
+  "term": "Continuous batching",
+  "def": "Batching where requests join and leave the batch at every step, so short requests don't wait behind long ones.",
+  "doc": "ai/serving-open-models"
+ },
+ {
   "term": "Continuous delivery",
   "def": "Every change that passes the pipeline produces a releasable artefact; a person decides when to release to production.",
   "doc": "shipping/how-software-ships"
@@ -743,6 +753,11 @@
   "term": "Declarative configuration",
   "def": "Describing the desired end state (these services, these volumes) and letting a tool work out the steps, instead of listing commands to run. Compose, Kubernetes and Terraform all work this way.",
   "doc": "containers/docker-compose"
+ },
+ {
+  "term": "Decode",
+  "def": "The second phase of a model request: generating the answer one token at a time. Limited by memory bandwidth, because every token reads all the weights.",
+  "doc": "ai/serving-open-models"
  },
  {
   "term": "Delimiter",
@@ -1093,6 +1108,11 @@
   "term": "Generalisation",
   "def": "How well a model performs on new, unseen data, which is what actually matters.",
   "doc": "ai/ml-foundations"
+ },
+ {
+  "term": "GGUF",
+  "def": "The model file format used by llama.cpp and Ollama, usually holding a quantized model.",
+  "doc": "ai/serving-open-models"
  },
  {
   "term": "git bisect",
@@ -1600,6 +1620,11 @@
   "doc": "kubernetes/core-objects"
  },
  {
+  "term": "KV cache",
+  "def": "A model's stored intermediate results for every token so far in a request, so it doesn't recompute them. Grows with context length; often what limits batch size.",
+  "doc": "ai/serving-open-models"
+ },
+ {
   "term": "Label",
   "def": "A key/value tag on a Kubernetes object (app.kubernetes.io/name: api), used by selectors to find and group objects.",
   "doc": "kubernetes/core-objects"
@@ -1653,6 +1678,11 @@
   "term": "Liveness probe",
   "def": "A health check whose failure makes the kubelet restart the container. It should check only the process itself, not dependencies.",
   "doc": "kubernetes/core-objects"
+ },
+ {
+  "term": "llama.cpp",
+  "def": "An open-source engine for running language models on CPUs, laptops and small GPUs; the engine inside Ollama.",
+  "doc": "ai/serving-open-models"
  },
  {
   "term": "LLM-as-judge",
@@ -1758,6 +1788,11 @@
   "term": "Memory (RAM)",
   "def": "The computer's fast, temporary workspace. Everything in it is lost when the program stops or the power goes off.",
   "doc": "foundations/what-a-computer-does"
+ },
+ {
+  "term": "Memory bandwidth",
+  "def": "How many gigabytes per second a chip's memory can deliver. Divided by the model's size, it gives a ceiling on tokens per second.",
+  "doc": "ai/serving-open-models"
  },
  {
   "term": "Merge / merge conflict",
@@ -2020,6 +2055,16 @@
   "doc": "ai/how-llms-work"
  },
  {
+  "term": "Open-weights model",
+  "def": "A model whose trained weights are published for anyone to download and run (e.g. Qwen, Llama, Mistral, Gemma).",
+  "doc": "ai/serving-open-models"
+ },
+ {
+  "term": "OpenAI-compatible API",
+  "def": "The de facto standard HTTP interface many model servers offer, so the same client libraries work with them.",
+  "doc": "ai/serving-open-models"
+ },
+ {
   "term": "OpenAPI",
   "def": "The standard machine-readable format for describing HTTP APIs: endpoints, requests, responses and errors.",
   "doc": "apis/api-contracts"
@@ -2210,6 +2255,11 @@
   "doc": "ai/ml-foundations"
  },
  {
+  "term": "Prefill",
+  "def": "The first phase of a model request: reading the whole prompt, in parallel. Limited by computing speed.",
+  "doc": "ai/serving-open-models"
+ },
+ {
   "term": "preStop hook",
   "def": "A command or sleep run in a container before it receives SIGTERM, often used to let traffic drain during shutdown.",
   "doc": "kubernetes/core-objects"
@@ -2338,6 +2388,11 @@
   "term": "PyTorch",
   "def": "A popular Python framework for building and training neural networks; it computes gradients automatically and runs on GPUs.",
   "doc": "ai/ml-foundations"
+ },
+ {
+  "term": "Quantization",
+  "def": "Storing a model's weights in fewer bits (e.g. 4 instead of 16): about a quarter of the size and faster to generate with, slightly worse, unevenly so.",
+  "doc": "ai/serving-open-models"
  },
  {
   "term": "Race condition",
@@ -3160,6 +3215,11 @@
   "doc": "observability/metrics"
  },
  {
+  "term": "Time to first token",
+  "def": "From sending a request to receiving the first piece of the answer (TTFT). What a waiting user feels most.",
+  "doc": "ai/serving-open-models"
+ },
+ {
   "term": "Timeout",
   "def": "A limit on how long to wait for something (a request, a query) before giving up and treating it as failed.",
   "doc": "distributed/distributed-survival-kit"
@@ -3345,6 +3405,11 @@
   "doc": "containers/what-a-container-is"
  },
  {
+  "term": "vLLM",
+  "def": "An open-source serving engine for language models on GPUs, built around continuous batching and efficient KV-cache management.",
+  "doc": "ai/serving-open-models"
+ },
+ {
   "term": "Volume",
   "def": "Storage mounted into a container from outside, so data survives when the container is removed.",
   "doc": "containers/what-a-container-is"
@@ -3373,6 +3438,11 @@
   "term": "Weight",
   "def": "A learned number saying how much, and in which direction, one feature pushes the prediction.",
   "doc": "ai/ml-foundations"
+ },
+ {
+  "term": "Weights",
+  "def": "The numbers inside a trained model (also called parameters). Running the model means loading them all into memory and doing arithmetic with them.",
+  "doc": "ai/serving-open-models"
  },
  {
   "term": "Worker pool",
