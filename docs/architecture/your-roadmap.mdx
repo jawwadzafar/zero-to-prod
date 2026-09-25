@@ -1,0 +1,178 @@
+---
+title: "15.6 Your roadmap: jobs, interviews & what next"
+sidebar_label: "15.6 Your roadmap"
+description: "Turning what you've learned into work: the roles this handbook prepares you for and how they differ, a portfolio that proves your skills, how technical hiring usually works (screens, coding, system design, behavioural interviews), your first months in a job, and how to keep learning when there's no next chapter."
+---
+
+# 15.6 Your roadmap: jobs, interviews & what next
+
+You started this handbook knowing how to use a computer. If you've worked through it, including the labs, you've set up Linux servers, written and tested a Go service, designed a database, secured an API, containerised it, run it on Kubernetes, shipped it through CI and GitOps, built its cloud infrastructure with code, observed it, broken it on purpose, and added AI features you measured honestly. That's not a tour of buzzwords: it's the working knowledge of a junior-to-mid backend, DevOps or AI engineer, with a system to show for it.
+
+This last chapter is about what to do with that. It won't promise you a job: nobody honest can, and hiring markets rise and fall. It will show you how the work is organised, how hiring usually works, and how to keep getting better after the last chapter.
+
+## What you'll learn
+
+- The **roles** this handbook maps to, and how to choose between them.
+- A **portfolio** that proves what you can do.
+- How **technical interviews** usually run, and how to prepare for each kind.
+- Making your **first months** in a job count.
+- **Learning on your own**, when there's no next chapter.
+
+---
+
+## The roles, and how they differ
+
+:::note[Everyday anchor]
+A restaurant has cooks, people who design and maintain the kitchen, and people developing new dishes. They all need to understand food, and they all work in the same kitchen, but they spend their days very differently. Knowing which days you'd enjoy matters more than which title sounds best.
+:::
+
+The handbook's three tracks (the roadmap page) match three families of roles. Titles vary a lot between companies, so read the job description, not the title.
+
+| Role family | Spends the day | Handbook parts that matter most |
+|---|---|---|
+| **Backend engineer** | Building services and APIs: features, data models, performance, correctness | 4 to 8, then 13 |
+| **DevOps, platform or site reliability engineer** | Building and running the platform other engineers ship on: CI/CD, Kubernetes, infrastructure as code, observability, incidents | 2, 9 to 13 |
+| **AI engineer** | Building product features on top of models: retrieval, structured output, agents, evals, cost and safety | 14, on top of 4 to 8 |
+
+They overlap more than job boards suggest. A good backend engineer understands deployment and monitoring; a good platform engineer can read the services they run; a good AI engineer is a backend engineer first, because every AI feature is a service with an API, a database, a queue and a bill.
+
+How to choose: look back at which labs you enjoyed, the ones where you lost track of time. Designing the schema and making the API right? Backend. Making the rolling update drop zero requests and the dashboard tell the truth? Platform. Making the prompt lab and the evals honest? AI engineering. You can change later: many engineers move between these every few years.
+
+---
+
+## A portfolio that proves it
+
+For anyone without years of experience on their CV, the portfolio does the talking. What makes one convincing is not the number of projects: it's **evidence of judgment** on one or two real ones.
+
+- **The capstone (chapter 15.5)** is the centrepiece: a real system, a real feature through every layer, a decision record, tests, a game day, numbers, and a write-up. Put the write-up first in your repository's README, with the architecture diagram.
+- **Show the reasoning, not just the code.** ADRs, a postmortem from your game day, the benchmark that was too good to be true and how you found out (chapter 14.11's story is exactly the kind of thing interviewers remember). Anyone can follow a tutorial; explaining a trade-off is rarer.
+- **A contribution to someone else's project.** Even a small, merged fix to an open-source tool you used in this handbook shows you can read unfamiliar code, follow a project's conventions, and communicate in review (chapters 3.3 and 15.4).
+- **Keep it honest.** Label what you built alone, what you adapted, and what's unfinished. Being found out overstating is far worse than modest, accurate claims, and honesty labels are a habit this handbook has shown you in every chapter.
+
+A CV (résumé) follows the same principle: for each thing you've done, say what it achieved, with a number where you have one. "Added link expiry to a Go service, with an ADR, a backward-compatible migration and cache invalidation; redirect p99 unchanged at 3 ms under load" says more than "familiar with Go, PostgreSQL, Redis, Kubernetes".
+
+---
+
+## How technical hiring usually works
+
+Processes differ between companies, but most combine some of these stages. Knowing what each is testing helps you prepare for the right thing.
+
+**The screen.** A short call with a recruiter or engineer: your background, what you're looking for, sometimes a few technical questions. Prepare a two-minute story of what you've built and why, and questions of your own about the team.
+
+**Coding interviews.** Solving a small programming problem while explaining your thinking, in a shared editor or on a laptop. Some are algorithm puzzles; many are practical ("parse this log file and report the slowest endpoints", "fix this failing test"). What's judged: clear thinking out loud, tests or examples, handling edge cases, and clean code. Practice regularly, out loud, with a timer, in the language you know best: Go from this handbook is a fine choice.
+
+**System design.** Chapters 15.1 to 15.3 are your preparation. Practise the six steps on new problems, out loud, with a friend playing interviewer. For junior roles, expectations are lower but the method still stands out: asking about requirements and numbers before drawing boxes is rare, and noticed.
+
+**Behavioural interviews.** "Tell me about a time you..." made a mistake, disagreed with someone, learned something quickly, handled an incident. Interviewers want specific stories, not opinions. A common structure is **situation, task, action, result**: briefly what the situation was, what you needed to do, what *you* did, and what happened, including what you learned. Your labs are genuine material: the game day that took the site down in chapter 13.5, the leaky dataset in chapter 14.2, the flaky CI step you tracked down.
+
+**Take-home assignments.** A small project to build in your own time. Treat it like the capstone in miniature: a short README on your decisions and trade-offs, tests, and a note on what you'd do with more time. Keep to the suggested time; say what you left out and why.
+
+:::warning[What can go wrong]
+The most common way strong candidates fail isn't a knowledge gap. It's **going silent**: thinking hard without saying anything, so the interviewer can't see the reasoning they're there to judge. The second is **bluffing**: inventing an answer about something you don't know. "I haven't used that; here's how I'd find out, and here's what I'd guess and why" is a strong answer. A confident wrong one isn't.
+:::
+
+---
+
+## Your first months in a job
+
+The first months set the pattern. What helps most:
+
+- **Get the system running locally in your first week**, and fix whatever in the setup instructions didn't work: your first merged change can be to the onboarding docs. You'll help the next person, and you'll learn the codebase.
+- **Read before you change.** The architecture docs, the ADRs if they exist (if they don't, chapter 15.2 gives you a small, welcome contribution), the runbooks, the last few postmortems. They tell you what the team has learned the hard way.
+- **Ship something small, early.** A fix, a test, a log line that would have helped in the last incident. Small, safe changes teach you the team's whole path to production.
+- **Ask good questions** (chapter 15.4), and write down the answers somewhere others can find them.
+- **Join on-call gradually**, shadowing first. Nothing teaches a system faster than being responsible for it at 3 a.m., and nothing is scarier without preparation.
+- **Keep a work log**: what you did each week, what you learned, what went wrong. It's how you'll remember your achievements when review time comes, and how you'll notice your own progress.
+
+---
+
+## Learning when there's no next chapter
+
+From here, nobody hands you the next lesson. What works:
+
+- **Go deep in one direction, while keeping the breadth.** Pick the part of this handbook you want to be expert in, and go further: the official documentation of the tools (Go, Postgres, Kubernetes, the model provider's docs), then the standard books and papers in that area.
+- **Read real systems.** The source of the tools you use every day. Postmortems that companies publish. Design documents from open-source projects. You'll see the ideas of this handbook applied under real pressure.
+- **Build things you'll actually use.** A tool for your own problem teaches more than a tutorial project, because you'll care whether it works.
+- **Teach.** Write up what you learn; explain it to someone else. The ladder this handbook uses (everyday anchor, mechanism, real system, what goes wrong, judgment) works for your own explanations too, and explaining is the fastest way to find the gaps in your own understanding.
+- **Keep your labs honest.** Measure, write down what you expected, and notice when reality disagrees. The best engineers you'll meet aren't the ones who know the most. They're the ones who check.
+
+---
+
+## Lab
+
+About an hour, and the most personal lab in the handbook.
+
+1. **Choose a direction.** Write down the three labs you enjoyed most and the three you liked least. Which role family do they point to? Read five real job descriptions for that family and list the skills that appear in at least three. Mark each as "I've done this in the handbook", "I've read about it", or "new to me".
+
+2. **Plan the next three months.** One portfolio piece (probably the capstone), one skill from the "new to me" list, and one habit (practising coding interviews twice a week, say). Write each with a concrete "done when", like the capstone's stages.
+
+3. **Write your two-minute story.** What you've built, one decision you made and why, and one thing that went wrong and what you learned. Say it out loud, time it, and cut it until it fits.
+
+4. **Do a mock interview.** With a friend, a colleague or a study group: one coding problem and one system design question from chapter 15.3's lab. Swap roles afterwards.
+
+5. **Look back.** Open chapter 0.1 and the roadmap. Pick one idea that seemed abstract when you started and explain it, in your own words, to someone who's just starting. That's how far you've come.
+
+---
+
+## Self-check
+
+<Quiz
+  id="architecture-your-roadmap"
+  questions={[
+    {
+      q: 'What makes a portfolio most convincing for someone early in their career?',
+      options: [
+        'As many projects as possible',
+        'One or two real projects that show judgment: decisions and trade-offs written down, tests, measurements, and honest labels',
+        'A list of every technology used',
+        'Copied tutorial projects',
+      ],
+      answer: 1,
+      explain: 'Anyone can follow a tutorial. Evidence of reasoning is what’s rare.',
+    },
+    {
+      q: 'In a coding interview you don’t know how an API works. What’s the best response?',
+      options: [
+        'Invent something confidently',
+        'Say so, explain how you’d find out, and state a reasoned guess to proceed with',
+        'Go quiet until you remember',
+        'Change the problem',
+      ],
+      answer: 1,
+      explain: 'Interviewers judge reasoning and honesty. Bluffing is easy to spot and costly.',
+    },
+    {
+      q: 'What’s a good structure for answering "tell me about a time something went wrong"?',
+      options: [
+        'A general opinion about mistakes',
+        'Situation, task, action, result: a specific story, what you did, what happened, and what you learned',
+        'Blame someone else briefly',
+        'Say it has never happened',
+      ],
+      answer: 1,
+      explain: 'Specific, honest stories with a lesson are what behavioural interviews look for.',
+    },
+    {
+      q: 'Which is a good first contribution in a new job?',
+      options: [
+        'Rewriting the architecture in your first week',
+        'Fixing what didn’t work in the setup instructions, or another small, safe change that teaches you the path to production',
+        'Waiting until you understand everything',
+        'Turning off alerts that seem noisy',
+      ],
+      answer: 1,
+      explain: 'Small changes early build context, trust and momentum.',
+    },
+  ]}
+/>
+
+<details>
+<summary>An interviewer asks: "This handbook covered a lot. What's the most important thing you learned?" How might you answer?</summary>
+
+There's no right answer, but a strong one is specific, personal and shows judgment. For example:
+
+"That measurements lie in predictable ways, and it's my job to check them. In one lab, a benchmark said a model answered in 0.02 seconds. It was measuring a cache, not the model, and the real number was ten times slower. In another, a classifier looked 83% accurate, and 61% was the honest number once I stopped letting passages from the same chapters sit on both sides of the train/test split. And an AI judge said 29% of answers were faithful, when its reasoning was mostly nonsense. Since then, when a number surprises me, good or bad, I find out why before I believe it. I think that matters more than any single tool."
+
+The pattern: one idea, concrete evidence from real work, and how it changed what you do. Adapt it to what genuinely struck you. The interviewer is listening for whether you learned to think, not what you memorised.
+
+</details>
