@@ -18,10 +18,12 @@ func TestNormalizeURL(t *testing.T) {
 		{in: "https://go.dev", want: "https://go.dev"},
 		{in: "  http://example.com/a?b=c  ", want: "http://example.com/a?b=c"},
 		{in: "", wantErr: true},
-		{in: "go.dev", wantErr: true},                 // no scheme
-		{in: "javascript:alert(1)", wantErr: true},    // dangerous scheme
-		{in: "ftp://example.com/file", wantErr: true}, // not http(s)
-		{in: "https://", wantErr: true},               // no host
+		{in: "go.dev", wantErr: true},                                  // no scheme
+		{in: "javascript:alert(1)", wantErr: true},                     // dangerous scheme
+		{in: "ftp://example.com/file", wantErr: true},                  // not http(s)
+		{in: "https://", wantErr: true},                                // no host
+		{in: "https://bank.example@evil.example/login", wantErr: true}, // really goes to evil.example
+		{in: "https://user:pass@example.com/", wantErr: true},          // credentials in a shared link
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

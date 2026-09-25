@@ -46,14 +46,16 @@ const maxURLLength = 2048
 
 // NormalizeURL checks that raw is an absolute http(s) URL and returns it
 // trimmed. We refuse other schemes (javascript:, file:, data:) because a
-// shortener that redirects to them becomes a tool for attackers.
+// shortener that redirects to them becomes a tool for attackers, and URLs
+// with a username or password in them: "https://yourbank.com@evil.example/"
+// goes to evil.example, a classic disguise for phishing links.
 func NormalizeURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > maxURLLength {
 		return "", ErrInvalidURL
 	}
 	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 		return "", ErrInvalidURL
 	}
 	return u.String(), nil
