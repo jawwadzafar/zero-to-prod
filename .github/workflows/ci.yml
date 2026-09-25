@@ -164,6 +164,8 @@ jobs:
       - name: Install Ollama and pull a small model (chapters 14.4 and 14.11)
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
+          # The installer starts a systemd service where systemd runs; on this runner it doesn't, so start the server ourselves.
+          curl -fsS localhost:11434/api/version || (ollama serve > /tmp/ollama.log 2>&1 &)
           for _ in $(seq 1 30); do curl -fsS localhost:11434/api/version && break; sleep 1; done
           ollama pull qwen2.5:0.5b
       - name: Chapter 14.4 lab — describe real pages with a local model, whole and streamed
