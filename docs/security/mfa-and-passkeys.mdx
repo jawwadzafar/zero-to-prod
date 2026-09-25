@@ -1,0 +1,306 @@
+---
+title: "7.7 Multi-factor authentication & passkeys"
+sidebar_label: "7.7 MFA & passkeys"
+description: "Why a password alone isn't enough, and every kind of second factor ranked by what it actually stops: SMS codes, authenticator apps (TOTP, built from the RFC and tested against its official vectors), push approvals and MFA fatigue, and passkeys (WebAuthn), the only common factor phishing can't beat. Plus recovery codes, step-up authentication and rolling MFA out — with a real Keycloak login where snip's own TOTP code passes the second step."
+---
+
+# 7.7 Multi-factor authentication & passkeys
+
+In chapter 7.2 you stored passwords properly: slow, salted hashes that are useless to someone who steals the database. That protects passwords *on your side*. It does nothing about what happens on the user's side, which is where most accounts are actually lost. People reuse passwords, type them into convincing fake login pages, and choose ones that thousands of others chose too. When snip's CI checks two common passwords against a public database of leaked credentials, `password123` has appeared in breaches **2,266,543 times**, and `P@ssw0rd`, which looks strong to a password-rules checker, **6,421,042 times**.
+
+The fix that works is to require something a remote attacker doesn't have: a second **factor**. This chapter ranks every common kind by what it actually stops, builds the one in your authenticator app from its specification, and ends with the one kind that even a perfect fake login page can't defeat.
+
+## What you'll learn
+
+- Why passwords fail, and what **multi-factor authentication** (**MFA**) changes.
+- Each second factor ranked: **SMS codes**, **TOTP** apps, **push approvals**, **passkeys**.
+- How **TOTP** works, built from RFC 6238 and tested against its official vectors.
+- **Phishing resistance**: why passkeys and security keys win.
+- **Recovery**, the part attackers target once MFA is on.
+- **Step-up authentication**, and rolling MFA out without locking everyone out.
+
+---
+
+## Passwords fail on the user's side
+
+:::note[Everyday anchor]
+A house key can be copied without you noticing: someone photographs it, or you lend it to a friend who loses it. A car key with a chip in it is different: copying the metal isn't enough, because the car also checks the chip. MFA is the chip. Stealing the password, the part that's easy to copy, is no longer enough.
+:::
+
+Chapter 7.2 introduced the three kinds of **factor**: something you **know** (a password), something you **have** (a phone, a security key), something you **are** (a fingerprint). A password is only the first kind, and it fails in three common ways:
+
+- **Credential stuffing.** Attackers take username and password pairs leaked from one site and try them on thousands of others, automatically. It works because people reuse passwords (chapter 7.8 covers defending against it).
+- **Phishing.** A convincing copy of your login page, a link in an email, and the user types their password into it.
+- **Guessing.** Common passwords, tried against many accounts: a few attempts each, too few to trip a lockout.
+
+**MFA** requires a second factor of a *different kind*. A password plus a security question is still two things you know, and a stolen notebook or a social media profile may reveal both. A password plus a code from your phone means an attacker needs your password *and* your phone.
+
+Not all second factors are equal, though, and the differences are exactly what attackers exploit.
+
+---
+
+## Second factors, ranked by what they stop
+
+| Factor | How it works | Stops stolen passwords? | Stops phishing? | Main weakness |
+|---|---|---|---|---|
+| **SMS or email code** | A code is sent to your phone number or inbox | Mostly | No | **SIM swapping**: an attacker talks your mobile carrier into moving your number to their SIM; email accounts get hacked too |
+| **Authenticator app (TOTP)** | Your phone computes a 6-digit code from a shared secret and the time | Yes | No | A fake site can ask for the code and use it within 30 seconds |
+| **Push approval** | The app asks "Is this you signing in?"; you tap Approve | Yes | Partly | **MFA fatigue**: attackers trigger dozens of prompts until a tired user taps Approve |
+| **Passkey or security key (WebAuthn/FIDO2)** | A key pair per site; the device signs a challenge, but only for the real site | Yes | **Yes** | Recovery if every device is lost |
+
+The pattern: everything above the last row relies on the *user* noticing the fake. The last row doesn't. That's the difference between **phishable** and **phishing-resistant** factors, and it's why the last row is where the industry is heading.
+
+:::warning[What can go wrong]
+MFA fatigue is not theoretical. In Uber's publicly reported 2022 breach, the attacker had a contractor's password and repeatedly sent push approval requests, then contacted the contractor pretending to be IT support, until one was approved. Defences: **number matching** (the login screen shows a number the user must type into the app, so a blind tap can't approve), limits on how many prompts can be sent, and alerts on repeated denials.
+:::
+
+---
+
+## How authenticator apps work: TOTP
+
+The codes in your authenticator app look like magic: no network, yet the server knows exactly which six digits you'll see. The mechanism is short enough to build, and snip's labs do (`snip/examples/totp`).
+
+**Enrollment.** The server generates a random **secret** (20 bytes) and shows it as a QR code. The QR code contains an `otpauth://` link, and your app stores the secret. Now both sides share it.
+
+```text
+otpauth://totp/snip:ada@example.com?digits=6&issuer=snip&period=30&secret=GEZDGNBVGY3TQOJQ...
+```
+
+**Each code.** Both sides compute the same thing independently:
+
+1. Take the current time and count 30-second steps since 1970: the **counter**.
+2. Compute **HMAC-SHA1**(secret, counter): a keyed fingerprint (chapter 7.1).
+3. Pick 4 bytes of it (which 4 depends on the last byte: "dynamic truncation"), and keep the last 6 decimal digits.
+
+That's **TOTP** (time-based one-time password, RFC 6238), built on **HOTP** (the same with a plain counter, RFC 4226):
+
+```go
+func HOTP(secret []byte, counter uint64, digits int) string {
+	var msg [8]byte
+	binary.BigEndian.PutUint64(msg[:], counter)
+	mac := hmac.New(sha1.New, secret)
+	mac.Write(msg[:])
+	sum := mac.Sum(nil) // 20 bytes
+
+	// "Dynamic truncation": the last 4 bits pick where to read 4 bytes from.
+	offset := sum[len(sum)-1] & 0x0f
+	code := binary.BigEndian.Uint32(sum[offset:offset+4]) & 0x7fffffff
+	...
+}
+```
+
+Both RFCs publish **test vectors**: known secrets, times and expected codes. snip's tests check every one of them, which is how you know an implementation of a standard is right rather than merely plausible:
+
+```go
+// RFC 6238, appendix B: 8-digit TOTP values with SHA-1 at fixed times.
+cases := map[int64]string{
+	59:          "94287082",
+	1111111109:  "07081804",
+	1234567890:  "89005924",
+	...
+}
+```
+
+**Verifying** a code needs two more details, both in snip's `Verifier`:
+
+- **Clock drift.** Phone clocks are a little off, so the server also accepts the previous and next step: a window of about 90 seconds.
+- **Replay.** A code is valid for its whole step, so someone who sees it over a shoulder could reuse it within those seconds. The server remembers the last step it accepted and refuses it, or anything older, next time.
+
+:::info[If you've written code]
+Unlike a password, a TOTP secret **can't be hashed**: the server needs the secret itself to compute the expected code. So store it **encrypted** (with a key from a secret manager, chapter 7.6), not in plain text next to the user row. A database leak that includes TOTP secrets lets the attacker generate every future code for every user.
+:::
+
+TOTP stops an attacker who only has the password. It does **not** stop phishing: a fake login page can ask for the code too, and pass it to the real site within its 30 seconds. Modern phishing kits do exactly this automatically, sitting between the user and the real site (an **adversary-in-the-middle** proxy), and walk away with the logged-in session.
+
+---
+
+## Passkeys: the factor phishing can't beat
+
+**Passkeys** (the consumer name for **WebAuthn** credentials, part of the **FIDO2** standards) replace "a secret both sides know" with **public-key cryptography** (chapter 7.1):
+
+```mermaid
+sequenceDiagram
+    participant U as Device (phone, laptop, security key)
+    participant B as Browser
+    participant S as snip.example
+    Note over U,S: Registration, once
+    S->>B: register: here's a challenge, I am snip.example
+    B->>U: create a key pair for snip.example
+    U->>U: new key pair; private key never leaves the device
+    U->>S: public key (plus a signature)
+    Note over U,S: Every login
+    S->>B: sign this random challenge
+    B->>U: sign it for snip.example (the page's real origin)
+    U->>U: user unlocks with fingerprint, face or PIN
+    U->>S: signature
+    S->>S: verify with the stored public key
+```
+
+Why phishing fails against it:
+
+- **The browser, not the user, decides which site is asking.** A passkey created for `snip.example` is bound to that domain. On `snip-example-login.com`, the browser simply won't offer it. There's no code for the user to type into the wrong page.
+- **Nothing reusable crosses the network.** Each login signs a fresh random challenge, so a captured signature is useless for the next one.
+- **The server stores only public keys.** A database breach reveals nothing that can log anyone in.
+
+The fingerprint or face check happens **locally**, to unlock the private key on the device. Biometric data never goes to the server.
+
+Two flavours matter in practice:
+
+- **Synced passkeys** are backed up by the platform (the phone's or browser's password manager) and appear on the user's other devices. Very convenient, and losing one phone doesn't lose the account; the security then depends on that platform account.
+- **Device-bound passkeys**, such as hardware security keys, never leave the device. Stronger, and common for administrators, but losing the key without a backup means recovery.
+
+:::info[In the real world]
+Passkeys are supported by the major browsers and phone platforms, and many large sites now offer them. Hardware security keys are standard for staff access at security-conscious companies, and some have publicly reported that phishing-based account takeovers of employees stopped after rolling them out. For a product, a reasonable plan is: offer passkeys to everyone, keep TOTP as an alternative, and **require** phishing-resistant factors for your own administrators.
+:::
+
+---
+
+## Recovery is where attackers go next
+
+Once MFA is on, attackers stop attacking the login and start attacking **account recovery**: "I lost my phone, please remove the second factor." If recovery is weak, MFA was a speed bump. The main defences:
+
+- **Recovery codes.** At enrollment, give the user ten single-use codes to print or save. Store them **hashed**, like passwords (they're long random strings, so a fast hash like SHA-256 is fine), and mark each used code as spent.
+- **Let people enroll more than one factor**: two passkeys (phone and laptop), or a passkey plus TOTP. Then losing one device isn't an emergency.
+- **Make support-desk resets hard on purpose.** Identity verification that a caller can't talk their way through, a delay before the change takes effect, and a notification to every channel on the account. Several major breaches of large companies have been publicly reported to have started with a phone call to an IT help desk.
+- **Notify on every security change**: a factor added or removed, a recovery used, a new device. The real owner can react.
+
+Chapter 7.8 goes deeper into recovery, reset links and sessions.
+
+---
+
+## Step-up authentication
+
+Not every action deserves the same proof. Reading your own links is low risk; deleting all of them, changing the account's email address or adding an administrator is high risk. **Step-up authentication** asks for a fresh second factor right before a sensitive action, even if the user logged in hours ago.
+
+To make that decision, the application needs to know *how* and *when* the user last proved who they are. OpenID Connect carries this in the ID token (chapter 7.9): **`amr`** (authentication methods, such as `pwd` or `otp`), **`acr`** (an assurance level) and **`auth_time`**. snip's authorization policy in chapter 7.10 uses exactly this idea: deleting a link requires a second factor within the last 15 minutes.
+
+---
+
+## Rolling out MFA without locking people out
+
+- **Start where the risk is**: administrators and staff first, then offer it to everyone, then require it for accounts with valuable data.
+- **Give a grace period** and clear instructions, and make enrollment part of sign-up for new accounts.
+- **Require at least one backup** (recovery codes or a second factor) during enrollment.
+- **Measure**: enrollment rate, how often recovery is used, how often MFA prompts are denied. A spike in denials may be an attack in progress.
+- **Follow the standards bodies' guidance.** NIST's digital identity guidelines (SP 800-63B) classify SMS codes as a restricted option because of SIM swapping and interception, and recognise phishing-resistant authenticators as the strongest.
+
+:::info[Honesty label]
+**Exists today:** snip's TOTP implementation (`snip/examples/totp`), tested against RFC 4226 and RFC 6238's official vectors, and a CI job in which a Keycloak user enrolls an authenticator using that code, logs in with password and code, and has a replayed code refused. **Not built:** MFA for snip itself. snip's API authenticates with API keys (chapter 7.2) and has no user logins; in a real product, you'd get MFA and passkeys from an identity provider (chapter 7.9) rather than building them.
+:::
+
+---
+
+## Lab
+
+Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
+
+1. **Build and check TOTP:**
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   go test -v ./examples/totp/...
+   go run ./examples/totp/cmd enroll
+   ```
+   Type the printed secret into any authenticator app on your phone (choose "enter a setup key"). Then compare: `go run ./examples/totp/cmd code SECRET` should show the same 6 digits as your phone. **What to notice:** two devices that never communicate agree, because both compute HMAC(secret, time).
+
+2. **Break it on purpose.** In `totp_test.go`, change one expected RFC value, and run the tests. Then set your computer's clock a minute wrong (or pass a different time in a test) and see the verifier's window accept the neighbouring steps and refuse older ones.
+
+3. **Real MFA with a real identity provider.** Start Keycloak with snip's lab realm and the chapter 7.9 relying party:
+   ```bash
+   docker run -d --name keycloak -p 8180:8080 \
+     -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+     -v "$PWD/deploy/keycloak:/opt/keycloak/data/import:ro" \
+     keycloak/keycloak:26.4 start-dev --import-realm
+   OIDC_ISSUER=http://localhost:8180/realms/snip OIDC_CLIENT_ID=snip-web \
+     OIDC_CLIENT_SECRET=lab-only-client-secret go run ./examples/oidcrp/cmd
+   ```
+   Open http://localhost:8765 and sign in as `bob` with password `bob-lab-password` (lab-only credentials from the realm file). Keycloak will make you set up an authenticator: scan the QR code with your phone. Sign out, and sign in again: now it asks for a code.
+
+4. **Watch replay protection.** Sign in as bob, and try the same code twice within 30 seconds (open a private window for the second attempt). Then run the automated version, which does everything above with curl: `./scripts/sso-lab.sh`. Read the script: every check it makes is a sentence in this chapter.
+
+---
+
+## Self-check
+
+<Quiz
+  id="security-mfa-and-passkeys"
+  questions={[
+    {
+      q: 'Why is a password plus a security question not real multi-factor authentication?',
+      options: [
+        'Security questions are too short',
+        'Both are "something you know": anyone who learns them (from a leak, social media or phishing) has both, so there is no second kind of proof',
+        'Security questions are encrypted',
+        'It is, if the answers are long',
+      ],
+      answer: 1,
+      explain: 'MFA means factors of different kinds, so that stealing one kind of thing isn’t enough.',
+    },
+    {
+      q: 'An attacker builds a fake login page that relays everything to the real site in real time. Which factor still protects the user?',
+      options: [
+        'An SMS code',
+        'A TOTP code from an app',
+        'A passkey: the browser only uses it on the real domain, so the fake page can’t get a valid signature',
+        'A longer password',
+      ],
+      answer: 2,
+      explain: 'Codes can be typed into the wrong site and relayed. Passkeys are bound to the origin by the browser, not by the user’s attention.',
+    },
+    {
+      q: 'Why can’t a server store TOTP secrets as hashes, the way it stores passwords?',
+      options: [
+        'They are too long',
+        'The server must compute each expected code from the secret itself, so it needs the secret: encrypt it at rest instead',
+        'Hashes are too slow',
+        'TOTP secrets are public',
+      ],
+      answer: 1,
+      explain: 'Both sides compute HMAC(secret, time). Only the side that keeps a public key (passkeys) avoids storing a secret.',
+    },
+    {
+      q: 'What defends against MFA fatigue attacks on push approvals?',
+      options: [
+        'Sending more prompts',
+        'Number matching (the user types a number shown on the login screen), limits on prompts, and alerting on repeated denials',
+        'Longer passwords',
+        'Turning off MFA at night',
+      ],
+      answer: 1,
+      explain: 'A blind tap should never be enough to approve a login the user didn’t start.',
+    },
+    {
+      q: 'Once MFA is widely enabled, where do attackers typically turn next?',
+      options: [
+        'Brute-forcing the TOTP secret',
+        'Account recovery and support desks: "I lost my phone, please remove the second factor"',
+        'Breaking HMAC-SHA1',
+        'Nowhere; MFA stops everything',
+      ],
+      answer: 1,
+      explain: 'The recovery path must be at least as strong as the login it bypasses.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Your product's users can only use SMS codes as a second factor. A security review asks you to improve MFA without locking anyone out. What's your plan?</summary>
+
+1. **Add better options first, remove nothing yet**: passkeys (phishing-resistant, and easy for users on modern devices) and TOTP apps. Let users enroll more than one.
+2. **Generate recovery codes** at enrollment, stored hashed and single-use, so a lost phone isn't a support call.
+3. **Nudge**: after login, prompt SMS users to add a passkey; show the benefit in plain words ("works even if someone copies our login page").
+4. **Require stronger factors where it matters most**: your own staff and administrators first, then high-value customer accounts, using step-up for sensitive actions (changing email, exporting data).
+5. **Harden what remains**: rate-limit SMS sending, alert on number changes, add a delay and notifications before a phone number change takes effect (SIM-swap attacks often start with one).
+6. **Measure**: adoption per factor, recovery usage, and failed or denied MFA attempts, then decide when SMS can be retired for each group.
+
+</details>
+
+<details>
+<summary>A colleague proposes accepting TOTP codes from 5 minutes either side of now, "because users complain their codes don't work". What would you say?</summary>
+
+Understand the complaint before widening the window. Codes that "don't work" usually mean a phone clock that's badly wrong (most phones sync time automatically, so this is rare), a user typing an old code, or a bug such as the server's clock being wrong (check that first: every user would be affected).
+
+A ±5 minute window means about 21 codes are valid at any moment instead of 3. That makes guessing slightly easier, and it makes a shoulder-surfed or phished code usable for much longer. Replay protection still stops exact reuse, but not a code the user never entered.
+
+Better: keep the standard ±1 step, check the server's time sync (NTP, chapter 2.5), log verification failures with the time offset they'd need to succeed (so you can see real drift), and give users a clear message ("check that your phone's time is set automatically"). If a small number of users do have drifting devices, some servers remember each user's observed offset and adjust for it.
+
+</details>
