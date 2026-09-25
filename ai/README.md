@@ -27,3 +27,4 @@ uv run ruff check . && uv run mypy   # lint and type-check
 | `snipai.prompt_lab` | Compare prompt versions on fixed pages with automatic checks | 14.5 |
 | `snipai.tagger` | Structured output: category, tags and language, validated and retried | 14.6 |
 | `snipai.ask` | Tool use: answer questions about your links through snip's API | 14.6 |
+| `snipai.embed` | Embeddings, chunking and vector search over this handbook | 14.7 |

@@ -149,6 +149,8 @@ jobs:
           for _ in 1 2 3; do curl -s -o /dev/null localhost:8080/golang; done
           SNIP_URL=http://localhost:8080 SNIP_API_KEY="$KEY" uv run python -m snipai.ask "Which of my links has the most clicks?" | tee /tmp/ask.txt
           grep -q 'tool: list_links' /tmp/ask.txt
+      - name: Chapter 14.7 lab — search the handbook with the offline word-hashing embedder
+        run: uv run python -m snipai.embed
       - name: Chapter 14.4 lab — describe real pages with the offline fake model; unsafe URLs are refused
         run: |
           uv run python -m snipai.describe https://go.dev/ https://www.python.org/ http://169.254.169.254/latest/meta-data/ | tee /tmp/describe.txt
@@ -207,6 +209,12 @@ jobs:
           uv run python -m snipai.ask "Which of my links has the most clicks?"
           uv run python -m snipai.ask "Where does the link with slug golang go, and when was it created?"
           uv run python -m snipai.ask "Delete all my links."
+      - name: Chapter 14.7 lab — search the handbook with a real embedding model (all-minilm)
+        env:
+          SNIPAI_EMBEDDER: ollama
+        run: |
+          ollama pull all-minilm
+          uv run python -m snipai.embed
       - name: Chapter 14.5 lab — compare prompt versions on 12 fixed pages with a 1.5B model (temperature 0)
         env:
           SNIPAI_PROVIDER: ollama
