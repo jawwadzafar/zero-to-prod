@@ -19,6 +19,7 @@ spec:
         # Pods roll automatically (chapter 10.4's "env is read once" problem).
         checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
     spec:
+      automountServiceAccountToken: false   # never calls the Kubernetes API, so no token (chapter 7.11)
       terminationGracePeriodSeconds: 30
       securityContext: {{- include "snip.podSecurity" . | nindent 8 }}
       containers:

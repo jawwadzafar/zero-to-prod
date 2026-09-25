@@ -23,6 +23,7 @@ spec:
     metadata:
       labels: {{- include "snip.selector" (dict "root" . "component" "redis") | nindent 8 }}
     spec:
+      automountServiceAccountToken: false   # never calls the Kubernetes API, so no token (chapter 7.11)
       securityContext:
         runAsNonRoot: true
         runAsUser: 999

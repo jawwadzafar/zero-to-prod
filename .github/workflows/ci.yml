@@ -556,6 +556,18 @@ jobs:
           sleep 3
           KEY=$(kubectl -n snip exec deploy/api -- snip keys create ci | grep -o 'snip_[A-Za-z0-9]*')
           SNIP_API_KEY="$KEY" snip/scripts/smoke.sh http://localhost:8080
+      - name: Chapter 7.11 lab — no Kubernetes API token in snip's pods; a projected token is short-lived and audience-bound
+        run: |
+          for app in api worker postgres redis; do
+            n=$(kubectl -n snip get pod -l app.kubernetes.io/name=$app -o json | jq '[.items[].spec.volumes[]? | select(.name | startswith("kube-api-access"))] | length')
+            echo "$app: $n service account token volumes"; test "$n" = 0
+          done
+          kubectl -n snip create serviceaccount token-demo
+          kubectl -n snip create token token-demo --audience=snip-demo --duration=10m | python3 -c "
+          import base64, json, sys
+          payload = sys.stdin.read().split('.')[1]
+          claims = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+          print(json.dumps({'aud': claims['aud'], 'sub': claims['sub'], 'lifetime_seconds': claims['exp'] - claims['iat']}))"
       - name: Self-healing — a deleted Pod is replaced (chapter 10.1 lab)
         run: |
           POD=$(kubectl -n snip get pod -l app.kubernetes.io/name=api -o name | head -1)
