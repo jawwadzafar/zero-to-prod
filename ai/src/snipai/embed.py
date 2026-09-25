@@ -146,7 +146,7 @@ def chunk_handbook(docs: Path = DOCS, max_chars: int = 1500) -> list[Chunk]:
         raw = path.read_text(encoding="utf-8")
         title_match = re.search(r'^title:\s*"?(.*?)"?\s*$', raw, re.M)
         title = title_match.group(1).replace('\\"', '"') if title_match else doc
-        body = clean_mdx(raw)
+        body = re.sub(r"^# .*$", "", clean_mdx(raw), flags=re.M)  # the chapter's H1 title line
         for section in re.split(r"^## ", body, flags=re.M):
             heading, _, rest = section.partition("\n")
             heading = heading.strip("# ").strip()

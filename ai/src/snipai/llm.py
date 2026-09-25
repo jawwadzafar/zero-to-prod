@@ -130,13 +130,17 @@ class FakeLLM:
             return Completion(
                 text, self.model, len(prompt.split()), len(text.split()), "end_turn", 0.0
             )
-        if "<text>" in prompt:  # the page text, fenced in tags (chapter 14.5)
+        cite = ""
+        if "<source id=" in prompt:  # RAG sources (chapter 14.8): answer from the first, cite it
+            source = prompt.split("<source id=", 1)[1].split(">", 1)[1].split("</source>", 1)[0]
+            cite = " [1]"
+        elif "<text>" in prompt:  # the page text, fenced in tags (chapter 14.5)
             source = prompt.rsplit("<text>", 1)[-1].split("</text>", 1)[0]
         else:
             source = prompt.rsplit("TEXT:", 1)[-1]
         match = re.search(r"[^.!?\n]*[A-Za-z][^.!?\n]*[.!?]", source)
         words = (match.group(0) if match else source).split()
-        text = " ".join(words[:max_tokens])
+        text = " ".join(words[:max_tokens]) + cite
         return Completion(
             text=text,
             model=self.model,

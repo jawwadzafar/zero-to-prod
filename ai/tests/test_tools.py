@@ -222,3 +222,8 @@ def test_ollama_tool_calls_and_structured_output() -> None:
     }
     tags, _ = tag(PAGE, llm)
     assert tags.category == "software" and bodies[-1]["format"] == SCHEMA
+
+
+def test_empty_answers_are_reported_not_passed_on() -> None:
+    answer = ask("Delete all my links.", Script(turn("")), tools())  # type: ignore[arg-type]
+    assert answer.text == "(the model gave no answer)"

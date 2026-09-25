@@ -110,7 +110,9 @@ def ask(question: str, llm: LLM, tools: dict[str, Tool], *, max_steps: int = 5) 
         answer.output_tokens += turn.completion.output_tokens
         messages.append(Message("assistant", turn.text, tool_calls=turn.tool_calls))
         if not turn.tool_calls:
-            answer.text = turn.text
+            # Small models sometimes reply with nothing, or announce a tool call
+            # ("let me look that up...") without making one. Report, don't guess.
+            answer.text = turn.text.strip() or "(the model gave no answer)"
             return answer
         for call in turn.tool_calls:
             result = run_tool(tools, call.name, call.arguments)
