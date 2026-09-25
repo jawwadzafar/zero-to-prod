@@ -254,6 +254,11 @@ jobs:
           SNIPAI_TEMPERATURE: "0"
           SNIPAI_EMBEDDER: ollama
         run: uv run python -m snipai.evals
+      - name: Chapter 14.11 lab — benchmark two model sizes on this CPU-only runner
+        run: |
+          nproc; free -g | head -2
+          uv run python -m snipai.bench qwen2.5:0.5b qwen2.5:1.5b
+          ollama list
       - name: Chapter 14.5 lab — compare prompt versions on 12 fixed pages with a 1.5B model (temperature 0)
         env:
           SNIPAI_PROVIDER: ollama

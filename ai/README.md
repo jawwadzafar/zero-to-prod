@@ -31,3 +31,4 @@ uv run ruff check . && uv run mypy   # lint and type-check
 | `snipai.rag` | Ask the handbook: retrieval-augmented generation with checked citations | 14.8 |
 | `snipai.agent` | An agent that finds broken links and deletes them with your approval, within budgets | 14.9 |
 | `snipai.evals` | End-to-end evaluation of RAG: retrieval, citations, LLM-as-judge, abstention, confidence intervals | 14.10 |
+| `snipai.bench` | Benchmark a local model: time to first token, tokens per second, throughput | 14.11 |
