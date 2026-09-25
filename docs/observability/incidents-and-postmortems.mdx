@@ -362,7 +362,7 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
         'It’s a compliance requirement that the person debugging can’t also sign off',
       ],
       answer: 1,
-      explain: 'The IC steers. Someone else does the hands-on work, and the IC hands the role over explicitly if they need to dig in.',
+      explain: 'While they’re deep in logs, nobody is coordinating, deciding, or making sure users are updated. The IC steers. Someone else does the hands-on work, and the IC hands the role over explicitly if they need to dig in.',
     },
     {
       q: 'In snip’s game day, why did a Redis outage threaten a total outage in Kubernetes?',
@@ -373,7 +373,7 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
         'The worker crashed and took the API Pods’ shared queue down with it',
       ],
       answer: 1,
-      explain: 'Redis is a soft dependency. Readiness should only fail for hard ones (Postgres); now Redis is reported as "degraded" instead.',
+      explain: '/readyz failed when Redis was down, so every API Pod was removed from the Service at once, even though they could serve from Postgres. Redis is a soft dependency. Readiness should only fail for hard ones (Postgres); now Redis is reported as "degraded" instead.',
     },
     {
       q: 'Why was a frozen Redis worse than a stopped one?',
@@ -384,7 +384,7 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
         'They behave the same for clients, but a frozen one takes much longer to restart',
       ],
       answer: 1,
-      explain: 'Slow is harder than dead. Timeouts are what bound the damage; with the old defaults, a single redirect could wait longer than the server’s 15-second limit.',
+      explain: 'Connections to a stopped server are refused immediately; a frozen one never answers, so every call waits for its full timeout. Slow is harder than dead. Timeouts are what bound the damage; with the old defaults, a single redirect could wait longer than the server’s 15-second limit.',
     },
     {
       q: 'Which is the best postmortem action item?',
@@ -395,7 +395,7 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
         'Consider looking into whether we need Redis at all, and discuss next quarter',
       ],
       answer: 2,
-      explain: 'Specific, owned and dated, and it changes the system rather than asking people to be perfect.',
+      explain: 'Add a unit test that fails if /readyz returns 503 when only Redis is down (owner: Sam, due: Friday). Specific, owned and dated, and it changes the system rather than asking people to be perfect.',
     },
   ]}
 />

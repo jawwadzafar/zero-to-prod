@@ -308,7 +308,7 @@ Free, on your own computer.
         'It is a backup of go.mod, used if the main file gets corrupted',
       ],
       answer: 1,
-      explain: 'go.sum pins the exact contents of every dependency. If downloaded code does not match, the build fails. Commit it alongside go.mod.',
+      explain: 'It records checksums of every dependency so builds get exactly the tested code and tampering is detected. go.sum pins the exact contents of every dependency. If downloaded code does not match, the build fails. Commit it alongside go.mod.',
     },
     {
       q: 'How does postgres.Store come to satisfy the links.Store interface?',
@@ -319,7 +319,7 @@ Free, on your own computer.
         'main registers it with the links package when the program starts',
       ],
       answer: 1,
-      explain: 'Go interfaces are satisfied implicitly. Any type with the right methods fits, which is why snip can offer both a memory and a Postgres store.',
+      explain: 'It has all the methods the interface lists, with matching signatures — Go checks this automatically. Go interfaces are satisfied implicitly. Any type with the right methods fits, which is why snip can offer both a memory and a Postgres store.',
     },
     {
       q: 'Why does snip create the Store in main and pass it into links.NewService, instead of the Service opening its own database connection?',
@@ -330,7 +330,7 @@ Free, on your own computer.
         'To keep all database code in one file, so the project stays smaller',
       ],
       answer: 1,
-      explain: 'That is dependency injection. The Service depends only on the Store interface; main decides which real implementation to plug in, and tests plug in fakes.',
+      explain: 'So the same Service can be given a memory store, a Postgres store, or a test fake — it becomes swappable and testable. That is dependency injection. The Service depends only on the Store interface; main decides which real implementation to plug in, and tests plug in fakes.',
     },
   ]}
 />

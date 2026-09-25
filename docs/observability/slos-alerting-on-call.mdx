@@ -196,7 +196,7 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
         'The time the on-call may spend on incidents before escalating',
       ],
       answer: 1,
-      explain: 'Budget left: move fast. Budget spent: prioritise reliability.',
+      explain: 'The amount of unreliability an SLO allows (e.g. 0.5% of requests for 99.5%), used to decide between shipping and stabilising. Budget left: move fast. Budget spent: prioritise reliability.',
     },
     {
       q: 'Why not set snip’s SLO to 100%?',
@@ -207,7 +207,7 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
         'SLAs with customers forbid promising more than 99.9%',
       ],
       answer: 1,
-      explain: 'Each extra nine costs roughly ten times more. Choose the reliability users actually need.',
+      explain: 'It’s impossible to achieve, extremely expensive to approach, leaves no room for change, and users can’t tell beyond a point. Each extra nine costs roughly ten times more. Choose the reliability users actually need.',
     },
     {
       q: 'Why does SnipErrorBudgetFastBurn check both a 1-hour and a 5-minute window?',
@@ -218,7 +218,7 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
         'To measure latency in the short window and errors in the long one',
       ],
       answer: 1,
-      explain: 'Test 3 shows it: the page fires during the incident and stops once the 5-minute window recovers.',
+      explain: 'The long window proves the burn is significant; the short one proves it’s still happening, so the alert clears soon after a fix. Test 3 shows it: the page fires during the incident and stops once the 5-minute window recovers.',
     },
     {
       q: 'Which is a better paging alert for snip?',
@@ -229,7 +229,7 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
         'Postgres disk above 70% on the primary',
       ],
       answer: 1,
-      explain: 'Page on symptoms. Causes like CPU belong on dashboards or tickets.',
+      explain: 'The error budget burning at 14.4× (a symptom users feel). Page on symptoms. Causes like CPU belong on dashboards or tickets.',
     },
     {
       q: 'What bug did snip’s alert unit tests reveal?',
@@ -240,7 +240,7 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
         'Alerts that fired during every deploy, because Pods restart',
       ],
       answer: 1,
-      explain: 'Rules within a group run in order; separate groups don’t. The fix was one group.',
+      explain: 'Recording rules and alerts in separate groups, which run concurrently, so alerts sometimes read the previous evaluation’s value. Rules within a group run in order; separate groups don’t. The fix was one group.',
     },
     {
       q: 'An alert fires most nights and the on-call always ignores it because nothing is wrong. What should happen?',
@@ -251,7 +251,7 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
         'Mute the pager at night and review the alerts each morning',
       ],
       answer: 1,
-      explain: 'Alert fatigue makes people miss real incidents. Every non-actionable page must be fixed.',
+      explain: 'Treat it as a bug in the alerting: tune it, turn it into a ticket-level alert, or delete it. Alert fatigue makes people miss real incidents. Every non-actionable page must be fixed.',
     },
   ]}
 />

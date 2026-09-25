@@ -176,7 +176,7 @@ Free, with a browser and your clone of this repository.
         'Delivery ships every change at once; deployment waits for approval',
       ],
       answer: 1,
-      explain: 'Both automate everything up to production. The difference is whether the final step is automatic.',
+      explain: 'Delivery makes every passing change releasable and a human decides when to release; deployment releases every passing change to production automatically. Both automate everything up to production. The difference is whether the final step is automatic.',
     },
     {
       q: 'Why build the artefact once and promote it through environments, instead of rebuilding for each?',
@@ -187,7 +187,7 @@ Free, with a browser and your clone of this repository.
         'Rebuilding is slower, and that delays every deploy',
       ],
       answer: 1,
-      explain: 'Same bytes everywhere. What changes between environments is configuration.',
+      explain: 'A rebuild could differ from what was tested (newer base image or dependency), so production would run something never tested. Same bytes everywhere. What changes between environments is configuration.',
     },
     {
       q: 'A version goes from 2.3.1 to 3.0.0. What does SemVer tell users?',
@@ -209,7 +209,7 @@ Free, with a browser and your clone of this repository.
         'Only large companies with dedicated release teams have both',
       ],
       answer: 1,
-      explain: 'Small changes are easier to review, test and undo. Big releases bundle risk.',
+      explain: 'They go together: teams that ship small changes often also have lower failure rates and faster recovery. Small changes are easier to review, test and undo. Big releases bundle risk.',
     },
     {
       q: 'Which of these did this repository’s CI catch that static checks alone would have missed?',
@@ -220,7 +220,7 @@ Free, with a browser and your clone of this repository.
         'A YAML indentation error in a Kubernetes manifest',
       ],
       answer: 1,
-      explain: 'The manifests were valid YAML and passed schema checks. Only running them on a real cluster revealed the problem.',
+      explain: 'Kubernetes Pods that could never start because runAsNonRoot couldn’t be verified for a named image user. The manifests were valid YAML and passed schema checks. Only running them on a real cluster revealed the problem.',
     },
     {
       q: 'Your team’s CI takes 70 minutes and people have started merging without waiting. What would you do first?',
@@ -231,7 +231,7 @@ Free, with a browser and your clone of this repository.
         'Ask people to be patient, and review any merge that skipped the checks',
       ],
       answer: 1,
-      explain: 'A pipeline only protects you if people wait for it. Speed is a feature of a pipeline.',
+      explain: 'Make the main checks fast (parallel jobs, caching, moving slow suites to scheduled runs) so waiting is reasonable, and require checks to pass before merging. A pipeline only protects you if people wait for it. Speed is a feature of a pipeline.',
     },
   ]}
 />

@@ -214,7 +214,7 @@ Free and local. Step 1 needs only Go; step 3 needs the kind cluster from Part 10
         'It’s a strong rule, as long as the network is private, firewalled and reachable only over the VPN',
       ],
       answer: 1,
-      explain: 'Zero trust replaces network location with identity checked on every request.',
+      explain: 'Once an attacker is inside (one compromised service or laptop), everything that trusts the network trusts them, enabling lateral movement. Zero trust replaces network location with identity checked on every request.',
     },
     {
       q: 'In the mTLS demo, the reporting job has a valid certificate from snip’s CA but gets 403. Why?',
@@ -225,7 +225,7 @@ Free and local. Step 1 needs only Go; step 3 needs the kind cluster from Part 10
         'The CA revoked it, and the server checked the revocation list',
       ],
       answer: 1,
-      explain: 'Authentication says who you are; authorization says what that identity may do.',
+      explain: 'It is authenticated (valid certificate) but not authorized: its identity isn’t on the server’s allow list. Authentication says who you are; authorization says what that identity may do.',
     },
     {
       q: 'Why do modern systems prefer short-lived certificates over revocation lists?',
@@ -236,7 +236,7 @@ Free and local. Step 1 needs only Go; step 3 needs the kind cluster from Part 10
         'Short-lived certificates use smaller keys, so handshakes are faster',
       ],
       answer: 1,
-      explain: 'Expiry is enforced by every TLS handshake automatically; revocation depends on extra checks that often don’t happen.',
+      explain: 'Revocation is slow to propagate and often unchecked; a stolen short-lived certificate simply stops working soon, if rotation is automated. Expiry is enforced by every TLS handshake automatically; revocation depends on extra checks that often don’t happen.',
     },
     {
       q: 'Why did snip turn off automountServiceAccountToken for its pods?',
@@ -247,7 +247,7 @@ Free and local. Step 1 needs only Go; step 3 needs the kind cluster from Part 10
         'To speed up startup, since mounting the token waits on the API',
       ],
       answer: 1,
-      explain: 'Least privilege applies to credentials too: don’t hand out ones nothing needs.',
+      explain: 'Its services never call the Kubernetes API, so the mounted token was an unused credential an attacker in a container could use against the cluster. Least privilege applies to credentials too: don’t hand out ones nothing needs.',
     },
     {
       q: 'Which practice most directly prevents engineers from accumulating permanent production admin rights?',

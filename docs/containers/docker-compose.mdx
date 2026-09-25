@@ -327,7 +327,7 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
         'Compose starts Postgres on a random host port, so 5432 is wrong',
       ],
       answer: 1,
-      explain: 'Each container has its own network namespace. Docker’s DNS resolves service names on the project network.',
+      explain: 'Inside a container, localhost is that container itself; other services are reached by their service name, e.g. postgres. Each container has its own network namespace. Docker’s DNS resolves service names on the project network.',
     },
     {
       q: 'What is the difference between docker compose down and docker compose down -v?',
@@ -338,7 +338,7 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
         'down only stops containers; down -v removes them and their logs',
       ],
       answer: 1,
-      explain: 'Use down -v deliberately, when you want a clean slate.',
+      explain: 'down removes containers and the network but keeps named volumes; down -v also deletes the volumes (your database). Use down -v deliberately, when you want a clean slate.',
     },
     {
       q: 'Why does snip’s api service use depends_on with condition: service_healthy for Postgres?',
@@ -349,7 +349,7 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
         'To restart the api automatically whenever Postgres is restarted',
       ],
       answer: 1,
-      explain: 'Plain depends_on only orders container starts. Apps should still retry, because in production nothing guarantees order.',
+      explain: 'A started container is not a ready database; waiting for the healthcheck (pg_isready) avoids connecting too early. Plain depends_on only orders container starts. Apps should still retry, because in production nothing guarantees order.',
     },
     {
       q: 'You edit Go code and run docker compose up -d, but the running API does not change. Why?',
@@ -360,7 +360,7 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
         'You must delete the volume first, since the old binary is stored there',
       ],
       answer: 1,
-      explain: 'up -d recreates containers whose configuration changed, but only --build rebuilds images from source.',
+      explain: 'The containers use the image built earlier; you need docker compose up -d --build to rebuild it. up -d recreates containers whose configuration changed, but only --build rebuilds images from source.',
     },
     {
       q: 'Why is only nginx given a ports: entry in snip’s compose file?',
@@ -371,7 +371,7 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
         'Other services get their ports published automatically on startup',
       ],
       answer: 1,
-      explain: 'The reverse-proxy pattern of chapter 8.3: one controlled door, with internals unreachable from outside.',
+      explain: 'nginx is the single entry point; API copies are reachable only on the private network, behind the proxy. The reverse-proxy pattern of chapter 8.3: one controlled door, with internals unreachable from outside.',
     },
     {
       q: 'What is Compose not designed to do?',
@@ -382,7 +382,7 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
         'Mount named volumes that survive when the containers are recreated',
       ],
       answer: 1,
-      explain: 'Compose manages one host. Multi-machine scheduling, self-healing and rolling deploys are what orchestrators like Kubernetes (Part 10) do.',
+      explain: 'Keep services running across a fleet of machines, rescheduling them when a machine dies. Compose manages one host. Multi-machine scheduling, self-healing and rolling deploys are what orchestrators like Kubernetes (Part 10) do.',
     },
   ]}
 />

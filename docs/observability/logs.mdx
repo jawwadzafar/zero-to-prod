@@ -225,7 +225,7 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
         'JSON is escaped, so secrets in log lines stay hidden',
       ],
       answer: 1,
-      explain: 'Logs are read by machines at scale. Structure makes queries like status >= 500 by route trivial.',
+      explain: 'Each fact is a named field, so tools can filter, group and chart reliably without fragile text parsing. Logs are read by machines at scale. Structure makes queries like status >= 500 by route trivial.',
     },
     {
       q: 'What is a request ID for?',
@@ -236,7 +236,7 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
         'Caching, so a repeated request ID returns the saved answer',
       ],
       answer: 1,
-      explain: 'snip returns it in X-Request-Id and logs it on every line for that request.',
+      explain: 'Correlating every log line about one request, letting users and support refer to a specific request, and following it across services. snip returns it in X-Request-Id and logs it on every line for that request.',
     },
     {
       q: 'Why does snip not log /healthz and /metrics requests?',
@@ -247,7 +247,7 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
         'Go’s server handles them before the logging middleware runs',
       ],
       answer: 1,
-      explain: 'Good logs are about events that matter. Health checks are better observed through metrics.',
+      explain: 'Probes and scrapers call them every few seconds; logging them would add noise and cost and bury real traffic. Good logs are about events that matter. Health checks are better observed through metrics.',
     },
     {
       q: 'Which of these should never appear in production logs?',
@@ -269,7 +269,7 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
         'stdout is encrypted by the container runtime, while files are not',
       ],
       answer: 1,
-      explain: 'Separating "produce logs" from "route and store logs" is a core cloud-native practice.',
+      explain: 'The platform (systemd, Docker, Kubernetes, ECS) collects stdout and ships it on; the app stays simple and works the same everywhere. Separating "produce logs" from "route and store logs" is a core cloud-native practice.',
     },
     {
       q: 'Metrics say the error rate rose at 14:03. What do logs add?',
@@ -280,7 +280,7 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
         'A count of the errors, more precise than the metric’s estimate',
       ],
       answer: 1,
-      explain: 'Metrics detect and quantify; logs explain specific events.',
+      explain: 'The exact failing requests and error messages, filterable by route, status and time, so you can see what specifically went wrong. Metrics detect and quantify; logs explain specific events.',
     },
   ]}
 />

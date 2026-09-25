@@ -277,7 +277,7 @@ Free, in the playgrounds above (each has its own database; **Reset** restores it
         'The LIMIT is too small, so Postgres filtered extra rows to be safe',
       ],
       answer: 1,
-      explain: 'A sequential scan that throws away nearly every row is the classic sign of a missing index for that WHERE clause.',
+      explain: 'Postgres read the whole table and discarded almost all of it — an index on the filtered column would likely help. A sequential scan that throws away nearly every row is the classic sign of a missing index for that WHERE clause.',
     },
     {
       q: 'snip has an index on (owner_id, created_at DESC). Which query can use it well?',

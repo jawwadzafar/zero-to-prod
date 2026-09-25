@@ -312,7 +312,7 @@ Free, on your own computer, using Docker.
         'The whole cache is cleared, since it’s clearly out of date',
       ],
       answer: 1,
-      explain: 'The application owns the logic: try the cache, fall back to the source of truth, and fill the cache on the way out.',
+      explain: 'The application reads the database, returns the answer, and stores it in the cache for next time. The application owns the logic: try the cache, fall back to the source of truth, and fill the cache on the way out.',
     },
     {
       q: 'Why does snip delete from Postgres first and only then evict the cache entry?',
@@ -323,7 +323,7 @@ Free, on your own computer, using Docker.
         'It doesn’t matter; both finish within a millisecond anyway',
       ],
       answer: 1,
-      explain: 'Evicting first leaves a window where the old value is still in the database. Change the truth first, then remove the copy.',
+      explain: 'If the cache were cleared first, a racing request could re-read the old row from the database and re-cache it. Evicting first leaves a window where the old value is still in the database. Change the truth first, then remove the copy.',
     },
     {
       q: 'A popular key expires and thousands of requests hit the database at once. What is this called?',
@@ -334,7 +334,7 @@ Free, on your own computer, using Docker.
         'A cold start, as after a fresh deploy',
       ],
       answer: 1,
-      explain: 'Many simultaneous misses for the same key overwhelm the origin. Request coalescing, jittered TTLs and refresh-ahead are common fixes.',
+      explain: 'A cache stampede (thundering herd). Many simultaneous misses for the same key overwhelm the origin. Request coalescing, jittered TTLs and refresh-ahead are common fixes.',
     },
     {
       q: 'Why must Redis not be snip’s source of truth?',
@@ -345,7 +345,7 @@ Free, on your own computer, using Docker.
         'Redis has no way to make a key last forever; every key must expire',
       ],
       answer: 1,
-      explain: 'Caches may forget things at any time — that is their contract. Durable, correct data lives in Postgres; Redis holds copies that can be rebuilt.',
+      explain: 'Redis is memory-first: depending on configuration it can lose recent writes on a crash and evicts keys when memory is full. Caches may forget things at any time — that is their contract. Durable, correct data lives in Postgres; Redis holds copies that can be rebuilt.',
     },
   ]}
 />

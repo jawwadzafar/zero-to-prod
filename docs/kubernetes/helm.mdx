@@ -255,7 +255,7 @@ Free, on your kind cluster (chapters 10.1–10.2) with the `snip:dev` image load
         'A Git tag marking which version of the chart is deployed',
       ],
       answer: 1,
-      explain: 'The same chart can be installed many times as different releases, each with its own values and revisions.',
+      explain: 'One installed instance of a chart, with a name and namespace, and a history of revisions. The same chart can be installed many times as different releases, each with its own values and revisions.',
     },
     {
       q: 'Why does snip’s chart put a checksum of the config in a Pod annotation?',
@@ -266,7 +266,7 @@ Free, on your kind cluster (chapters 10.1–10.2) with the `snip:dev` image load
         'To let Helm skip upgrades when nothing has changed',
       ],
       answer: 1,
-      explain: 'Environment variables are read once at start. Changing the template forces a rollout.',
+      explain: 'So a config change alters the Pod template, which makes the Deployment roll out new Pods that read the new values. Environment variables are read once at start. Changing the template forces a rollout.',
     },
     {
       q: 'You run helm upgrade --set api.replicas=4 without --reuse-values. What might go wrong?',
@@ -277,7 +277,7 @@ Free, on your kind cluster (chapters 10.1–10.2) with the `snip:dev` image load
         'Helm refuses to run without --reuse-values or a values file',
       ],
       answer: 1,
-      explain: 'Without --reuse-values (or passing your full values file), an upgrade starts from defaults plus the new flags.',
+      explain: 'Values set in earlier revisions (not in the chart defaults) are dropped, reverting them to defaults. Without --reuse-values (or passing your full values file), an upgrade starts from defaults plus the new flags.',
     },
     {
       q: 'What should you do before installing a third-party chart?',
@@ -288,7 +288,7 @@ Free, on your kind cluster (chapters 10.1–10.2) with the `snip:dev` image load
         'Install it in its own namespace, which keeps it isolated',
       ],
       answer: 1,
-      explain: 'A chart often installs software with broad cluster permissions. Treat it like running someone’s code.',
+      explain: 'Pin its version, read its values, and render it to review what it creates, especially RBAC and privileged Pods. A chart often installs software with broad cluster permissions. Treat it like running someone’s code.',
     },
     {
       q: 'When is kustomize a better fit than Helm?',
@@ -299,7 +299,7 @@ Free, on your kind cluster (chapters 10.1–10.2) with the `snip:dev` image load
         'When you need release history and one-command rollbacks',
       ],
       answer: 1,
-      explain: 'kustomize keeps manifests readable as-is. Helm shines for distribution, many configurations and release management.',
+      explain: 'For your own app with a few environments differing slightly, when you want plain YAML with patches and no template logic. kustomize keeps manifests readable as-is. Helm shines for distribution, many configurations and release management.',
     },
     {
       q: 'What does helm rollback snip 1 do to the release history?',
@@ -310,7 +310,7 @@ Free, on your kind cluster (chapters 10.1–10.2) with the `snip:dev` image load
         'Uninstalls the release, then installs revision 1 again',
       ],
       answer: 1,
-      explain: 'Rollbacks are recorded like any other change, so you can see exactly what happened and when.',
+      explain: 'Creates a new revision with revision 1’s manifests and values; history is kept. Rollbacks are recorded like any other change, so you can see exactly what happened and when.',
     },
   ]}
 />

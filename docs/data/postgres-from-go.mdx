@@ -308,7 +308,7 @@ Free, on your own computer, using Docker.
         'Go’s database package refuses to run queries outside a pool',
       ],
       answer: 1,
-      explain: 'A pool reuses a small set of connections, avoiding handshake costs on every request and keeping the total within the database’s limit.',
+      explain: 'Opening connections is slow and the database supports a limited number, so a few are opened once and shared. A pool reuses a small set of connections, avoiding handshake costs on every request and keeping the total within the database’s limit.',
     },
     {
       q: 'What makes WHERE slug = $1 safe against SQL injection?',
@@ -330,7 +330,7 @@ Free, on your own computer, using Docker.
         'Deletes the existing link and inserts the new one in its place',
       ],
       answer: 1,
-      explain: 'The store translates database-specific errors into domain errors, keeping pgx details out of the business logic and the HTTP layer.',
+      explain: 'Translates it to links.ErrSlugTaken, which becomes 409 Conflict (or triggers a retry for random slugs). The store translates database-specific errors into domain errors, keeping pgx details out of the business logic and the HTTP layer.',
     },
     {
       q: 'How does snip avoid two copies running the same migration at the same time?',

@@ -241,7 +241,7 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
         'Attackers guess from many IP addresses at once, and a lockout only counts failures per address, so it never triggers',
       ],
       answer: 1,
-      explain: 'A defence that can be triggered by the attacker against the victim is a new attack.',
+      explain: 'It lets an attacker lock any user out on purpose; growing delays, rate limits and MFA stop guessing without handing attackers a denial-of-service button. A defence that can be triggered by the attacker against the victim is a new attack.',
     },
     {
       q: 'How does the Pwned Passwords range API check a password without learning it?',
@@ -252,7 +252,7 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
         'It checks the password in memory on the service’s side and promises never to write it to disk or logs',
       ],
       answer: 1,
-      explain: 'k-anonymity: hundreds of different hashes share any prefix, so the prefix reveals almost nothing.',
+      explain: 'Only the first 5 characters of the SHA-1 hash are sent; the service returns all leaked hashes with that prefix, and the comparison happens locally. k-anonymity: hundreds of different hashes share any prefix, so the prefix reveals almost nothing.',
     },
     {
       q: 'Why must a new session ID be issued at login?',
@@ -263,7 +263,7 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
         'Browsers delete cookies set before login once the user signs in',
       ],
       answer: 1,
-      explain: 'The privilege level changed, so the identifier must change with it.',
+      explain: 'Otherwise an attacker who planted a known ID in the victim’s browser before login would share the logged-in session (session fixation). The privilege level changed, so the identifier must change with it.',
     },
     {
       q: 'An already-used refresh token is presented again. What should the server conclude and do?',
@@ -274,7 +274,7 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
         'Reject that one request as a stale retry, but leave the newer token in the family working as before',
       ],
       answer: 1,
-      explain: 'Rotation with reuse detection turns token theft into a detectable event.',
+      explain: 'Two parties have the token, so it was probably stolen: revoke the whole token family and require a fresh login. Rotation with reuse detection turns token theft into a detectable event.',
     },
     {
       q: 'A reset email’s link is built from the request’s Host header. What can an attacker do?',
@@ -285,7 +285,7 @@ Free. Steps 1–2 run offline; step 3 needs internet access.
         'Change the victim’s password directly, without any token at all',
       ],
       answer: 1,
-      explain: 'Build absolute URLs from configuration, never from request headers.',
+      explain: 'Request a reset for the victim with a forged Host, so the genuine email contains a link to the attacker’s domain with a valid token. Build absolute URLs from configuration, never from request headers.',
     },
   ]}
 />

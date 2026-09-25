@@ -206,7 +206,7 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
         'The order in which Pods start after a node is restarted',
       ],
       answer: 1,
-      explain: 'Observe, compare, act, repeat. Self-healing, scaling and rollouts are all this same loop closing different gaps.',
+      explain: 'A controller repeatedly comparing the desired state with the actual state and acting to close any gap. Observe, compare, act, repeat. Self-healing, scaling and rollouts are all this same loop closing different gaps.',
     },
     {
       q: 'You delete one of three snip Pods by hand. What happens and why?',
@@ -217,7 +217,7 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
         'The Service stops routing to snip until someone investigates',
       ],
       answer: 1,
-      explain: 'Kubernetes doesn’t remember that you deleted it. It only sees a gap between desired and actual, and closes it.',
+      explain: 'A new Pod is created shortly, because the desired state still says three and a controller notices only two exist. Kubernetes doesn’t remember that you deleted it. It only sees a gap between desired and actual, and closes it.',
     },
     {
       q: 'Which component stores the whole cluster’s state?',
@@ -234,7 +234,7 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
         'It routes each Service’s traffic to the right Pods on its node, using iptables rules',
       ],
       answer: 1,
-      explain: 'The scheduler chooses the node; the kubelet on that node makes it happen and keeps it running.',
+      explain: 'Runs on each node, starts the Pods assigned to that node via the container runtime, runs their health checks and reports status. The scheduler chooses the node; the kubelet on that node makes it happen and keeps it running.',
     },
     {
       q: 'A small team has one web API and no plans to grow soon. What is usually the better first platform?',
@@ -245,7 +245,7 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
         'Several managed Kubernetes clusters in different regions for redundancy',
       ],
       answer: 1,
-      explain: 'Kubernetes pays off with many services, teams or real scale. For one small app, its complexity often costs more than it saves.',
+      explain: 'A simpler platform such as a serverless container service or a single server, moving to Kubernetes if its specific benefits become needed. Kubernetes pays off with many services, teams or real scale. For one small app, its complexity often costs more than it saves.',
     },
     {
       q: 'Why does Kubernetes undo changes you make directly on a node or by killing containers?',
@@ -256,7 +256,7 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
         'Only changes made through kubectl are recorded as real',
       ],
       answer: 1,
-      explain: 'To change the outcome, change the desired state (ideally in version-controlled files), not the actual state.',
+      explain: 'Controllers keep enforcing the declared desired state, so anything that differs from it is "corrected". To change the outcome, change the desired state (ideally in version-controlled files), not the actual state.',
     },
   ]}
 />

@@ -278,7 +278,7 @@ Free and local; needs Docker and Go.
         'Nothing; the browser keeps the IdP’s cookie and sends it along to your app on each request',
       ],
       answer: 1,
-      explain: 'The relying party verifies a signature and a few claims; it never handles the password.',
+      explain: 'A signed statement (an ID token or SAML assertion) saying who the user is and how they authenticated. The relying party verifies a signature and a few claims; it never handles the password.',
     },
     {
       q: 'Why must a relying party check the ID token’s audience (aud)?',
@@ -289,7 +289,7 @@ Free and local; needs Docker and Go.
         'To check the token hasn’t expired, as aud holds the lifetime',
       ],
       answer: 1,
-      explain: 'Many applications share one IdP. The audience says which one a token is for.',
+      explain: 'Otherwise a token the same IdP issued for a different application could be used to sign in to yours. Many applications share one IdP. The audience says which one a token is for.',
     },
     {
       q: 'SSO suddenly fails for every user with "unknown key". What’s the most likely cause?',
@@ -300,7 +300,7 @@ Free and local; needs Docker and Go.
         'The application’s session database is down',
       ],
       answer: 1,
-      explain: 'Refetch the key set when an unknown kid appears, with a rate limit.',
+      explain: 'The IdP rotated its signing keys and the application still has only the old key set. Refetch the key set when an unknown kid appears, with a rate limit.',
     },
     {
       q: 'Why must a customer verify their email domain before their IdP can sign in users with that domain?',
@@ -311,7 +311,7 @@ Free and local; needs Docker and Go.
         'So password-reset emails for those users are not marked as spam by their mail server',
       ],
       answer: 1,
-      explain: 'Routing users to an IdP by domain is only safe if the domain’s owner configured that IdP.',
+      explain: 'Otherwise any customer could configure an IdP claiming someone else’s domain and sign in as that company’s employees. Routing users to an IdP by domain is only safe if the domain’s owner configured that IdP.',
     },
     {
       q: 'An employee leaves and is disabled at the IdP. What might still work in your product unless you handle it?',
@@ -322,7 +322,7 @@ Free and local; needs Docker and Go.
         'Only their bookmarked links, which don’t need a session',
       ],
       answer: 1,
-      explain: 'Deprovisioning (e.g. via SCIM) should end sessions and revoke credentials, not just block the next login.',
+      explain: 'Their existing sessions and any API keys or tokens they created, which SSO sign-in doesn’t touch. Deprovisioning (e.g. via SCIM) should end sessions and revoke credentials, not just block the next login.',
     },
   ]}
 />

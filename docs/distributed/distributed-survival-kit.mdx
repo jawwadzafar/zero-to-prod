@@ -236,10 +236,10 @@ Free, on your own computer.
     {
       q: 'A request to a payment service times out. What do you know for sure?',
       options: [
-        'The payment was not made',
-        'The payment was made',
-        'Nothing definite — it may have failed, or succeeded with only the response lost',
-        'The payment service is down',
+        'The payment was not made, because a timeout cancels the request',
+        'The payment was made, but the service was too slow to confirm it',
+        'Nothing definite: it may have failed, or succeeded and lost the reply',
+        'The payment service is down, so it is safe to retry straight away',
       ],
       answer: 2,
       explain: 'A timeout is ambiguous: the request, the processing or the response could have been lost. That is why retries need idempotency.',
@@ -247,10 +247,10 @@ Free, on your own computer.
     {
       q: 'Why add jitter to retry delays?',
       options: [
-        'To make retries faster',
-        'So that many clients that failed together do not all retry at the same instant',
-        'To encrypt the retries',
-        'Jitter is required by HTTP',
+        'To make retries faster on average by skipping some of the wait',
+        'So clients that failed together don’t all retry at the same moment',
+        'To hide the retry pattern from attackers watching the traffic',
+        'So the server can tell a retry apart from a brand-new request',
       ],
       answer: 1,
       explain: 'Without jitter, synchronised clients retry in waves that can keep an overloaded service down. Randomness spreads them out.',
@@ -258,24 +258,24 @@ Free, on your own computer.
     {
       q: 'In the retry demo, why did "retry" mode charge customers 24 times for 20 purchases?',
       options: [
-        'The server had a bug that charged twice',
-        'Some requests were processed but their responses were too slow; the client retried them without an idempotency key, so they were charged again',
-        'The client sent 24 requests on purpose',
-        'Jitter caused extra charges',
+        'The server had a bug that charged twice whenever it was under load',
+        'Some succeeded but replied too late; retries without an idempotency key charged again',
+        'The client sent 24 requests on purpose, to test the server’s limits',
+        'Jitter made some retries overlap, and the server counted both of them',
       ],
       answer: 1,
-      explain: 'Retries plus non-idempotent operations equal duplicates. An idempotency key lets the server recognise a retry and not repeat the work.',
+      explain: 'Some requests were processed but their responses were too slow; the client retried them without an idempotency key, so they were charged again. Retries plus non-idempotent operations equal duplicates. An idempotency key lets the server recognise a retry and not repeat the work.',
     },
     {
       q: 'snip’s click worker is at-least-once. What does that mean for click counts?',
       options: [
-        'Clicks are never counted',
-        'Every click is counted, but after a crash some may be counted twice — a small overcount accepted as a trade-off',
-        'Clicks are counted exactly once, always',
-        'Only the first click of each user counts',
+        'Each click is counted at least once a day, when the worker catches up',
+        'Every click counts, but a crash may count some twice: an accepted overcount',
+        'Clicks are counted exactly once, because the stream removes duplicates',
+        'Some clicks may be lost after a crash, but none is ever counted twice',
       ],
       answer: 1,
-      explain: 'Events are acknowledged only after being counted; a crash in between redelivers them. Idempotent processing would be needed for exactly-once effect.',
+      explain: 'Every click is counted, but after a crash some may be counted twice — a small overcount accepted as a trade-off. Events are acknowledged only after being counted; a crash in between redelivers them. Idempotent processing would be needed for exactly-once effect.',
     },
   ]}
 />

@@ -231,7 +231,7 @@ Free, with a GitHub account. **No cloud account needed.**
         'Roles can be given more permissions than an IAM user is allowed to have',
       ],
       answer: 1,
-      explain: 'Most cloud breaches involve long-lived keys. Temporary credentials remove that whole class of problem.',
+      explain: 'Temporary credentials expire within hours, so a leak has a short useful life, and there’s no long-lived secret to store, rotate or accidentally commit. Most cloud breaches involve long-lived keys. Temporary credentials remove that whole class of problem.',
     },
     {
       q: 'How does snip’s CI deploy to AWS without any stored AWS secret?',
@@ -242,7 +242,7 @@ Free, with a GitHub account. **No cloud account needed.**
         'It doesn’t deploy; a person runs the deploy from their laptop',
       ],
       answer: 1,
-      explain: 'Trust is based on a verifiable identity (repository, branch), not on a shared secret.',
+      explain: 'OIDC federation: GitHub issues a signed token about the workflow run, AWS verifies it and the sub condition, and returns temporary credentials for the deploy role. Trust is based on a verifiable identity (repository, branch), not on a shared secret.',
     },
     {
       q: 'What would happen if the deploy role’s trust policy checked only aud and not sub?',
@@ -264,7 +264,7 @@ Free, with a GitHub account. **No cloud account needed.**
         'It bypasses MFA on every role in the account',
       ],
       answer: 1,
-      explain: 'Scope PassRole to the exact roles a deployer legitimately hands out.',
+      explain: 'It lets the holder give any role, including administrator roles, to services they launch: a privilege-escalation path. Scope PassRole to the exact roles a deployer legitimately hands out.',
     },
     {
       q: 'What did reading the real OIDC token reveal about snip’s first trust policy?',
@@ -275,7 +275,7 @@ Free, with a GitHub account. **No cloud account needed.**
         'GitHub signs tokens with a key AWS doesn’t trust unless it is uploaded',
       ],
       answer: 1,
-      explain: 'Always check real claims. A trust policy that never matches fails closed, safely but confusingly.',
+      explain: 'GitHub’s sub claim includes immutable owner and repository IDs, so the tutorial-style condition would never have matched. Always check real claims. A trust policy that never matches fails closed, safely but confusingly.',
     },
   ]}
 />

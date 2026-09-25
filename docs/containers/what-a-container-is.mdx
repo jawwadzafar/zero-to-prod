@@ -269,7 +269,7 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
         'A Docker feature that runs beside the kernel rather than on it',
       ],
       answer: 1,
-      explain: 'In the lab, snip appeared in the host’s ps output with a normal PID. Namespaces change its view; cgroups limit its resources.',
+      explain: 'An ordinary process (or group of processes) with its own namespaces and cgroup limits. In the lab, snip appeared in the host’s ps output with a normal PID. Namespaces change its view; cgroups limit its resources.',
     },
     {
       q: 'Namespaces and cgroups do different jobs. Which is right?',
@@ -302,7 +302,7 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
         'It moves to the host’s /var/lib/postgresql folder',
       ],
       answer: 1,
-      explain: 'Images are read-only; each container’s writes go to its own temporary layer. Data that must survive belongs in a volume.',
+      explain: 'It is lost: it lived in the container’s writable layer, which is deleted with the container. Images are read-only; each container’s writes go to its own temporary layer. Data that must survive belongs in a volume.',
     },
     {
       q: 'What is the difference between an image tag and a digest?',
@@ -313,7 +313,7 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
         'Tags are signed by the registry; digests are only a checksum',
       ],
       answer: 1,
-      explain: 'postgres:16 changes as new 16.x releases ship. postgres@sha256:… never changes.',
+      explain: 'A tag is a movable label; a digest is the content’s hash, so it always refers to exactly the same image. postgres:16 changes as new 16.x releases ship. postgres@sha256:… never changes.',
     },
     {
       q: 'Why can’t a Linux container run directly on macOS without a VM?',
@@ -324,7 +324,7 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
         'Docker images are built for Ubuntu and must run on Ubuntu',
       ],
       answer: 1,
-      explain: 'A container is not a VM. It brings files, not a kernel.',
+      explain: 'Containers use the host’s kernel, and a Linux container needs a Linux kernel, which Docker Desktop provides in a small VM. A container is not a VM. It brings files, not a kernel.',
     },
   ]}
 />

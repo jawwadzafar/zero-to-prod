@@ -200,7 +200,7 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
         'The whole path of one request through every service',
       ],
       answer: 1,
-      explain: 'Spans nest into a tree; the trace is the whole tree for one request.',
+      explain: 'One timed operation within a trace, with a name, duration, status, attributes and a parent. Spans nest into a tree; the trace is the whole tree for one request.',
     },
     {
       q: 'How does a trace continue from service A into service B?',
@@ -211,7 +211,7 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
         'Jaeger matches them afterwards by comparing the timestamps',
       ],
       answer: 1,
-      explain: 'W3C Trace Context propagation. Any hop that drops the header breaks the trace.',
+      explain: 'A’s instrumentation adds a traceparent header with the trace ID and its span ID; B reads it and makes its spans children. W3C Trace Context propagation. Any hop that drops the header breaks the trace.',
     },
     {
       q: 'In snip’s two traces, what shows the request was a cache hit?',
@@ -222,7 +222,7 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
         'The trace ID, which starts with a different prefix for cache hits',
       ],
       answer: 1,
-      explain: 'Traces make code paths visible: you can see exactly which steps ran.',
+      explain: 'There was no store.Get or cache.SetURL span, and cache.GetURL had cache.hit = true. Traces make code paths visible: you can see exactly which steps ran.',
     },
     {
       q: 'Why can snip leave tracing code in place even when tracing is off?',
@@ -244,7 +244,7 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
         'It keeps a fixed share of traces, chosen before any work starts',
       ],
       answer: 1,
-      explain: 'Head sampling decides blindly at the start; tail sampling decides with the whole trace in hand.',
+      explain: 'The keep/drop decision is made after the trace completes, so all errors and slow traces can be kept. Head sampling decides blindly at the start; tail sampling decides with the whole trace in hand.',
     },
     {
       q: 'What links a snip log line to its trace?',

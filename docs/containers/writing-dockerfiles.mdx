@@ -355,7 +355,7 @@ Free, on your own computer with Docker.
         'CMD runs once at build time; RUN runs each time a container starts',
       ],
       answer: 1,
-      explain: 'Putting RUN ./server in a Dockerfile makes the build start your server and hang.',
+      explain: 'RUN executes at build time and its changes become a layer; CMD is what the container runs when started. Putting RUN ./server in a Dockerfile makes the build start your server and hang.',
     },
     {
       q: 'Why copy go.mod/go.sum and download dependencies before copying the rest of the code?',
@@ -366,7 +366,7 @@ Free, on your own computer with Docker.
         'It is required for multi-stage builds to copy the modules across',
       ],
       answer: 1,
-      explain: 'When one layer misses the cache, every later step rebuilds. Put rarely-changing steps first.',
+      explain: 'So the dependency layer stays cached across code changes: only the steps after the changed files rerun. When one layer misses the cache, every later step rebuilds. Put rarely-changing steps first.',
     },
     {
       q: 'How did a multi-stage build shrink dockerlab from 448 MB to 14 MB?',
@@ -377,7 +377,7 @@ Free, on your own computer with Docker.
         'By using an older, smaller Go version to compile the program',
       ],
       answer: 1,
-      explain: 'COPY --from=build takes just the result. Tools needed only to build never reach the runtime image.',
+      explain: 'The final image contains only the compiled binary on a tiny base; the Go toolchain stayed in the discarded build stage. COPY --from=build takes just the result. Tools needed only to build never reach the runtime image.',
     },
     {
       q: 'CMD ./server | tee app.log makes docker stop take 10 seconds. Why?',
@@ -388,7 +388,7 @@ Free, on your own computer with Docker.
         'docker stop always takes 10 seconds, whatever the program does',
       ],
       answer: 1,
-      explain: 'Use exec form (a JSON array), or end startup scripts with exec, so your program is PID 1 and can shut down gracefully.',
+      explain: 'Shell form makes /bin/sh PID 1; the shell does not forward SIGTERM, so the server never hears it and is SIGKILLed after the timeout. Use exec form (a JSON array), or end startup scripts with exec, so your program is PID 1 and can shut down gracefully.',
     },
     {
       q: 'You pass a token with --build-arg and use it in a RUN. Is it safe?',
@@ -399,7 +399,7 @@ Free, on your own computer with Docker.
         'Only if the Dockerfile itself is kept in a private repository',
       ],
       answer: 1,
-      explain: 'The lab showed API_TOKEN=super-secret-123 in docker history. Runtime secrets belong in the environment at run time, never in the image.',
+      explain: 'No: build args used in RUN are recorded in the image history and readable by anyone who can pull it. Use BuildKit secret mounts instead. The lab showed API_TOKEN=super-secret-123 in docker history. Runtime secrets belong in the environment at run time, never in the image.',
     },
     {
       q: 'Why does snip use distroless rather than scratch as its runtime base?',
@@ -410,7 +410,7 @@ Free, on your own computer with Docker.
         'scratch images cannot be pushed to registries or signed',
       ],
       answer: 1,
-      explain: 'scratch is truly empty. distroless adds just those few essentials, and still no shell or package manager.',
+      explain: 'snip needs CA certificates, timezone data and a non-root user entry, which distroless provides and scratch does not. scratch is truly empty. distroless adds just those few essentials, and still no shell or package manager.',
     },
   ]}
 />

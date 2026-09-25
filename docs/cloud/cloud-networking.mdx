@@ -210,7 +210,7 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
         'It is placed in an availability zone that allows public traffic',
       ],
       answer: 1,
-      explain: 'Routing decides reachability. Private subnets route outbound traffic through a NAT gateway instead.',
+      explain: 'Its route table sends internet-bound traffic (0.0.0.0/0) to an internet gateway. Routing decides reachability. Private subnets route outbound traffic through a NAT gateway instead.',
     },
     {
       q: 'What does a NAT gateway allow?',
@@ -221,7 +221,7 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
         'DNS lookups for private resources from outside the VPC',
       ],
       answer: 1,
-      explain: 'Private tasks can pull images and call APIs without being reachable from outside.',
+      explain: 'Outgoing connections from private subnets to the internet, while blocking incoming ones. Private tasks can pull images and call APIs without being reachable from outside.',
     },
     {
       q: 'Why reference a security group (e.g. "from the app group") instead of an IP range in a rule?',
@@ -232,7 +232,7 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
         'It encrypts the traffic between the two groups automatically',
       ],
       answer: 1,
-      explain: 'Like Kubernetes label selectors: identity by role, not by address.',
+      explain: 'The rule stays correct as tasks come and go with changing IPs, and it expresses intent: only snip may reach the database. Like Kubernetes label selectors: identity by role, not by address.',
     },
     {
       q: 'Why do snip’s database and tasks run in private subnets with no public IP?',
@@ -243,7 +243,7 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
         'Managed databases refuse to start in a subnet that has a public route',
       ],
       answer: 1,
-      explain: 'Layers of protection mean one mistake isn’t a breach.',
+      explain: 'Defence in depth: even if a security group were misconfigured, there is no route from the internet to them. Layers of protection mean one mistake isn’t a breach.',
     },
     {
       q: 'Two VPCs both use 10.0.0.0/16 and now need to be connected. What’s the problem?',
@@ -254,7 +254,7 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
         'They must first be moved into the same availability zone and account',
       ],
       answer: 1,
-      explain: 'Plan non-overlapping address space up front, across all accounts and regions.',
+      explain: 'Overlapping ranges can’t be routed between; one network must be re-addressed, which usually means rebuilding it. Plan non-overlapping address space up front, across all accounts and regions.',
     },
   ]}
 />

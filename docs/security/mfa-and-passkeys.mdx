@@ -233,7 +233,7 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
         'It is, as long as the answers are long, not easily guessed, and never reused on other sites',
       ],
       answer: 1,
-      explain: 'MFA means factors of different kinds, so that stealing one kind of thing isn’t enough.',
+      explain: 'Both are "something you know": anyone who learns them (from a leak, social media or phishing) has both, so there is no second kind of proof. MFA means factors of different kinds, so that stealing one kind of thing isn’t enough.',
     },
     {
       q: 'An attacker builds a fake login page that relays everything to the real site in real time. Which factor still protects the user?',
@@ -244,7 +244,7 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
         'A longer password that the attacker can’t guess',
       ],
       answer: 2,
-      explain: 'Codes can be typed into the wrong site and relayed. Passkeys are bound to the origin by the browser, not by the user’s attention.',
+      explain: 'A passkey: the browser only uses it on the real domain, so the fake page can’t get a valid signature. Codes can be typed into the wrong site and relayed. Passkeys are bound to the origin by the browser, not by the user’s attention.',
     },
     {
       q: 'Why can’t a server store TOTP secrets as hashes, the way it stores passwords?',
@@ -255,7 +255,7 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
         'TOTP secrets are public, like the QR code they come from',
       ],
       answer: 1,
-      explain: 'Both sides compute HMAC(secret, time). Only the side that keeps a public key (passkeys) avoids storing a secret.',
+      explain: 'The server must compute each expected code from the secret itself, so it needs the secret: encrypt it at rest instead. Both sides compute HMAC(secret, time). Only the side that keeps a public key (passkeys) avoids storing a secret.',
     },
     {
       q: 'What defends against MFA fatigue attacks on push approvals?',
@@ -266,7 +266,7 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
         'Pausing push prompts at night, when attacks are most common',
       ],
       answer: 1,
-      explain: 'A blind tap should never be enough to approve a login the user didn’t start.',
+      explain: 'Number matching (the user types a number shown on the login screen), limits on prompts, and alerting on repeated denials. A blind tap should never be enough to approve a login the user didn’t start.',
     },
     {
       q: 'Once MFA is widely enabled, where do attackers typically turn next?',
@@ -277,7 +277,7 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
         'Nowhere new; they keep trying passwords at a much lower rate',
       ],
       answer: 1,
-      explain: 'The recovery path must be at least as strong as the login it bypasses.',
+      explain: 'Account recovery and support desks: "I lost my phone, please remove the second factor". The recovery path must be at least as strong as the login it bypasses.',
     },
   ]}
 />

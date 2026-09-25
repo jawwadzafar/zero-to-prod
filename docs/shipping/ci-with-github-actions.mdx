@@ -262,7 +262,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'Only if the second job lists the first in needs:, which copies the files across',
       ],
       answer: 1,
-      explain: 'Jobs are isolated and run in parallel by default. Share deliberately: artefacts, outputs, registries.',
+      explain: 'No, each job runs on its own fresh machine; pass files with artefacts (or a registry) and small values with outputs. Jobs are isolated and run in parallel by default. Share deliberately: artefacts, outputs, registries.',
     },
     {
       q: 'What do service containers give snip’s test job?',
@@ -273,7 +273,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'Mocked versions of Postgres and Redis that reset between tests',
       ],
       answer: 1,
-      explain: 'Testing against real dependencies catches wrong SQL and behaviour that fakes would hide.',
+      explain: 'Real Postgres and Redis running alongside the job, so integration tests use the real databases. Testing against real dependencies catches wrong SQL and behaviour that fakes would hide.',
     },
     {
       q: 'Why set permissions: contents: read at the top of a CI workflow?',
@@ -284,7 +284,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'To stop forks from reading the repository’s secrets during runs',
       ],
       answer: 1,
-      explain: 'Grant write permissions only to the workflows that need them (like image.yml’s packages: write).',
+      explain: 'Least privilege: if a dependency or action is malicious, the GITHUB_TOKEN it can use can only read the code. Grant write permissions only to the workflows that need them (like image.yml’s packages: write).',
     },
     {
       q: 'Why is run: echo "${{ github.event.pull_request.title }}" dangerous?',
@@ -295,7 +295,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'echo drops quotes, so the title prints wrongly and the step fails',
       ],
       answer: 1,
-      explain: 'Like SQL injection: untrusted text becomes code. Environment variables keep it as data.',
+      explain: 'The expression is pasted into the script before the shell runs it, so a crafted title can inject commands. Pass it through an environment variable instead. Like SQL injection: untrusted text becomes code. Environment variables keep it as data.',
     },
     {
       q: 'What does OIDC replace when deploying from CI to a cloud?',
@@ -306,7 +306,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'The deploy approval step, since OIDC checks the code itself before any deploy runs',
       ],
       answer: 1,
-      explain: 'No stored secret means nothing to leak. The cloud trusts a specific repository, branch and workflow.',
+      explain: 'Long-lived cloud access keys stored as secrets: the workflow gets short-lived credentials by proving its identity. No stored secret means nothing to leak. The cloud trusts a specific repository, branch and workflow.',
     },
     {
       q: 'Why cancel superseded runs on pull requests but not on main?',
@@ -317,7 +317,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'To keep main’s cache warm, since cancelled runs don’t save a cache',
       ],
       answer: 1,
-      explain: 'Concurrency saves time without losing the history that matters.',
+      explain: 'On a PR only the latest commit matters; on main every commit should keep a result, so you know which commit broke something. Concurrency saves time without losing the history that matters.',
     },
   ]}
 />

@@ -210,7 +210,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
         'The Pod’s memory limit is higher than the namespace allows',
       ],
       answer: 1,
-      explain: 'Scheduling is based on requests. Pending plus FailedScheduling means no node fits.',
+      explain: 'No node has enough unreserved memory to satisfy the Pod’s memory request; lower the request, free capacity or add nodes. Scheduling is based on requests. Pending plus FailedScheduling means no node fits.',
     },
     {
       q: 'You deploy an image tag with a typo. With maxUnavailable: 0, what do users experience?',
@@ -221,7 +221,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
         'A short blip, then the cluster rolls back to the last good image',
       ],
       answer: 1,
-      explain: 'Old Pods are only removed after new ones are ready. The rollout stalls; it doesn’t break service.',
+      explain: 'Nothing: the new Pod is stuck in ImagePullBackOff and the old Pods keep serving until you undo or fix the rollout. Old Pods are only removed after new ones are ready. The rollout stalls; it doesn’t break service.',
     },
     {
       q: 'Why does snip’s HPA show cpu: <unknown> on a cluster without metrics-server?',
@@ -243,7 +243,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
         'kubectl exec with sh, which copies its own shell into the container before running it',
       ],
       answer: 1,
-      explain: 'Ephemeral containers keep production images minimal while still allowing investigation.',
+      explain: 'kubectl debug adds an ephemeral container from an image with tools, sharing the Pod’s network and (with --target) the container’s processes. Ephemeral containers keep production images minimal while still allowing investigation.',
     },
     {
       q: 'What does a PodDisruptionBudget protect against?',
@@ -254,7 +254,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
         'Bad deployments, by pausing rollouts that lose Pods',
       ],
       answer: 1,
-      explain: 'Evictions wait until the budget allows them. Crashes aren’t voluntary; replicas across nodes cover those.',
+      explain: 'Voluntary disruptions like drains and upgrades removing too many Pods at once. Evictions wait until the budget allows them. Crashes aren’t voluntary; replicas across nodes cover those.',
     },
   ]}
 />

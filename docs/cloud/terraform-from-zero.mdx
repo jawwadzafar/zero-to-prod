@@ -267,7 +267,7 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
         'Your code on this branch and your code on main',
       ],
       answer: 1,
-      explain: 'The plan is the difference between desired and actual, computed before anything changes.',
+      explain: 'Your code (desired), the state (what Terraform created) and reality (refreshed from the provider). The plan is the difference between desired and actual, computed before anything changes.',
     },
     {
       q: 'A plan shows -/+ for your database. What does that mean?',
@@ -278,7 +278,7 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
         'Nothing will change; -/+ marks a resource that is already correct',
       ],
       answer: 1,
-      explain: 'Some changes force replacement. Read every -/+ before approving.',
+      explain: 'The database will be destroyed and a new one created: its data will be lost unless you intervene. Some changes force replacement. Read every -/+ before approving.',
     },
     {
       q: 'You run terraform apply twice with no code changes. What does the second one do?',
@@ -289,7 +289,7 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
         'Fails, because the resources already exist',
       ],
       answer: 1,
-      explain: 'Idempotency is what makes IaC safe to automate and re-run.',
+      explain: 'Nothing: the plan shows no changes, because state and reality already match the code (idempotency). Idempotency is what makes IaC safe to automate and re-run.',
     },
     {
       q: 'How does Terraform know to create the Docker network before the containers that use it?',
@@ -300,7 +300,7 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
         'It retries anything that fails until everything succeeds',
       ],
       answer: 1,
-      explain: 'References build the graph. Independent resources are created in parallel.',
+      explain: 'The containers reference docker_network.snip.id, so the dependency graph orders them; depends_on covers hidden dependencies. References build the graph. Independent resources are created in parallel.',
     },
     {
       q: 'Why commit .terraform.lock.hcl?',
@@ -311,7 +311,7 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
         'It stops two people running apply at the same time',
       ],
       answer: 1,
-      explain: 'Like go.sum or package-lock.json: reproducible, verified dependencies. (The state file is never committed.)',
+      explain: 'It pins exact provider versions and checksums so everyone and CI use identical providers. Like go.sum or package-lock.json: reproducible, verified dependencies. (The state file is never committed.)',
     },
     {
       q: 'Why can for_each be safer than count for a list of named things?',
@@ -322,7 +322,7 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
         'for_each keeps a copy of removed items until the next apply',
       ],
       answer: 1,
-      explain: 'With count, deleting item 1 of 3 shifts item 2 into slot 1, and Terraform replaces it.',
+      explain: 'Items are addressed by key, so removing one doesn’t renumber and replace the others. With count, deleting item 1 of 3 shifts item 2 into slot 1, and Terraform replaces it.',
     },
   ]}
 />

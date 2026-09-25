@@ -271,7 +271,7 @@ Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
         'They all run attacker JavaScript on the server itself',
       ],
       answer: 1,
-      explain: 'Keep data and code separate with the interpreter’s safe mechanism: SQL parameters, argument lists for commands, escaping templates for HTML.',
+      explain: 'Untrusted data is mixed into something interpreted as code, and the interpreter cannot tell data from instructions. Keep data and code separate with the interpreter’s safe mechanism: SQL parameters, argument lists for commands, escaping templates for HTML.',
     },
     {
       q: 'Why is snip’s API not vulnerable to classic CSRF?',
@@ -282,7 +282,7 @@ Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
         'Its CORS headers tell browsers to stop other sites from sending it any requests',
       ],
       answer: 1,
-      explain: 'CSRF relies on browsers automatically sending cookies. Bearer tokens in headers must be added deliberately by code, so another site cannot forge authenticated requests.',
+      explain: 'It authenticates with an Authorization header, which browsers never attach automatically to cross-site requests. CSRF relies on browsers automatically sending cookies. Bearer tokens in headers must be added deliberately by code, so another site cannot forge authenticated requests.',
     },
     {
       q: 'A new snip feature fetches each link’s page to show a preview. What attack must it defend against?',
@@ -293,7 +293,7 @@ Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
         'SQL injection, via quotes inside the fetched page’s text',
       ],
       answer: 1,
-      explain: 'The server can reach private networks that attackers cannot. Refuse private and link-local addresses (after redirects too), isolate the fetcher, and use IMDSv2 on AWS.',
+      explain: 'Server-side request forgery — attacker URLs pointing at internal addresses like the cloud metadata service. The server can reach private networks that attackers cannot. Refuse private and link-local addresses (after redirects too), isolate the fetcher, and use IMDSv2 on AWS.',
     },
     {
       q: 'Which statement about CORS is true?',
@@ -304,7 +304,7 @@ Free, on your own computer. The vulnerable page only listens on `127.0.0.1`.
         'It replaces authentication for requests from browsers',
       ],
       answer: 1,
-      explain: 'CORS relaxes the browser’s same-origin policy. Non-browser clients ignore it, so your API still needs real authentication and authorization.',
+      explain: 'It only controls which origins’ browser scripts may read your responses; it is not server-side access control. CORS relaxes the browser’s same-origin policy. Non-browser clients ignore it, so your API still needs real authentication and authorization.',
     },
   ]}
 />

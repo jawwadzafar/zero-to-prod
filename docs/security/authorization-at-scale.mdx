@@ -272,7 +272,7 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
         'It shouldn’t; one check at the edge is safer than many copies of the same rule spread across services',
       ],
       answer: 1,
-      explain: 'Broken object-level authorization is what happens when the object check is missing.',
+      explain: 'Only the service knows who owns link Y; gateways can check tokens and scopes, but object-level decisions need the object. Broken object-level authorization is what happens when the object check is missing.',
     },
     {
       q: 'What is role explosion?',
@@ -294,7 +294,7 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
         'It depends on the role: admins may, others may not',
       ],
       answer: 1,
-      explain: 'Deny by default: new actions are refused until a rule explicitly allows them.',
+      explain: 'It’s denied, because of default allow := false. Deny by default: new actions are refused until a rule explicitly allows them.',
     },
     {
       q: 'In a Zanzibar-style system, Grace is removed from team growth. What happens to her access to links in folders shared with the team?',
@@ -305,7 +305,7 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
         'Only edit access goes; she keeps viewing, which is the safe default',
       ],
       answer: 1,
-      explain: 'Access is computed from relationships at check time, so removing one relationship revokes everything it implied.',
+      explain: 'It disappears immediately, because it was derived from the membership tuple that was removed. Access is computed from relationships at check time, so removing one relationship revokes everything it implied.',
     },
     {
       q: 'Why are tests that assert a refusal ("not allow") especially important for authorization?',
@@ -316,7 +316,7 @@ Free and local. Steps 1–3 need Docker; step 4 needs Go.
         'They cut logging costs, since refused requests aren’t recorded',
       ],
       answer: 1,
-      explain: 'The dangerous bugs are the ones that grant too much.',
+      explain: 'A policy that allows everything passes every "allowed" test; only refusal tests catch over-permissive changes. The dangerous bugs are the ones that grant too much.',
     },
   ]}
 />

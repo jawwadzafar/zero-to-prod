@@ -178,7 +178,7 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
         'Deploying happens after releasing, once the version is approved',
       ],
       answer: 1,
-      explain: 'Separating them turns deployments into routine events and releases into controlled decisions.',
+      explain: 'Deploying puts new code on production machines; releasing lets users experience the change. Canaries and feature flags separate the two. Separating them turns deployments into routine events and releases into controlled decisions.',
     },
     {
       q: 'A rolling update finishes, all Pods are ready, and users report wrong results. Why didn’t the rollout stop?',
@@ -189,7 +189,7 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
         'Kubernetes ignores readiness during rollouts, to avoid getting stuck',
       ],
       answer: 1,
-      explain: 'Probes answer "is it up?". Business metrics and error rates answer "is it right?".',
+      explain: 'Readiness only checks that Pods respond, not that they’re correct; catching wrong behaviour needs metrics-based checks, as in canary analysis. Probes answer "is it up?". Business metrics and error rates answer "is it right?".',
     },
     {
       q: 'What is the main advantage of a canary over blue-green?',
@@ -200,7 +200,7 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
         'Canaries test database migrations on a copy before they run',
       ],
       answer: 1,
-      explain: 'Blue-green switches everyone together (with instant switch-back). Canaries expose a fraction first.',
+      explain: 'Only a small share of real users meet the new version at first, limiting the blast radius while testing with real traffic. Blue-green switches everyone together (with instant switch-back). Canaries expose a fraction first.',
     },
     {
       q: 'Why can’t a release that renamed a database column simply be rolled back?',
@@ -211,7 +211,7 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
         'The old column name is cached by the connection pool until restart',
       ],
       answer: 1,
-      explain: 'During any rollout old and new versions share one database, so schema changes must be backwards compatible.',
+      explain: 'The old code expects the old column; code rolls back but the schema change remains. Use expand-and-contract so every step works with both versions. During any rollout old and new versions share one database, so schema changes must be backwards compatible.',
     },
     {
       q: 'What does a progressive delivery controller like Argo Rollouts add to a canary?',
@@ -222,7 +222,7 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
         'Feature flags, so the canary can be turned off without a deploy',
       ],
       answer: 1,
-      explain: 'It replaces a human watching dashboards with an automated, consistent decision.',
+      explain: 'Automatic step-by-step traffic shifting with metric checks, promoting on good numbers and rolling back on bad ones. It replaces a human watching dashboards with an automated, consistent decision.',
     },
     {
       q: 'A new feature is deployed but hidden behind a flag that is off. What is this called?',

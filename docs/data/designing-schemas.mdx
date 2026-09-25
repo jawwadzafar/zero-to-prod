@@ -357,7 +357,7 @@ The second is a classic pattern: filter to either tag, group per link, and keep 
         'To save disk space, since slugs are shorter than numeric IDs',
       ],
       answer: 1,
-      explain: 'A natural key works well when it is truly unique, stable and the main lookup. If slugs could be renamed, a surrogate id plus a UNIQUE slug would be safer.',
+      explain: 'Slugs must be unique, never change, and every redirect looks up by slug — so the key gives the hottest query a perfect index. A natural key works well when it is truly unique, stable and the main lookup. If slugs could be renamed, a surrogate id plus a UNIQUE slug would be safer.',
     },
     {
       q: 'What does REFERENCES api_keys (id) ON DELETE CASCADE do on links.owner_id?',
@@ -368,7 +368,7 @@ The second is a classic pattern: filter to either tag, group per link, and keep 
         'Makes owner_id optional, and sets it to NULL if the key goes',
       ],
       answer: 1,
-      explain: 'The foreign key prevents references to missing rows; CASCADE says deleting the parent also deletes its children. RESTRICT or SET NULL are the alternatives.',
+      explain: 'Guarantees every owner_id exists, and deletes a key’s links when the key is deleted. The foreign key prevents references to missing rows; CASCADE says deleting the parent also deletes its children. RESTRICT or SET NULL are the alternatives.',
     },
     {
       q: 'A table stores each link with its owner’s email copied into every row. What problem is this?',
@@ -390,7 +390,7 @@ The second is a classic pattern: filter to either tag, group per link, and keep 
         'One links row per tag, sharing the same slug',
       ],
       answer: 1,
-      explain: 'Many-to-many needs a junction table. Comma-separated lists cannot be indexed, validated or joined properly.',
+      explain: 'A join table (link_tags) with one row per link–tag pair and foreign keys to both. Many-to-many needs a junction table. Comma-separated lists cannot be indexed, validated or joined properly.',
     },
   ]}
 />

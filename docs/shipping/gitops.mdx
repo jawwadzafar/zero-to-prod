@@ -209,7 +209,7 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
         'CI must run kubectl apply after each merge to the main branch',
       ],
       answer: 1,
-      explain: 'Declarative, versioned in Git, pulled automatically, continuously reconciled.',
+      explain: 'Git is the single source of truth for what runs; an agent continuously makes the cluster match it. Declarative, versioned in Git, pulled automatically, continuously reconciled.',
     },
     {
       q: 'Why is pull-based deployment considered more secure than push-based?',
@@ -220,7 +220,7 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
         'The agent checks each commit’s signature before applying it',
       ],
       answer: 1,
-      explain: 'CI runs lots of third-party code. Keeping cluster credentials out of it removes a big risk.',
+      explain: 'The CI system no longer needs credentials to the cluster; the in-cluster agent only needs read access to Git. CI runs lots of third-party code. Keeping cluster credentials out of it removes a big risk.',
     },
     {
       q: 'Someone runs kubectl scale deploy/api --replicas=10 on a cluster managed by Argo CD with selfHeal. What happens?',
@@ -231,7 +231,7 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
         'Argo CD commits replicas: 10 to Git, so they match again',
       ],
       answer: 1,
-      explain: 'Hand-made changes don’t stick. Change Git instead, or pause sync during an emergency.',
+      explain: 'Argo CD detects the drift from Git and scales it back to what Git says. Hand-made changes don’t stick. Change Git instead, or pause sync during an emergency.',
     },
     {
       q: 'An Application shows Synced but Degraded. What does that mean?',
@@ -242,7 +242,7 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
         'The sync is still in progress and some resources are pending',
       ],
       answer: 1,
-      explain: 'Sync compares with Git; health checks whether it works. Fix it with a commit.',
+      explain: 'The cluster matches Git exactly, but the resources aren’t working (e.g. Pods not ready): what Git describes is broken. Sync compares with Git; health checks whether it works. Fix it with a commit.',
     },
     {
       q: 'How is a release promoted from staging to production in a GitOps setup?',
@@ -253,7 +253,7 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
         'By re-syncing production in Argo CD, which reads staging’s state',
       ],
       answer: 1,
-      explain: 'Promotion and rollback become reviewable commits: merge to promote, revert to roll back.',
+      explain: 'By a pull request that updates production’s desired state (e.g. the image tag) to what was tested in staging. Promotion and rollback become reviewable commits: merge to promote, revert to roll back.',
     },
     {
       q: 'How should secrets be handled when "everything is in Git"?',
@@ -264,7 +264,7 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
         'Keep them out of Git and create them by hand with kubectl',
       ],
       answer: 1,
-      explain: 'Git history is forever. Store the value in a secret manager, and keep only a reference or ciphertext in Git.',
+      explain: 'Commit references (External Secrets) or encrypted values (Sealed Secrets, SOPS), never plaintext. Git history is forever. Store the value in a secret manager, and keep only a reference or ciphertext in Git.',
     },
   ]}
 />

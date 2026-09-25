@@ -269,7 +269,7 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'To keep the code private, since state holds a copy of it',
       ],
       answer: 1,
-      explain: 'One shared, locked, encrypted, versioned copy is the team’s record of what exists.',
+      explain: 'Everyone must work from the same state, and locking stops two concurrent applies from corrupting it. One shared, locked, encrypted, versioned copy is the team’s record of what exists.',
     },
     {
       q: 'Does sensitive = true on an output keep the value out of the state file?',
@@ -280,7 +280,7 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'Only with remote state, which drops sensitive values when saving',
       ],
       answer: 1,
-      explain: 'To keep secrets out of state, use ephemeral values and write-only arguments, or let the provider manage the secret.',
+      explain: 'No: it only hides the value in terminal output. It’s still stored in state in plain text. To keep secrets out of state, use ephemeral values and write-only arguments, or let the provider manage the secret.',
     },
     {
       q: 'How does snip’s AWS configuration keep the database password out of state?',
@@ -291,7 +291,7 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'It has no password; the database only accepts IAM login',
       ],
       answer: 1,
-      explain: 'The value exists only during the apply; a version number triggers rotation.',
+      explain: 'An ephemeral random_password feeds write-only arguments (password_wo, secret_string_wo), which are sent to AWS but never recorded. The value exists only during the apply; a version number triggers rotation.',
     },
     {
       q: 'You rename a resource in code. What prevents Terraform from destroying and recreating it?',
@@ -313,7 +313,7 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'It skips validation and refresh, so the apply finishes much sooner',
       ],
       answer: 1,
-      explain: 'A fresh apply computes a new plan, which might differ from the reviewed one.',
+      explain: 'So what reviewers approved is exactly what happens, even if something changed between review and apply. A fresh apply computes a new plan, which might differ from the reviewed one.',
     },
     {
       q: 'Why did snip’s lock files need checksums for five platforms?',
@@ -324,7 +324,7 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'For state encryption, with one key for each developer’s machine',
       ],
       answer: 1,
-      explain: 'terraform providers lock -platform=… records checksums for every platform your team and CI use.',
+      explain: 'Provider packages differ per OS and CPU; a lock with only Linux checksums makes terraform init fail on Macs and Windows. terraform providers lock -platform=… records checksums for every platform your team and CI use.',
     },
   ]}
 />

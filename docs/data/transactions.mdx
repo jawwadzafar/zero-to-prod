@@ -288,7 +288,7 @@ Steps 1â€“2 run in the playground above. Step 3 needs Docker and two terminals â
         'Postgres keeps it and only rolls back the failed UPDATE',
       ],
       answer: 1,
-      explain: 'Atomicity means all or nothing. Any failure before COMMIT undoes every change in the transaction.',
+      explain: 'It is undone â€” the whole transaction is rolled back (atomicity). Atomicity means all or nothing. Any failure before COMMIT undoes every change in the transaction.',
     },
     {
       q: 'Two requests each run SELECT clicks, add 1 in Go, then UPDATE clicks = <new value>. What can go wrong under Postgresâ€™s default isolation?',
@@ -310,7 +310,7 @@ Steps 1â€“2 run in the playground above. Step 3 needs Docker and two terminals â
         'Duplicate slugs are allowed, and the newest one wins',
       ],
       answer: 1,
-      explain: 'Two requests could both see "free" and both insert. The unique constraint is the only race-free judge; snip maps the duplicate error to 409.',
+      explain: 'Check-then-insert races; the PRIMARY KEY lets the database accept exactly one and reject the other atomically. Two requests could both see "free" and both insert. The unique constraint is the only race-free judge; snip maps the duplicate error to 409.',
     },
     {
       q: 'Postgres reports "deadlock detected". What should the application do?',
@@ -321,7 +321,7 @@ Steps 1â€“2 run in the playground above. Step 3 needs Docker and two terminals â
         'Wait: Postgres retries the transaction by itself',
       ],
       answer: 1,
-      explain: 'Postgres aborts one transaction so the other can finish; nothing is corrupted. The victim should be retried, and consistent lock ordering plus short transactions make deadlocks rarer.',
+      explain: 'Retry the aborted transaction (with a limit), and prevent future deadlocks by locking rows in a consistent order. Postgres aborts one transaction so the other can finish; nothing is corrupted. The victim should be retried, and consistent lock ordering plus short transactions make deadlocks rarer.',
     },
   ]}
 />

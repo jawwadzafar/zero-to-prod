@@ -312,7 +312,7 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
         'latest images can’t be scanned, because scanners need a version number',
       ],
       answer: 1,
-      explain: 'Deploy immutable tags (such as the commit SHA) or digests, so "what is running?" always has an exact answer.',
+      explain: 'latest is a movable label: machines can run different code under the same name, and there is nothing precise to roll back to. Deploy immutable tags (such as the commit SHA) or digests, so "what is running?" always has an exact answer.',
     },
     {
       q: 'What does govulncheck do that a plain image scanner does not?',
@@ -323,7 +323,7 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
         'It signs the image, so the cluster can refuse unscanned ones',
       ],
       answer: 1,
-      explain: 'Reachability analysis cuts noise: a CVE in code you never call is reported but not treated as urgent.',
+      explain: 'It checks whether your code actually calls the vulnerable functions, so unreachable vulnerabilities do not fail the build. Reachability analysis cuts noise: a CVE in code you never call is reported but not treated as urgent.',
     },
     {
       q: 'How does snip build an arm64 image quickly on an amd64 CI machine?',
@@ -334,7 +334,7 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
         'GitHub moves the job to an ARM runner automatically when it sees arm64',
       ],
       answer: 1,
-      explain: 'Emulated compiling is often 5–20× slower. The runtime stage only copies files, which needs no emulation.',
+      explain: 'The build stage runs natively (FROM --platform=$BUILDPLATFORM) and Go cross-compiles for the target architecture. Emulated compiling is often 5–20× slower. The runtime stage only copies files, which needs no emulation.',
     },
     {
       q: 'What is an SBOM for?',
@@ -345,7 +345,7 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
         'Speeding up builds by telling the cache which layers to keep',
       ],
       answer: 1,
-      explain: 'A software bill of materials is an ingredient list. With SBOMs, "which services contain library X?" takes minutes.',
+      explain: 'Listing every package and version in an artefact, so you can quickly find everything affected when a new vulnerability is announced. A software bill of materials is an ingredient list. With SBOMs, "which services contain library X?" takes minutes.',
     },
     {
       q: 'Which container setting effectively gives root on the host to anyone who controls the container?',
@@ -367,7 +367,7 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
         'Only if it uses Alpine, whose packages update themselves',
       ],
       answer: 1,
-      explain: 'New CVEs are published about old software every day. A scan at build time says nothing about vulnerabilities found since.',
+      explain: 'Probably not: the base image and dependencies have likely had security fixes since. Rebuild regularly and re-scan deployed images. New CVEs are published about old software every day. A scan at build time says nothing about vulnerabilities found since.',
     },
   ]}
 />

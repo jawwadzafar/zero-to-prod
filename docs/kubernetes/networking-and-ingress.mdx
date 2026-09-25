@@ -265,7 +265,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
         'Pods share their node’s IP, so the address isn’t unique to them',
       ],
       answer: 1,
-      explain: 'Stable names and virtual IPs (Services) plus DNS are Kubernetes’ answer to constantly changing Pods.',
+      explain: 'Pods are replaced with new IPs all the time; a Service provides a stable address and name in front of whichever Pods are ready. Stable names and virtual IPs (Services) plus DNS are Kubernetes’ answer to constantly changing Pods.',
     },
     {
       q: 'How does a failing readiness probe remove a Pod from a Service?',
@@ -276,7 +276,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
         'The Pod is restarted, which takes it out of rotation',
       ],
       answer: 1,
-      explain: 'Only ready Pods appear in endpoints. The Pod keeps running, just without new traffic.',
+      explain: 'The Pod is dropped from the Service’s EndpointSlices, so kube-proxy stops routing new connections to it. Only ready Pods appear in endpoints. The Pod keeps running, just without new traffic.',
     },
     {
       q: 'A Pod in the monitoring namespace connects to "api:80" and it fails to resolve. Why?',
@@ -287,7 +287,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
         'Port 80 is reserved for Ingress, so Services use another port',
       ],
       answer: 1,
-      explain: 'Search domains start with the Pod’s own namespace. Add the namespace to the name.',
+      explain: 'Short names resolve within the caller’s own namespace; from another namespace use api.snip or api.snip.svc.cluster.local. Search domains start with the Pod’s own namespace. Add the namespace to the name.',
     },
     {
       q: 'What does the Gateway API improve over Ingress?',
@@ -298,7 +298,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
         'It adds TLS, which Ingress has no way to configure',
       ],
       answer: 1,
-      explain: 'The same HTTPRoute works across implementations. Ingress features beyond host and path lived in annotations that differ per controller.',
+      explain: 'Standard, portable objects for richer routing (headers, weights, redirects) and role separation (GatewayClass, Gateway, Routes), instead of controller-specific annotations. The same HTTPRoute works across implementations. Ingress features beyond host and path lived in annotations that differ per controller.',
     },
     {
       q: 'You add a default-deny NetworkPolicy to a namespace. What else must you add for the app to keep working?',
@@ -309,7 +309,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step here ru
         'A new namespace for the database, outside the default-deny',
       ],
       answer: 1,
-      explain: 'Deny by default, then allow what’s needed. In the lab, snip still worked while an unrelated Pod couldn’t reach Postgres.',
+      explain: 'Policies allowing each needed connection, e.g. api and worker to postgres and redis, and traffic to the API’s port. Deny by default, then allow what’s needed. In the lab, snip still worked while an unrelated Pod couldn’t reach Postgres.',
     },
     {
       q: 'Your NetworkPolicies are applied but traffic is not being blocked. What is a likely cause?',

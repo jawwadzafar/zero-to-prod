@@ -293,7 +293,7 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
         'SHA-256 was broken years ago, so its outputs can be reversed',
       ],
       answer: 1,
-      explain: 'Human passwords are guessable. Salts defeat precomputed tables and duplicate-password detection; deliberate slowness defeats mass guessing.',
+      explain: 'Fast hashes let attackers test billions of guesses per second; slow, salted hashes make stolen hashes very expensive to crack. Human passwords are guessable. Salts defeat precomputed tables and duplicate-password detection; deliberate slowness defeats mass guessing.',
     },
     {
       q: 'snip hashes API keys with fast SHA-256. Why is that acceptable?',
@@ -304,7 +304,7 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
         'It isn’t acceptable; every secret, including API keys, should be stored with bcrypt or Argon2',
       ],
       answer: 1,
-      explain: 'Slow hashing protects weak, human-chosen secrets. Long random keys are infeasible to guess, so a fast hash is safe and avoids a costly slow hash on every API call.',
+      explain: 'The keys are long random values (~190 bits), so there is nothing guessable to brute-force — and keys are checked on every request, where speed matters. Slow hashing protects weak, human-chosen secrets. Long random keys are infeasible to guess, so a fast hash is safe and avoids a costly slow hash on every API call.',
     },
     {
       q: 'In TLS, what does the certificate prove?',
@@ -315,7 +315,7 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
         'That the user is who they claim, because the browser signed it',
       ],
       answer: 1,
-      explain: 'The CA’s signature binds the site’s name to its public key. That is what stops an impostor from pretending to be snip.example.',
+      explain: 'That the public key really belongs to the named site, because a trusted Certificate Authority signed it. The CA’s signature binds the site’s name to its public key. That is what stops an impostor from pretending to be snip.example.',
     },
   ]}
 />

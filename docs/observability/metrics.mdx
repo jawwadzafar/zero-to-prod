@@ -214,7 +214,7 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
         'Routes are shorter, so each sample takes less disk space',
       ],
       answer: 1,
-      explain: 'Cardinality is the main way to break a metrics system. Unbounded values belong in logs and traces.',
+      explain: 'Every distinct label value creates a new time series; paths are unbounded (one per link), routes are a small fixed set. Cardinality is the main way to break a metrics system. Unbounded values belong in logs and traces.',
     },
     {
       q: 'How do you get p99 latency from snip’s metrics?',
@@ -236,7 +236,7 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
         'Retries, Errors, Deploys: what changed and how it went',
       ],
       answer: 1,
-      explain: 'USE (Utilisation, Saturation, Errors) is its partner for resources like CPUs, pools and queues.',
+      explain: 'Rate, Errors, Duration: what users experience. USE (Utilisation, Saturation, Errors) is its partner for resources like CPUs, pools and queues.',
     },
     {
       q: 'increase(counter[5m]) returned 691.7 for exactly 600 requests. Why?',
@@ -247,7 +247,7 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
         'Prometheus lost some samples and filled the gap with guesses',
       ],
       answer: 1,
-      explain: 'Prometheus samples every few seconds and estimates what happened between the first and last sample and the window edges.',
+      explain: 'rate and increase extrapolate to the window boundaries, giving estimates; fine for trends and alerts, not exact counts. Prometheus samples every few seconds and estimates what happened between the first and last sample and the window edges.',
     },
     {
       q: 'Why is Grafana’s snip dashboard stored as JSON files in the repository?',
@@ -258,7 +258,7 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
         'Prometheus reads the JSON to know which metrics to scrape',
       ],
       answer: 1,
-      explain: 'The same reasoning as infrastructure as code (chapter 12.5).',
+      explain: 'Dashboards as code: versioned, reviewed, and recreated identically in every environment, instead of hand-made and lost. The same reasoning as infrastructure as code (chapter 12.5).',
     },
   ]}
 />

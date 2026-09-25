@@ -178,7 +178,7 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
         'Block storage can be shared by many machines; object storage by one',
       ],
       answer: 1,
-      explain: 'Databases want block storage; uploads, backups and logs want object storage.',
+      explain: 'Block storage is a disk attached to one machine and used as a filesystem; object storage stores whole files by key over an HTTP API, cheaply and at huge scale. Databases want block storage; uploads, backups and logs want object storage.',
     },
     {
       q: 'In S3, what is csv.gz/1763.csv.gz?',
@@ -189,7 +189,7 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
         'A compressed archive that S3 unpacks when the file is read',
       ],
       answer: 1,
-      explain: 'Object storage is a flat key-value store. The delimiter listing groups keys by prefix.',
+      explain: 'A single key that happens to contain a slash; "folders" are a display convenience over shared prefixes. Object storage is a flat key-value store. The delimiter listing groups keys by prefix.',
     },
     {
       q: 'How do most applications let users upload large files without making a bucket public or routing the bytes through their servers?',
@@ -200,7 +200,7 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
         'Storing files in the database, which streams them to storage later',
       ],
       answer: 1,
-      explain: 'The API stays in control of who uploads what, and the storage service handles the heavy lifting.',
+      explain: 'Pre-signed URLs: the API grants short-lived permission to upload one specific object directly to storage. The API stays in control of who uploads what, and the storage service handles the heavy lifting.',
     },
     {
       q: 'What does Multi-AZ give a managed database?',
@@ -211,7 +211,7 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
         'Cheaper storage, as data is split across zones instead of copied',
       ],
       answer: 1,
-      explain: 'It’s for availability. Read replicas are for scaling reads and are asynchronous.',
+      explain: 'A synchronous standby in another zone with automatic failover, so a zone or machine failure doesn’t lose the database. It’s for availability. Read replicas are for scaling reads and are asynchronous.',
     },
     {
       q: 'A bad migration at 14:03 corrupted a table. What managed-database feature helps most?',
@@ -233,7 +233,7 @@ Free, and **no cloud account needed**. NOAA publishes global weather records in 
         'VMs in eu-west-1 need a support contract before they can be launched',
       ],
       answer: 1,
-      explain: 'Choose the least operational work that meets your needs.',
+      explain: 'Fargate runs the container without any servers to patch or scale, which is less work for a typical HTTP service like snip. Choose the least operational work that meets your needs.',
     },
   ]}
 />

@@ -315,7 +315,7 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
         'Pods created directly skip the scheduler, so they all land on the control-plane node',
       ],
       answer: 1,
-      explain: 'A bare Pod that dies stays dead. Controllers keep the desired number of Pods running.',
+      explain: 'Pods are disposable and aren’t recreated if they die; a Deployment, StatefulSet or Job manages them and replaces them. A bare Pod that dies stays dead. Controllers keep the desired number of Pods running.',
     },
     {
       q: 'What connects a Deployment or a Service to its Pods?',
@@ -337,7 +337,7 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
         'It is a mistake; both should check every dependency the API needs',
       ],
       answer: 1,
-      explain: 'Liveness failure means "restart me". Readiness failure means "don’t send me traffic right now".',
+      explain: 'If liveness checked the database, a database outage would restart every API Pod repeatedly; readiness just stops sending them traffic until the database recovers. Liveness failure means "restart me". Readiness failure means "don’t send me traffic right now".',
     },
     {
       q: 'With replicas: 2, maxSurge: 1 and maxUnavailable: 0, what happens if the new version never becomes ready?',
@@ -348,7 +348,7 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
         'Kubernetes rolls back to the previous version automatically',
       ],
       answer: 1,
-      explain: 'Old Pods are only removed when new ones are ready. Fix forward, or kubectl rollout undo.',
+      explain: 'The rollout stalls: one new Pod exists but isn’t ready, and the two old Pods keep serving. Old Pods are only removed when new ones are ready. Fix forward, or kubectl rollout undo.',
     },
     {
       q: 'A container uses more memory than its limit. What happens?',
@@ -359,7 +359,7 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
         'Nothing; limits are only used for scheduling decisions',
       ],
       answer: 1,
-      explain: 'Memory can’t be throttled, so exceeding the limit kills the container. CPU over its limit is throttled instead.',
+      explain: 'The kernel OOM-kills it (exit code 137) and the kubelet restarts it. Memory can’t be throttled, so exceeding the limit kills the container. CPU over its limit is throttled instead.',
     },
     {
       q: 'Which object should run Postgres, where each copy needs a stable name and its own disk?',
