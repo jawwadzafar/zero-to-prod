@@ -69,8 +69,10 @@ def check(answer: RagAnswer) -> None:
         answer.problems.append(f"cites sources that don't exist: {bad}")
 
 
-def ask_handbook(question: str, index: Index, llm: LLM, *, k: int = 4) -> RagAnswer:
-    hits = index.search(question, k=k)
+def ask_handbook(
+    question: str, index: Index, llm: LLM, *, k: int = 4, exclude: tuple[str, ...] = ()
+) -> RagAnswer:
+    hits = index.search(question, k=k, exclude=exclude)
     c = llm.complete(build_prompt(question, hits), system=SYSTEM, max_tokens=400)
     answer = RagAnswer(question, c.text.strip(), hits, completion=c)
     check(answer)

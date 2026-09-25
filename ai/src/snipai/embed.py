@@ -201,14 +201,26 @@ class Index:
             np.save(path, vectors)
         return cls(embedder, chunks, vectors)
 
-    def search(self, query: str, k: int = 5) -> list[Hit]:
+    def search(self, query: str, k: int = 5, *, exclude: tuple[str, ...] = ()) -> list[Hit]:
+        """The k chunks closest to the query, skipping docs that start with any
+        prefix in `exclude`."""
         q = self.embedder.embed([query])[0]
         scores = self.vectors @ q  # vectors are length 1, so this is cosine similarity
-        best = np.argsort(-scores)[:k]
-        return [Hit(self.chunks[i], float(scores[i])) for i in best]
+        hits = []
+        for i in np.argsort(-scores):
+            if exclude and self.chunks[i].doc.startswith(exclude):
+                continue
+            hits.append(Hit(self.chunks[i], float(scores[i])))
+            if len(hits) == k:
+                break
+        return hits
 
 
 EVAL_FILE = Path(__file__).resolve().parents[2] / "data" / "search_eval.json"
+# Part 14's own chapters quote the test questions as examples, so they'd be
+# retrieved for talking *about* a question rather than answering it (chapter
+# 14.8). Evaluations leave them out.
+EVAL_EXCLUDE = ("ai/",)
 
 
 def evaluate(index: Index, path: Path = EVAL_FILE) -> tuple[float, float, list[str]]:
@@ -218,7 +230,7 @@ def evaluate(index: Index, path: Path = EVAL_FILE) -> tuple[float, float, list[s
     at1 = at5 = 0
     misses = []
     for item in queries:
-        docs = [h.chunk.doc for h in index.search(item["q"], k=5)]
+        docs = [h.chunk.doc for h in index.search(item["q"], k=5, exclude=EVAL_EXCLUDE)]
         at1 += docs[0] in item["docs"]
         found = any(d in item["docs"] for d in docs)
         at5 += found
@@ -246,7 +258,9 @@ def main(argv: list[str] | None = None) -> int:
         print()
     if not (argv if argv is not None else sys.argv[1:]):
         hit1, hit5, misses = evaluate(index)
-        print(f"retrieval quality on {EVAL_FILE.name}: hit@1 {hit1:.0%}, hit@5 {hit5:.0%}")
+        print(
+            f"retrieval on {EVAL_FILE.name} (without Part 14): hit@1 {hit1:.0%}, hit@5 {hit5:.0%}"
+        )
         for m in misses:
             print(f"  missed: {m}")
     return 0
