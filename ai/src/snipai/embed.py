@@ -16,6 +16,7 @@ Two embedders, behind one interface:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import sys
@@ -207,6 +208,25 @@ class Index:
         return [Hit(self.chunks[i], float(scores[i])) for i in best]
 
 
+EVAL_FILE = Path(__file__).resolve().parents[2] / "data" / "search_eval.json"
+
+
+def evaluate(index: Index, path: Path = EVAL_FILE) -> tuple[float, float, list[str]]:
+    """hit@1 and hit@5: the share of questions whose top result (or any of the
+    top five) comes from a chapter that answers it. Returns misses too."""
+    queries = json.loads(path.read_text(encoding="utf-8"))["queries"]
+    at1 = at5 = 0
+    misses = []
+    for item in queries:
+        docs = [h.chunk.doc for h in index.search(item["q"], k=5)]
+        at1 += docs[0] in item["docs"]
+        found = any(d in item["docs"] for d in docs)
+        at5 += found
+        if not found:
+            misses.append(f"{item['q']!r} -> {docs[0]}")
+    return at1 / len(queries), at5 / len(queries), misses
+
+
 def main(argv: list[str] | None = None) -> int:
     queries = (argv if argv is not None else sys.argv[1:]) or [
         "how do I undo a bad deploy?",
@@ -224,6 +244,11 @@ def main(argv: list[str] | None = None) -> int:
         for hit in index.search(q, k=5):
             print(f"  {hit.score:.3f}  {hit.chunk.heading[:90]}")
         print()
+    if not (argv if argv is not None else sys.argv[1:]):
+        hit1, hit5, misses = evaluate(index)
+        print(f"retrieval quality on {EVAL_FILE.name}: hit@1 {hit1:.0%}, hit@5 {hit5:.0%}")
+        for m in misses:
+            print(f"  missed: {m}")
     return 0
 
 
