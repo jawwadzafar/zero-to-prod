@@ -1,0 +1,227 @@
+---
+title: "15.5 Capstone: ship snip end to end"
+sidebar_label: "15.5 Capstone: ship snip end to end"
+description: "The final project: take snip from a fresh clone to a tested, observed, deployed system, then add a real feature (links that expire) through every layer — decision record, migration, code, tests, API contract, CI, deployment, metrics and runbook — and prove it survives a game day. Staged, with clear 'done when' checks and a self-assessment rubric."
+---
+
+# 15.5 Capstone: ship snip end to end
+
+Every chapter so far has taught one piece. This one asks you to hold all of them at once. It's the difference between knowing what each instrument in a band does and playing a song: nothing new to learn, and much harder than any single part.
+
+The project has two halves. First, you'll **run the whole system yourself**, from a fresh clone to a Kubernetes cluster with dashboards, checking each stage with the same commands CI uses. Then you'll **add a feature that touches every layer**: links that expire. A decision record, a database migration, code, tests, the API contract, CI, a deployment, a metric, and a runbook entry. That's what shipping a real change looks like at work, and it's the best portfolio piece this handbook can give you.
+
+## What you'll do
+
+- Run snip at every level: a single process, the full stack, Kubernetes.
+- Add **link expiry** end to end, following the order a professional team would.
+- Break it on purpose, and show it degrades the way you designed.
+- Write it up so someone else can understand what you built and why.
+
+Budget: a weekend for the first half, a week of evenings for the second. There's no deadline, and getting stuck is part of it: every stage links to the chapter that explains it.
+
+:::info[Honesty label]
+**Exists today:** everything in stages 1 to 4 (the commands are the ones snip's CI runs on every push). **Your job:** stages 5 to 7. The expiry feature isn't in snip; there's no reference solution to copy, on purpose. The "done when" checks tell you when you're finished.
+:::
+
+---
+
+## Stage 1: from a fresh clone to green tests
+
+Start clean, as if you'd just joined the team.
+
+```bash
+git clone https://github.com/jawwadzafar/zero-to-prod.git ~/code/capstone
+cd ~/code/capstone/snip
+go vet ./...
+go test -race ./...
+```
+
+Read `README.md`, `docs/architecture.md` and the ADRs in `docs/adr/` (chapter 15.2) before you change anything. That's how a new team member should start, too.
+
+**Done when:** vet is silent, all tests pass with the race detector (chapter 4.5), and you can explain snip's container diagram from memory in two minutes.
+
+---
+
+## Stage 2: one process, then the full stack
+
+The in-memory version first (chapter 5.4):
+
+```bash
+go run ./cmd/snip          # prints a development API key in its log
+```
+
+Then the real system, with Postgres, Redis and the worker, in containers (chapter 9.3):
+
+```bash
+docker compose up -d --build --wait
+KEY=$(docker compose exec -T api snip keys create me | grep -o 'snip_[A-Za-z0-9]*')
+SNIP_API_KEY="$KEY" ./scripts/smoke.sh http://localhost:8080
+docker compose --profile observability up -d --wait
+```
+
+Open Grafana on http://localhost:3000, find the snip overview dashboard (chapter 13.2), and generate some traffic with a loop of `curl` requests to a short link. Watch the request rate, latency and the worker's click processing move.
+
+**Done when:** `smoke.sh` prints its success line, click counts go up a few seconds after redirects (the stream and worker from ADR 5), and you can point at each panel on the dashboard and say what it measures.
+
+---
+
+## Stage 3: Kubernetes
+
+Build the image, load it into a local cluster, and apply snip's manifests (chapters 10.1 and 10.2):
+
+```bash
+kind create cluster --name z2p
+docker build -t snip:dev .
+kind load docker-image snip:dev --name z2p
+kubectl apply -k deploy/k8s/overlays/kind
+kubectl -n snip get pods -w            # until everything is Running and READY
+kubectl -n snip port-forward svc/api 8080:80 &
+KEY=$(kubectl -n snip exec deploy/api -- snip keys create me | grep -o 'snip_[A-Za-z0-9]*')
+SNIP_API_KEY="$KEY" ./scripts/smoke.sh http://localhost:8080
+```
+
+Then do a rolling update while a probe runs, as in chapter 10.2's lab, and check that it drops no requests.
+
+**Optional, and worth it:** install Argo CD and hand the deployment to GitOps (chapter 11.4), with `kubectl apply -f deploy/argocd/application.yaml` after installing Argo CD; or create the local stack with Terraform from `infra/local` (chapter 12.5).
+
+**Done when:** the smoke test passes against the cluster, a rolling update completes with zero failed probe requests, and `kubectl -n snip describe` and `logs` hold no surprises for you.
+
+---
+
+## Stage 4: a game day
+
+Repeat chapter 13.5's game day against your full stack, before you change anything, so you have a baseline:
+
+```bash
+docker compose pause redis
+curl -s -o /dev/null -w "%{http_code} in %{time_total}s\n" localhost:8080/<your-slug>
+curl -s localhost:8080/readyz
+docker compose unpause redis
+```
+
+**Done when:** you've confirmed what ADR 6 promises (redirects still work, quickly; `/readyz` reports degraded but stays ready), and you've written down what else happened: which log lines appeared, which dashboard panels moved, and what the runbook's `redis-down` section says to do.
+
+---
+
+## Stage 5: design link expiry
+
+The feature: **a link can have an expiry time. After it, the short link stops redirecting.** Owners set it when creating a link, can see it, and expired links still appear in their list, marked as expired.
+
+Before writing code, do what chapters 15.1 and 15.2 describe. Write `docs/adr/0007-link-expiry.md`, with status **Proposed**, answering at least these questions:
+
+- **What does a visitor get for an expired link?** `404 Not Found`, or `410 Gone` ("this existed and was removed on purpose")? Chapter 5.3's status codes, and what's kinder to the visitor.
+- **How is expiry stored?** A nullable `expires_at` column (null means never)? What about existing links?
+- **What does the cache do?** Today, a cached slug → URL mapping lives for an hour (`SNIP_CACHE_TTL`). If a link expires in 5 minutes, the cache must not keep redirecting for another 55. Options: cap each cache entry's lifetime at the time left before expiry; store the expiry with the cached URL and check it on every hit; or don't cache links that expire soon. Pick one and say what it costs.
+- **Clock and time zones.** Whose clock decides? Store times in UTC (`TIMESTAMPTZ`), accept RFC 3339 timestamps in the API, and think about what happens when snip's servers disagree by a second.
+- **Is this a one-way door?** Which parts are (the API field name, the status code), and which aren't (the cache strategy)?
+
+**Done when:** the ADR exists, a friend or colleague (or you, the next morning) has reviewed it, and you've changed its status to Accepted.
+
+---
+
+## Stage 6: build it, in the order a team would
+
+Work in small commits, each one leaving everything green. A sensible order:
+
+1. **The contract.** Add `expires_at` (optional, RFC 3339) to the create request and the link responses in `api/openapi.yaml`, and the new response for expired redirects. CI validates the contract (chapter 5.5).
+2. **The migration.** Add `internal/store/postgres/migrations/0002_link_expiry.sql`, adding the column. Migrations run in filename order, once each, recorded in `schema_migrations`. Adding a nullable column is safe for existing rows and old code: think about why (chapter 11.3's section on databases and rollbacks).
+3. **The domain and the store.** Carry the field through the `Link` type, the Postgres and in-memory stores, and validation (an expiry in the past is a `400`, chapter 5.3).
+4. **The redirect.** Refuse expired links with the status your ADR chose, and implement the cache decision. This is the hot path: no extra database query on a cache hit.
+5. **Tests first where it's subtle.** At least: a link that expires stops redirecting; a link without expiry never does; a cached link stops redirecting when it expires, not an hour later; an expiry in the past is rejected at creation. Inject the clock (a `now func() time.Time` field) rather than sleeping in tests.
+6. **Observability.** A counter for redirects refused because the link had expired (chapter 13.2), so you can see the feature working in production, and a line in the runbook about what a sudden jump in it would mean.
+7. **Ship it.** Push, get CI green (chapter 11.2), deploy to your kind cluster, and run the smoke test plus a manual check: create a link that expires in two minutes, follow it, wait, follow it again.
+
+**Done when:** all of this is merged into your copy with CI green, and the manual check shows the redirect working, then refused on time, with the counter going up.
+
+---
+
+## Stage 7: prove it and write it up
+
+1. **Game day again.** Pause Redis and check that expiry still works when the cache is down (it should: Postgres is the source of truth, ADR 2). Unpause, and check that no stale cache entry redirects an expired link.
+2. **Load check.** Re-run chapter 8.5's load test on redirects before and after your change. The p99 shouldn't move measurably. If it does, find out why before you call it done.
+3. **The write-up.** A page in your repository's `docs/` (or your portfolio) with: what you built and why, the architecture diagram, your ADR, one thing that surprised you, one thing you'd do differently, and the numbers from the load check. Chapter 15.4 is your guide. This page is what you'll show in interviews.
+
+---
+
+## Self-assessment rubric
+
+Score yourself honestly on each line, from 0 (not done) to 2 (done well). Better still, ask someone else to.
+
+| Area | 1 point | 2 points |
+|---|---|---|
+| Running the system | It runs locally | It runs in compose and on Kubernetes, and you can explain every container |
+| Design | The feature works | An accepted ADR names the alternatives and costs, including the cache decision |
+| Correctness | Happy-path tests | Tests for expiry at the boundary, caching and validation, with an injected clock |
+| Safety of change | One big commit | Small commits, each green; the migration is backward-compatible |
+| Operability | Logs mention expiry | A metric, a dashboard panel or query, and a runbook entry |
+| Resilience | Not tested | Game day passed with Redis paused and unpaused |
+| Performance | Not measured | Before-and-after load test, with numbers |
+| Communication | A README note | A write-up someone else could review in ten minutes |
+
+Twelve or more: you've done, end to end, what a working backend engineer does with a real change. Anything below that shows you exactly which chapter to revisit.
+
+---
+
+## Self-check
+
+<Quiz
+  id="architecture-capstone"
+  questions={[
+    {
+      q: 'Why write the expiry ADR before any code?',
+      options: [
+        'ADRs are required before coding',
+        'The hard questions (status code, cache behaviour, time zones) change the code’s shape; answering them first is cheaper than rewriting',
+        'To make the project take longer',
+        'Code can’t be written without a document',
+      ],
+      answer: 1,
+      explain: 'Design is the cheap place to change your mind. Code is the expensive one.',
+    },
+    {
+      q: 'With a 1-hour cache TTL, what goes wrong if expiry is only checked in Postgres?',
+      options: [
+        'Nothing',
+        'A cached link keeps redirecting for up to an hour after it expired, because cache hits never reach Postgres',
+        'Postgres can’t store times',
+        'Redirects get slower',
+      ],
+      answer: 1,
+      explain: 'Every piece of cached data needs an answer to "when does this stop being true?"',
+    },
+    {
+      q: 'Why is adding a nullable expires_at column a safe migration?',
+      options: [
+        'All migrations are safe',
+        'Existing rows get null (no expiry), and old code that doesn’t know the column keeps working, so the migration and the code can be deployed and rolled back independently',
+        'Nullable columns take no space',
+        'Postgres ignores new columns',
+      ],
+      answer: 1,
+      explain: 'Backward-compatible schema changes decouple database migrations from code deploys.',
+    },
+    {
+      q: 'Why inject a clock instead of using time.Now() directly and sleeping in tests?',
+      options: [
+        'time.Now() is slow',
+        'Tests can set the time precisely (one second before and after expiry), run instantly, and never flake on a slow machine',
+        'Go forbids time.Now() in tests',
+        'It makes the code shorter',
+      ],
+      answer: 1,
+      explain: 'Anything that depends on time should take its clock as a dependency, like any other.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Your load check shows redirect p99 went from 3 ms to 9 ms after adding expiry. What would you check, in order?</summary>
+
+1. **Is it real?** Run both versions again, several times, at the same load, on the same machine (chapter 8.5). Small numbers are noisy.
+2. **Is the hot path doing new work?** The most likely cause is an extra round trip: a Postgres query on every redirect (to check expiry) where there used to be only a cache hit. Check the traces (chapter 13.3): does a redirect now include a database span?
+3. **Is the cache still being used?** If the new cache logic accidentally skips caching (for example, treating "no expiry" as "expires now"), every redirect goes to Postgres. Check the cache hit ratio panel.
+4. **Is time handling expensive?** Parsing a timestamp string on every cache hit, instead of storing a number, is measurable at high volume. A CPU profile (chapter 13.6) shows it.
+
+Fix the cause, re-measure, and put both numbers in the write-up: a regression you found and fixed is a better story than no measurement.
+
+</details>
