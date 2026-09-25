@@ -42,8 +42,8 @@ func main() {
 	listen := cmp.Or(os.Getenv("LISTEN"), "localhost:8765")
 	client := &http.Client{Timeout: 10 * time.Second}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	p, err := oidcrp.Discover(ctx, client, issuer)
+	cancel() // discovery is done; the context isn't needed any more
 	if err != nil {
 		log.Fatal(err)
 	}
