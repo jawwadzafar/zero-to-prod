@@ -161,6 +161,11 @@ jobs:
         run: uv run python -m snipai.evals
       - name: Chapter 14.12 lab — prompting versus a trained head (offline embedder, fake model)
         run: uv run python -m snipai.finetune 10
+      - name: Chapter 14.13 lab — budgets, call logs, fallback and output sanitising around a model
+        run: |
+          uv run python -m snipai.guard | tee /tmp/guard.txt
+          grep -q "refused: daily limit" /tmp/guard.txt
+          grep -q '"fell_back": true' /tmp/guard.txt
       - name: Chapter 14.4 lab — describe real pages with the offline fake model; unsafe URLs are refused
         run: |
           uv run python -m snipai.describe https://go.dev/ https://www.python.org/ http://169.254.169.254/latest/meta-data/ | tee /tmp/describe.txt
