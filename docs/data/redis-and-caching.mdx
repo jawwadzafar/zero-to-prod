@@ -76,15 +76,20 @@ sequenceDiagram
     end
 ```
 
-Here it is in snip's real code. The business logic, in `internal/links/service.go`:
+Here it is in snip's real code. The business logic, in `internal/links/service.go` (with the tracing lines from chapter 13.3 left out):
 
 ```go
 // Resolve finds the URL for slug: cache first, then the store (filling the
 // cache on the way out). Cache errors are never fatal — a broken cache makes
 // snip slower, not broken.
 func (s *Service) Resolve(ctx context.Context, slug string) (ResolveResult, error) {
+	cacheBroken := false
 	if s.cache != nil {
-		if u, ok, err := s.cache.GetURL(ctx, slug); err == nil && ok {
+		u, ok, err := s.cache.GetURL(ctx, slug)
+		if err != nil {
+			cacheBroken = true
+		}
+		if err == nil && ok {
 			return ResolveResult{URL: u, CacheHit: true}, nil
 		}
 	}
@@ -92,7 +97,9 @@ func (s *Service) Resolve(ctx context.Context, slug string) (ResolveResult, erro
 	if err != nil {
 		return ResolveResult{}, err
 	}
-	if s.cache != nil {
+	// If the cache just failed, don't wait on it a second time: during an
+	// outage every call costs a timeout (chapter 13.5).
+	if s.cache != nil && !cacheBroken {
 		_ = s.cache.SetURL(ctx, slug, l.URL) // best effort
 	}
 	return ResolveResult{URL: l.URL}, nil

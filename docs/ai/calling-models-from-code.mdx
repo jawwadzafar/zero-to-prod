@@ -147,7 +147,7 @@ The tests go one step further for the Claude provider: they hand the real SDK a 
 
 ## snip's first AI feature: describing a link
 
-The feature itself, `ai/src/snipai/describe.py`, is short. The interesting part is the prompt:
+The feature itself, `ai/src/snipai/describe.py`, is short. The interesting part is the prompt. This is its first version, which the code keeps as `PROMPTS["v1"]`; chapter 14.5 improves it, and the default today is v3. The code around it is the same for every version:
 
 ```python
 SYSTEM = "You write short, factual descriptions of web pages for a link shortener."
@@ -166,9 +166,9 @@ TEXT: {text}"""
 The **summary** is the page's own `<meta name="description">`, a sentence most websites write for search engines: free, high-quality context. The code around the prompt treats the answer with suspicion:
 
 ```python
-def describe(page: Page, llm: LLM) -> Description:
-    prompt = PROMPT.format(title=page.title, summary=page.summary or "(none)", text=page.text)
-    completion = llm.complete(prompt, system=SYSTEM, max_tokens=100)
+def describe(page: Page, llm: LLM, version: str = DEFAULT_PROMPT) -> Description:
+    system, prompt = render(page, version)  # fills the chosen version's template
+    completion = llm.complete(prompt, system=system, max_tokens=100)
     text = completion.text.strip()
     if text == "UNKNOWN" or completion.truncated:
         text = ""  # better no description than a wrong or half-finished one
