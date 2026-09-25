@@ -158,14 +158,16 @@ If the text doesn't make clear what the page is about, reply with exactly: UNKNO
 
 TITLE: {title}
 
+THE PAGE'S OWN SUMMARY: {summary}
+
 TEXT: {text}"""
 ```
 
-And the code around it treats the answer with suspicion:
+The **summary** is the page's own `<meta name="description">`, a sentence most websites write for search engines: free, high-quality context. The code around the prompt treats the answer with suspicion:
 
 ```python
 def describe(page: Page, llm: LLM) -> Description:
-    prompt = PROMPT.format(title=page.title, text=page.text)
+    prompt = PROMPT.format(title=page.title, summary=page.summary or "(none)", text=page.text)
     completion = llm.complete(prompt, system=SYSTEM, max_tokens=100)
     text = completion.text.strip()
     if text == "UNKNOWN" or completion.truncated:
@@ -179,17 +181,33 @@ Three design choices worth copying:
 - **An explicit escape hatch** (`UNKNOWN`). Without one, a model given a login page or an empty page will invent something plausible. With one, it has an honest answer available, and the code turns it into "no description".
 - **A truncated answer is thrown away.** If `stop_reason` is `max_tokens`, the sentence is incomplete. Showing half a sentence is worse than showing nothing.
 
-Here it is with the fake model, run by CI against real websites:
+### What a real (tiny) model actually said
+
+snip's CI runs this feature against real websites with a small open model, `qwen2.5:0.5b` (half a billion parameters, about 400 MB), through Ollama on an ordinary CPU. Here's one of the first runs, unedited:
 
 ```text
-provider: fake, model: fake-extractive
+provider: ollama, model: qwen2.5:0.5b
 
 https://go.dev/
   title: The Go Programming Language
-  description: ...
+  description: (none)
+  94 tokens in, 2 out, 1.55s, stop: end_turn, cost ≈ $0.00000
+
+https://www.python.org/
+  title: Welcome to Python.org
+  description: The web page is about Python.org, a link shortener, providing information about the website, its features, and how to access it.
+  674 tokens in, 29 out, 5.08s, stop: end_turn, cost ≈ $0.00000
 ```
 
----
+Three lessons in six lines:
+
+1. **The escape hatch worked.** For go.dev, only 94 tokens went in: the page text was almost empty (more on why below). With nothing to go on, the model answered `UNKNOWN`, and the code turned that into "no description". Without the escape hatch, it would almost certainly have made something up.
+2. **The python.org answer is a hallucination, and we caused it.** Python.org is not "a link shortener". The model borrowed that phrase from our own system prompt ("descriptions of web pages **for a link shortener**") and stated it as a fact about the page. Tiny models are especially prone to this, but every model can blur the task's context into its answer. Prompt wording matters: chapter 14.5 rewrites this prompt and measures the difference. And the only way to find problems like this at scale is to measure systematically (chapter 14.10).
+3. **Small and local is slow and cheap.** Five seconds for 29 words on a CPU, and it cost nothing. A hosted model would answer in about a second, for about a tenth of a cent.
+
+:::warning[What can go wrong: garbage in]
+Why was go.dev's text almost empty? Our first text extractor skipped a list of tags that "aren't content" (navigation, headers, footers), counting opening and closing tags. On real pages, that heuristic threw away nearly everything. We couldn't fetch go.dev from the development machine to check, so instead of guessing, we made extraction robust: prefer the page's `<main>` element, where most sites put their content; skip only tags that are never visible and always closed (`<script>`, `<style>`, `<svg>`...); and read the page's own `<meta name="description">`. The command now prints how much text it extracted, and how it starts. **Most bad model outputs start with bad inputs**, so always look at exactly what the model was given before blaming the model.
+:::
 
 ## Fetching pages safely
 
