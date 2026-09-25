@@ -201,12 +201,14 @@ overall                 92%      94%      93%
 
 This time **v2** answered UNKNOWN for the login page, and **v3** copied the login page's text back word for word. Nothing in the code changed. The most likely explanation is the machine: CI jobs run on whichever computer is free, and different processors can do floating-point arithmetic in slightly different orders, which occasionally changes which token is "most likely" at temperature 0. From that point, the whole answer diverges.
 
+A **fifth run** differed from both: 92%, 93% and 94%. v3 was back on top, but not for the same reasons: it described the login page this time, and still described the cookie wall. Across five runs, v3 scored highest four times, and v2 once.
+
 Two lessons, and they're more important than the prompt tips above:
 
 - **"Repeatable" only holds on the same setup.** Temperature 0 and a fixed seed made runs identical on one machine, not everywhere.
 - **With 12 cases, "v3 is best" was never a robust finding.** One or two answers flipping changes the ranking. The honest conclusion is: v2 and v3 both fix v1's over-caution and clearly help formatting; neither reliably handles cookie walls; and telling them apart needs more cases and several runs, which is exactly what chapter 14.10 is about.
 
-**The decision:** snipai's default is v3 (`DEFAULT_PROMPT` in `describe.py`, with a comment recording why): it had the best balance on the first runs, and it's no worse than v2 on the later one. But the evidence is thin, and the comment says so. The obvious next step, **v4**, is in the lab: add a cookie-notice example, and enforce the 25-word limit **in code** rather than only asking for it. A rule that code can check should be checked by code: the model is asked nicely, the code insists.
+**The decision:** snipai's default is v3 (`DEFAULT_PROMPT` in `describe.py`, with a comment recording why): it scored highest in four of the five runs, and a point below v2 in the other. But the evidence is thin, and the comment says so. The obvious next step, **v4**, is in the lab: add a cookie-notice example, and enforce the 25-word limit **in code** rather than only asking for it. A rule that code can check should be checked by code: the model is asked nicely, the code insists.
 
 :::info[If you've written code]
 This is a **regression test suite for a prompt**. Like unit tests, the checks are cheap, fast and repeatable, and they catch specific failures, not overall quality. As a reminder of their limits: the **fake model** (which just copies each page's first sentence, chapter 14.4) scores 93% on them. The checks can't tell whether a description is *useful*. Judging that needs a human, or another model as a judge, which is exactly where chapter 14.10 picks up.

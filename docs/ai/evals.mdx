@@ -1,0 +1,286 @@
+---
+title: "14.10 Evals: measuring AI quality"
+sidebar_label: "14.10 Evals"
+description: "Testing systems whose output is fuzzy and varies from run to run: eval datasets, graders (code checks, reference answers, LLM-as-judge, people), measuring each stage separately, sample sizes and confidence intervals, leakage, and evals in CI and in production — by evaluating 'ask the handbook' end to end with a real embedding model and a small open model."
+---
+
+# 14.10 Evals: measuring AI quality
+
+Every chapter in Part 14 ran into the same wall. Does the new prompt work better (chapter 14.5)? Is semantic search better than keywords (chapter 14.7)? Does the RAG system answer faithfully (chapter 14.8)? "I tried it a few times and it looked good" isn't an answer, because model outputs are **fuzzy** (there's no single right sentence) and **vary between runs**. The discipline that replaces "it looked good" with numbers is called **evals**, short for evaluations: tests for AI systems.
+
+You've already built several small ones: the prompt lab (chapter 14.5), hit@k (chapter 14.7). In this chapter you'll build a complete one for "ask the handbook", measuring retrieval, citations, faithfulness and abstention separately, using another model as a **judge** where code can't decide, with honest **confidence intervals**. Then you'll run it on real models and read the results the way a good engineer would, suspicious of the numbers as well as the model.
+
+## What you'll learn
+
+- The parts of an eval: **dataset**, **graders**, **metrics**.
+- Graders: **code checks**, **reference answers**, **LLM-as-judge**, and **people**.
+- Measuring **each stage** separately.
+- **Small samples**, **confidence intervals**, and run-to-run variation.
+- **Leakage**, and why eval sets go stale.
+- Evals in **CI** and in **production**.
+
+---
+
+## An eval is a test suite for fuzzy outputs
+
+:::note[Everyday anchor]
+A restaurant has two kinds of quality control. A **checklist**: fridge below 5°C, no dish leaves without a garnish, allergens labelled. Anyone can check it, the same way every time. And a **tasting panel**: people who taste dishes and judge whether they're actually good. The checklist catches known failures cheaply; the panel catches what no checklist can describe. A good kitchen uses both, every day, not just on opening night.
+:::
+
+An eval has three parts:
+
+1. A **dataset**: inputs, with whatever you know about the right outputs. snipai's has 14 reader questions labelled with the chapters that answer them (chapter 14.7), plus 4 questions the handbook *doesn't* answer.
+2. **Graders**: code or people or models that score each output.
+3. **Metrics**: the scores, summed up: pass rates, with an idea of how certain they are.
+
+And it runs **on every change**: to a prompt, a model, the chunking, the documents. That's what makes it a test suite and not a one-off experiment.
+
+---
+
+## Graders: cheapest first
+
+| Grader | Good for | Limits | In snipai |
+|---|---|---|---|
+| **Code checks** | Format, citations present and valid, abstention phrase, length, forbidden content | Can't judge meaning | `check()` in `rag.py`, the prompt lab's checks |
+| **Reference-based** | Right answers you can write down: the right category, the right chapter, keywords that must appear | Needs labels; many good answers are phrased differently | hit@k against labelled chapters |
+| **LLM-as-judge** | Meaning: is the answer supported by its sources? Is it relevant? | Costs a model call; the judge makes mistakes and has biases | `judge()` in `evals.py` |
+| **People** | The final word on quality, and on what matters to users | Slow, expensive, inconsistent between reviewers | You, reading the failures |
+
+**Use the cheapest grader that can answer the question.** Code checks run on every output, forever, for free. Save judges for questions code can't answer, and people for calibrating everything else.
+
+### LLM-as-judge
+
+Faithfulness ("is every claim in the answer supported by the sources it cites?") needs understanding, so snipai asks a model, with structured output (chapter 14.6) so the verdict is machine-readable:
+
+```python
+class Verdict(BaseModel):
+    """The judge's answer, as structured output (chapter 14.6)."""
+
+    model_config = ConfigDict(extra="forbid")
+    supported: bool = Field(description="True only if every claim in the answer is stated in the cited sources.")
+    reason: str = Field(description="One sentence explaining the verdict.")
+```
+
+The judge sees **only the passages the answer cited**, not the rest, because the question is whether the citations support the claims. And its failures are counted, not hidden: if the judge's own output doesn't validate, that's reported as "judge produced a verdict: no", not silently treated as a pass or a fail.
+
+Judges are models, with all the failure modes of models. Known problems: they can prefer longer answers, prefer answers written by themselves or their own model family, be swayed by the order in which options are shown, and simply be wrong. So a judge must itself be **checked against people**: label 30 to 50 answers by hand, run the judge on the same answers, and see how often they agree. A judge that agrees with you 60% of the time is barely better than a coin; use it only when you've measured that it's good enough for the decision you're making.
+
+---
+
+## Measure each stage separately
+
+"The answer was wrong" doesn't tell you what to fix. snipai's eval measures each stage of the RAG pipeline on its own (`ai/src/snipai/evals.py`):
+
+```python
+report.add("retrieval hit@4", any(d in item["docs"] for d in docs), ...)
+report.add("answered (didn't abstain)", not a.abstained, ...)
+report.add("citations valid", not a.problems, ...)
+report.add("faithful (judge)", verdict.supported, ...)
+...
+report.add("abstains when it should", a.abstained, ...)  # for questions the handbook doesn't answer
+```
+
+Low retrieval? Work on search (chapter 14.7). Good retrieval but unfaithful answers? Work on the prompt or the model (chapters 14.5 and 14.8). Never abstaining on unanswerable questions? The escape hatch isn't working. Each number points at a different fix.
+
+---
+
+## How sure are you? Confidence intervals
+
+With 14 questions, one question changes a score by 7 percentage points. If version A scores 10/14 and version B scores 12/14, is B better, or lucky? The eval reports every rate with a **95% confidence interval**, computed with the **Wilson** formula, a standard way to put error bars on a rate:
+
+```python
+def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """95% confidence interval for a rate. With small n it's wide, and that's
+    the honest answer: 8/10 is "somewhere between 49% and 94%"."""
+```
+
+8 out of 10 is somewhere between **49% and 94%**. 80 out of 100, the same rate, is between **71% and 87%**. If two versions' intervals overlap heavily, you haven't shown a difference: get more cases before deciding. That's why eval sets grow: every real failure you find becomes a new case (chapter 14.5's self-check), and the intervals narrow.
+
+A second source of uncertainty is the model itself. At temperature 0 with a fixed seed, snipai's local runs are *mostly* repeatable: the full evaluation below gave identical results on two separate CI runs, and the prompt lab gave identical tables three times, then two different ones (chapter 14.5). Small differences between machines can tip a borderline answer. Hosted models often aren't exactly repeatable even at temperature 0 (chapter 14.3), and some don't let you set temperature at all. For those, run each case several times and count the share of passes, not one pass or fail.
+
+---
+
+## Results: evaluating "ask the handbook"
+
+CI runs the whole evaluation with real models: `all-minilm` for retrieval, `qwen2.5:1.5b` for the answers, and the same 1.5B model as the judge. 14 labelled questions, plus the 4 unanswerable ones, with Part 14 excluded from retrieval. On a CPU-only machine it takes about five minutes and costs nothing. Two separate CI runs gave exactly this:
+
+```text
+model: ollama/qwen2.5:1.5b, judge: same model, embedder: all-minilm
+
+retrieval hit@4             12/14   86%  (95% CI 60%–96%)
+answered (didn't abstain)   14/14  100%  (95% CI 78%–100%)
+citations valid             11/14   79%  (95% CI 52%–92%)
+judge produced a verdict    14/14  100%  (95% CI 78%–100%)
+faithful (judge)             4/14   29%  (95% CI 12%–55%)
+abstains when it should      4/4   100%  (95% CI 51%–100%)
+
+tokens used (answers only): 16919
+```
+
+Read it stage by stage, as the eval intends.
+
+**Retrieval: 12 of 14.** The two misses are ones you've met. "How do I undo a bad release?" retrieved Git and secret-leak sections (chapter 14.8). In chapter 14.7, the rollback section came fifth for that question, so hit@5 counted it and hit@4 doesn't: the *k* you measure must be the *k* you use. The cloud-bill question retrieved four chunks, **all from the same chapter**, "The cloud from zero": one long chapter crowding out everything else, as in chapter 14.8.
+
+**Answering and abstaining: perfect, but on how many cases?** It answered all 14 answerable questions and declined all 4 unanswerable ones. But look at the interval for abstention: 4 out of 4 is "somewhere between 51% and 100%". Four cases can't show that abstention works. They only fail to show that it doesn't. (And chapter 14.8 saw the same model answer "Paris" when Part 14's chapters were among the sources: abstention depends on what's retrieved, and that's a reason to have many more unanswerable cases, of different kinds.)
+
+**Citations: 3 answers cited nothing.** Detected by code, for free, on every answer. That's a production metric you can alert on (chapter 13.2).
+
+**Faithfulness: 29%, and this is where it gets interesting.** Taken at face value, 10 of 14 answers aren't supported by their sources. Before believing that, read the judge's reasons:
+
+```text
+'what is the right way to keep user passwords in the database?':
+  '[1] "Passwords, done properly" states that passwords should be stored as slow, salted hashes, such a'
+  (The answer does not include the claim that passwords should be stored as slow, salted hashes,
+   such as Argon2id or bcrypt, and never plain text or encryption.)
+
+'two people changed the same lines of a file':
+  (The answer does not mention the chapter 14.6, which is the chapter where the information is presented. ...)
+
+'a query got much slower once the table had millions of rows':
+  (The answer does not include the claim that the EXPLAIN ANALYZE command is the most important
+   performance tool.)
+```
+
+The first (and one other verdict like it) says the answer doesn't contain a claim that the answer *visibly contains*. The second invents a chapter that wasn't among the sources (Part 14 was excluded) and demands it be mentioned. The third (and one other) checks the opposite of what it was asked: not "is everything in the answer supported by the sources?" but "is everything in the sources in the answer?", which no four-sentence answer passes. At least five of the ten "unfaithful" verdicts give reasons that are wrong on their face.
+
+So the honest reading of "faithful: 29%" is: **we don't know how faithful the answers are, because the judge isn't reliable.** It produced a valid verdict every time (structured output, chapter 14.6, guarantees the shape), and the verdicts are mostly noise. That's the most common way LLM-as-judge goes wrong: a confident number from a judge nobody checked.
+
+What we'd do next, in order:
+
+1. **Label the answers by hand.** Fourteen answers take twenty minutes. That's the ground truth.
+2. **Measure the judge against the labels.** How often does it agree with you? Here, clearly not often enough.
+3. **Use a stronger judge.** Judging is usually given to a *more* capable model than the one being judged; a 1.5B model grading itself is the weakest setup there is. Re-measure agreement.
+4. **Only then** trust "faithful" as a number, and use it to compare prompt or model versions.
+
+For contrast, CI also runs the evaluation offline, with the fake model and the word-hashing embedder: retrieval hit@4 **8/14**, faithful **0/14** (the fake judge can't produce real verdicts), abstains **0/4**. Useless as a quality measure, and that's fine: it runs in a second, and proves the whole pipeline works end to end on every push.
+
+---
+
+## Leakage, and eval sets that go stale
+
+Chapter 14.2's leakage lesson applies to evals in new forms:
+
+- **Your eval questions leak into your corpus.** While writing Part 14, the chapters about search and RAG started quoting the test questions as examples, and began to be retrieved for them: they talk *about* the questions without answering them. snipai's evaluations now **exclude Part 14's own chapters** from retrieval (`EVAL_EXCLUDE` in `embed.py`). In a company, the equivalent is a wiki page listing "common customer questions" that outranks the pages with the answers.
+- **You tune on your test set.** Every time you change a prompt because of a failing eval case, the eval becomes a little less independent. Keep a **held-out** set you look at rarely, and check it before big decisions.
+- **The world moves on.** New documents, new kinds of questions, new user behaviour. An eval set built at launch measures launch-day traffic. Keep adding real cases from production.
+
+---
+
+## Evals in CI, and in production
+
+**Before shipping:** run evals in CI like tests. snip's CI runs the prompt lab, the retrieval evaluation and this full evaluation on every push, with a small open model, for free. Cheap code-graded evals can **gate** a merge ("retrieval hit@4 must not drop below 85%"); expensive judge-graded ones can run nightly or on demand.
+
+**After shipping:** offline evals can't see what real users do. Production AI systems add:
+
+- **Sampling and review.** Log inputs, outputs, sources and model versions (chapter 13.1), review a random sample every week, and turn failures into eval cases.
+- **User signals.** Thumbs up and down, "this answer was wrong" reports, whether the user rephrased and asked again. Noisy, but real.
+- **Online checks.** The same cheap code checks, run on every production output as metrics (chapter 13.2): the share of answers with no valid citations, or that abstained. A sudden change means something changed.
+- **A/B tests.** For big changes, send some traffic to the new version and compare real outcomes.
+
+---
+
+## Lab
+
+Free. Step 1 uses the offline fake model; step 2 uses free local models through Ollama; step 3 is optional with your own key.
+
+1. **Run the evaluation with the fake model and word-hashing embedder:**
+   ```bash
+   cd ~/code/zero-to-prod/ai
+   uv run python -m snipai.evals
+   ```
+   **What to notice:** the fake "answers" everything (it never abstains) and always cites `[1]`, so citations pass while abstention fails completely. And look at "faithful (judge)": the fake judge gives the simplest schema-shaped verdict, `supported: false`, for everything. A judge's verdicts are only worth as much as the judge.
+
+2. **Run it with real models:**
+   ```bash
+   ollama pull all-minilm && ollama pull qwen2.5:1.5b
+   SNIPAI_PROVIDER=ollama SNIPAI_MODEL=qwen2.5:1.5b SNIPAI_TEMPERATURE=0 SNIPAI_EMBEDDER=ollama uv run python -m snipai.evals
+   ```
+   It takes a few minutes. Then **grade the judge**: for five answers it marked faithful and five it marked unfaithful, read the answer and the cited sources yourself. How often do you agree with it?
+
+3. **Optional: a stronger judge.** In `main()` in `evals.py`, the same model is used for answering and judging. Change it to pass a separate judge (for example `AnthropicLLM("claude-sonnet-5")` with your key) while answers still come from the local model. Do the faithfulness numbers change? Which judge do you agree with more?
+
+4. **Grow the dataset.** Add four questions to `ai/data/search_eval.json` (two about chapters you've read, phrased in your own words, and two more unanswerable ones to `UNANSWERABLE` in `evals.py`), and rerun. How much do the confidence intervals narrow?
+
+## Self-check
+
+<Quiz
+  id="ai-evals"
+  questions={[
+    {
+      q: 'Version A of a prompt scores 10/14 on your eval; version B scores 12/14. What can you conclude?',
+      options: [
+        'B is clearly better',
+        'Not much yet: with 14 cases the confidence intervals overlap heavily; add more cases before deciding',
+        'A is better',
+        'Evals don’t work for prompts',
+      ],
+      answer: 1,
+      explain: 'Small samples mean wide intervals. 10/14 is roughly 45–88%; 12/14 is roughly 60–96%.',
+    },
+    {
+      q: 'Why measure retrieval, citations, faithfulness and abstention separately instead of one "answer quality" score?',
+      options: [
+        'It makes the report longer',
+        'Each points to a different fix: search, prompt, model or escape hatch. One combined number can’t tell you where the problem is',
+        'Judges can only grade one thing',
+        'It’s required by law',
+      ],
+      answer: 1,
+      explain: 'Diagnose before fixing: retrieval or generation (chapter 14.8)?',
+    },
+    {
+      q: 'What must you do before relying on an LLM-as-judge?',
+      options: [
+        'Nothing; models are objective',
+        'Check it against human labels on a sample and measure how often they agree',
+        'Use the biggest model available',
+        'Run it at a high temperature',
+      ],
+      answer: 1,
+      explain: 'Judges have biases and make mistakes. Calibrate them like any other instrument.',
+    },
+    {
+      q: 'Why do snipai’s evaluations exclude Part 14’s chapters from retrieval?',
+      options: [
+        'They’re too long',
+        'They quote the eval questions as examples, so they get retrieved for talking about a question rather than answering it: a form of leakage',
+        'They’re about AI, not engineering',
+        'To make the scores higher',
+      ],
+      answer: 1,
+      explain: 'Keep the test independent of what’s being tested.',
+    },
+    {
+      q: 'Which grader should you use to check that every answer is under 100 words?',
+      options: [
+        'An LLM-as-judge',
+        'A human reviewer',
+        'A code check: it’s exact, free and runs on every output',
+        'A reference answer',
+      ],
+      answer: 2,
+      explain: 'Use the cheapest grader that can answer the question.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Design an eval for snip's link describer (chapters 14.4 and 14.5) that you'd trust to decide whether to switch models.</summary>
+
+- **Dataset:** 100+ real pages (snapshots, so they don't change under you), sampled from actual snip links across categories, plus the known-hard kinds: login and cookie walls, 404s, non-English pages, pages with injected instructions, near-empty pages. For each, a person writes down the facts a good description should mention and whether UNKNOWN is the right answer.
+- **Graders:** the prompt lab's code checks on every output (format, UNKNOWN-when-right, no boilerplate, injection); keyword/fact coverage against the labels; an LLM-as-judge for "does the description state anything not on the page?" (it would have caught "Vienna", chapter 14.5), checked against human labels on 40 cases first.
+- **Procedure:** both models, same prompt version, temperature 0 where possible (otherwise 3 runs per page), record cost and latency too.
+- **Decision rule, written before running:** switch only if hallucination rate is not worse (intervals considered), UNKNOWN accuracy is not worse, and cost per description is lower or quality clearly better.
+
+</details>
+
+<details>
+<summary>Your eval scores improved from 70% to 85% after a prompt change, but users say answers got worse. Give three explanations.</summary>
+
+1. **The eval measures the wrong thing.** Maybe the change made answers shorter and more cautious: they pass citation and faithfulness checks by saying less, while users wanted complete answers. Add a check (or judge question) for completeness and helpfulness.
+2. **Overfitting to the eval set.** The prompt was tuned case by case until the 20 eval questions passed. Real questions differ. Check a held-out set and a sample of real production questions.
+3. **The eval set is stale or unrepresentative.** It was written from the documentation's point of view and doesn't contain the questions users actually ask. Build cases from production logs and complaints.
+
+And a fourth: **the judge is the one that changed its mind**, not the answers. If the judge model was updated or its prompt changed, scores move without any real improvement. Pin judge versions, and re-check the judge against human labels.
+
+</details>
