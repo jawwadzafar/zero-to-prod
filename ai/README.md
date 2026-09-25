@@ -21,3 +21,6 @@ uv run ruff check . && uv run mypy   # lint and type-check
 | `snipai.slugs` | snip's slug rules, in Python | 14.1 |
 | `snipai.abuse` | A phishing-link classifier, trained from scratch with NumPy | 14.2 |
 | `snipai.tinylm` | A BPE tokenizer and an n-gram language model, trained on this handbook | 14.3 |
+| `snipai.llm` | One interface to language models: fake (offline), Ollama (local), Anthropic (API) | 14.4 |
+| `snipai.pages` | Fetch a page safely (SSRF checks) and extract its text | 14.4 |
+| `snipai.describe` | snip's first AI feature: a one-line description of a link's page | 14.4 |

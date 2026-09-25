@@ -142,6 +142,37 @@ jobs:
         run: uv run python -m snipai.abuse
       - name: Chapter 14.3 lab — train a tokenizer and a tiny language model on the handbook
         run: uv run python -m snipai.tinylm
+      - name: Chapter 14.4 lab — describe real pages with the offline fake model; unsafe URLs are refused
+        run: |
+          uv run python -m snipai.describe https://go.dev/ https://www.python.org/ http://169.254.169.254/latest/meta-data/ | tee /tmp/describe.txt
+          grep -q "refusing to fetch a non-public address: 169.254.169.254" /tmp/describe.txt
+          grep -q "description: " /tmp/describe.txt
+
+  ai-ollama:
+    name: ai with a real open model (Ollama)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ai
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+      - run: uv sync --locked
+      - name: Install Ollama and pull a small model (chapters 14.4 and 14.11)
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          for _ in $(seq 1 30); do curl -fsS localhost:11434/api/version && break; sleep 1; done
+          ollama pull qwen2.5:0.5b
+      - name: Chapter 14.4 lab — describe real pages with a local model, whole and streamed
+        env:
+          SNIPAI_PROVIDER: ollama
+        run: |
+          uv run python -m snipai.describe https://go.dev/ https://www.python.org/ | tee /tmp/describe.txt
+          grep -q "description: " /tmp/describe.txt
+          uv run python -m snipai.describe --stream https://go.dev/
 
   snip-image:
     name: snip container image builds
