@@ -151,6 +151,10 @@ jobs:
           grep -q 'tool: list_links' /tmp/ask.txt
       - name: Chapter 14.7 lab — search the handbook with the offline word-hashing embedder
         run: uv run python -m snipai.embed
+      - name: Chapter 14.9 lab — the agent loop with the fake model against the running snip (approvals refused)
+        env:
+          SNIPAI_AGENT_APPROVE: none
+        run: SNIP_URL=http://localhost:8080 SNIP_API_KEY="$(grep -o 'snip_[A-Za-z0-9]*' /tmp/snip.log | head -1)" uv run python -m snipai.agent
       - name: Chapter 14.8 lab — ask the handbook (RAG) with the offline fake model and embedder
         run: uv run python -m snipai.rag
       - name: Chapter 14.4 lab — describe real pages with the offline fake model; unsafe URLs are refused
@@ -211,6 +215,18 @@ jobs:
           uv run python -m snipai.ask "Which of my links has the most clicks?"
           uv run python -m snipai.ask "Where does the link with slug golang go, and when was it created?"
           uv run python -m snipai.ask "Delete all my links."
+      - name: Chapter 14.9 lab — an agent tidies links (two are broken), approvals granted automatically
+        env:
+          SNIPAI_PROVIDER: ollama
+          SNIPAI_MODEL: qwen2.5:1.5b
+          SNIPAI_TEMPERATURE: "0"
+          SNIPAI_AGENT_APPROVE: all
+        run: |
+          KEY="$(grep -o 'snip_[A-Za-z0-9]*' /tmp/snip.log | head -1)"
+          curl -fsS -o /dev/null -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev/this-page-does-not-exist","slug":"oldpage"}'
+          curl -fsS -o /dev/null -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://gone.invalid/","slug":"deadsite"}'
+          SNIP_URL=http://localhost:8080 SNIP_API_KEY="$KEY" uv run python -m snipai.agent
+          echo "--- links left afterwards:"; curl -s localhost:8080/api/links -H "Authorization: Bearer $KEY" | jq -c '[.links[].slug]'
       - name: Chapter 14.7 lab — search the handbook with a real embedding model (all-minilm)
         env:
           SNIPAI_EMBEDDER: ollama

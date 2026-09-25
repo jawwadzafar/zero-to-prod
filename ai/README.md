@@ -29,3 +29,4 @@ uv run ruff check . && uv run mypy   # lint and type-check
 | `snipai.ask` | Tool use: answer questions about your links through snip's API | 14.6 |
 | `snipai.embed` | Embeddings, chunking and vector search over this handbook | 14.7 |
 | `snipai.rag` | Ask the handbook: retrieval-augmented generation with checked citations | 14.8 |
+| `snipai.agent` | An agent that finds broken links and deletes them with your approval, within budgets | 14.9 |
