@@ -149,7 +149,7 @@ def throughput(http: httpx.Client, model: str, parallel: int, requests: int = 8)
     return sum(s.output_tokens for s in samples) / (time.perf_counter() - start)
 ```
 
-Every request asks the same thing ("Explain in three sentences what a URL shortener does and why people use one."), at temperature 0, with at most 120 output tokens, and starts with a different request number, for a reason you'll see below. CI runs it on a standard GitHub-hosted runner: a virtual machine with 4 CPU cores, 15 GB of memory and no GPU.
+Every request asks the same thing ("Explain in three sentences what a URL shortener does and why people use one."), at temperature 0, with at most 120 output tokens, and starts with a random tag, for a reason you'll see below. CI runs it on a standard GitHub-hosted runner: a virtual machine with 4 CPU cores, 15 GB of memory and no GPU.
 
 With Ollama's default settings:
 
@@ -179,7 +179,9 @@ The model files, from `ollama list`: `qwen2.5:0.5b` is 397 MB and `qwen2.5:1.5b`
 
 ### The number that was too good
 
-The first version of this benchmark sent the identical prompt every time. It reported a time to first token of **0.02 seconds** and prompt reading at **3,400 tokens a second**, on the same kind of machine. Both were wrong. Ollama, like most model servers, keeps the processed prompt of the previous request, and when the next prompt starts with the same tokens it skips reading them again: that's prompt caching (the "If you've written code" box above). The benchmark was measuring the cache, not the model. Starting each prompt with a different request number fixed it, and the real first-token times are ten or more times longer.
+The first version of this benchmark sent the identical prompt every time. It reported a time to first token of **0.02 seconds** and prompt reading at **3,400 tokens a second**, on the same kind of machine. Both were wrong. Ollama, like most model servers, keeps the processed prompt of the previous request, and when the next prompt starts with the same tokens it skips reading them again: that's prompt caching (the "If you've written code" box above). The benchmark was measuring the cache, not the model. Starting each prompt with a different request number fixed it within one run, and the real first-token times turned out to be ten or more times longer.
+
+The fix wasn't complete. The numbers restarted at 1 in every run, so when CI ran the benchmark a second time against the *same* server, it sent the same sequence of prompts as the first run, and one CI run reported prompt reading at **86,000 tokens a second**: the cache again. (That run had a second problem: the step meant to restart the server with parallel mode had quietly failed, so the "parallel" numbers came from the old server.) The benchmark now starts every prompt with a random tag, and CI checks the restarted server's own log for the parallel setting before trusting its numbers. The results above are from a run where the restart demonstrably happened.
 
 The lesson applies to every benchmark (chapter 8.5 has more): **when a number looks too good, find out why before you believe it**. And one more caution: different CI runs land on different machines. An earlier run measured the small model's generation at 73 tokens a second, against 56 here. Benchmark on the hardware you'll actually use, more than once.
 

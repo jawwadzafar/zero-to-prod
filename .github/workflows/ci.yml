@@ -188,8 +188,13 @@ jobs:
       - name: Install Ollama and pull a small model (chapters 14.4 and 14.11)
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          # The installer starts a systemd service where systemd runs; on this runner it doesn't, so start the server ourselves.
-          curl -fsS localhost:11434/api/version || (ollama serve > /tmp/ollama.log 2>&1 &)
+          # Where systemd runs, the installer starts Ollama as a service under its own user, which
+          # this job can't restart later (chapter 14.11's parallel benchmark needs to). So stop any
+          # such service and always run the server ourselves, as this user.
+          sudo systemctl stop ollama 2>/dev/null || true
+          sudo pkill -f "ollama serve" || true
+          sleep 1
+          ollama serve > /tmp/ollama.log 2>&1 &
           for _ in $(seq 1 30); do curl -fsS localhost:11434/api/version && break; sleep 1; done
           ollama pull qwen2.5:0.5b
       - name: Chapter 14.4 lab — describe real pages with a local model, whole and streamed
@@ -283,10 +288,12 @@ jobs:
           uv run python -m snipai.prompt_lab v1 v2 v3
       - name: Chapter 14.11 lab — the same benchmark with the server allowed 4 requests in parallel
         run: |
-          pkill -f "ollama serve" || true
-          sleep 2
+          pkill -f "ollama serve"
+          for _ in $(seq 1 10); do pgrep -f "ollama serve" > /dev/null || break; sleep 1; done
           OLLAMA_NUM_PARALLEL=4 nohup ollama serve > /tmp/ollama-parallel.log 2>&1 &
           for _ in $(seq 1 30); do curl -fsS localhost:11434/api/version && break; sleep 1; done
+          # Prove the server answering is the new one, started with the parallel setting.
+          grep -o "OLLAMA_NUM_PARALLEL:[0-9]*" /tmp/ollama-parallel.log | tee /dev/stderr | grep -q "OLLAMA_NUM_PARALLEL:4"
           OLLAMA_NUM_PARALLEL=4 uv run python -m snipai.bench qwen2.5:0.5b qwen2.5:1.5b
 
   snip-image:

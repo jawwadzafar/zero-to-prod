@@ -4,7 +4,7 @@ For each model: time to first token (what a person waiting feels) for a short
 and a long prompt, generation speed in tokens per second (from Ollama's own
 counters), and total throughput when several requests arrive at once.
 
-Every request starts with a different number, so the server can't reuse the
+Every request starts with a random tag, so the server can't reuse the
 previous request's work on an identical prompt (servers cache that, and it
 would make the first token look instant).
 
@@ -13,12 +13,12 @@ would make the first token look instant).
 
 from __future__ import annotations
 
-import itertools
 import json
 import os
 import statistics
 import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -34,8 +34,6 @@ LONG_CONTEXT = (
     "Postgres, then acknowledges them so they aren't processed twice. "
 ) * 20
 
-_request_numbers = itertools.count(1)
-
 
 @dataclass
 class Sample:
@@ -48,7 +46,10 @@ class Sample:
 
 
 def one_request(http: httpx.Client, model: str, max_tokens: int = 120, context: str = "") -> Sample:
-    prompt = f"Request {next(_request_numbers)}. {context}{PROMPT}"
+    # A random tag at the very start: no two prompts share a first token, even
+    # across separate runs against the same server, so none can reuse the
+    # server's cached work from an earlier request.
+    prompt = f"Request {uuid.uuid4().hex[:12]}. {context}{PROMPT}"
     body = {
         "model": model,
         "prompt": prompt,
