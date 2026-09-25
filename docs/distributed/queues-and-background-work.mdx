@@ -93,34 +93,39 @@ flowchart LR
 The worker's main step, `ProcessOnce`, reads a batch with `XREADGROUP`, sums the clicks per slug, writes the sums, then acknowledges the batch (`internal/clicks/stream.go`, trimmed):
 
 ```go
-// First re-claim our own events that were delivered but never acked
-// (e.g. we crashed mid-batch), then read new ones (">").
-for _, start := range []string{"0", ">"} {
-	streams, err := c.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-		Group:    Group,             // "workers"
-		Consumer: c.name,            // unique per worker process
-		Streams:  []string{StreamKey, start},
-		Count:    c.batch,           // up to 500 events at a time
-		Block:    c.blockFor(start), // wait up to 2s for new events
+// 1. Our own events that were delivered but never acked (we crashed or
+//    failed mid-batch last time): retry them first.
+msgs, err := c.read(ctx, "0")
+// 2. Events another worker took and never acked, for longer than
+//    claimIdle (a minute): take them over.
+if len(msgs) == 0 {
+	msgs, _, err = c.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+		Stream: StreamKey, Group: Group, Consumer: c.name,
+		MinIdle: c.claimIdle, Start: "0-0", Count: c.batch,
 	}).Result()
-	// … collect messages …
-
-	counts := map[string]int64{}
-	for _, m := range msgs {
-		counts[m.Values["slug"].(string)]++          // aggregate: 500 clicks → a few UPDATEs
-	}
-	for slug, n := range counts {
-		dst.AddClicks(ctx, slug, n)                   // atomic: clicks = clicks + n (chapter 6.5)
-	}
-	c.rdb.XAck(ctx, StreamKey, Group, ids...)          // only now: "done"
 }
+// 3. New events (">"), waiting up to 2s for some to arrive.
+if len(msgs) == 0 {
+	msgs, err = c.read(ctx, ">")
+}
+
+counts := map[string]int64{}
+for _, m := range msgs {
+	counts[m.Values["slug"].(string)]++          // aggregate: 500 clicks → a few UPDATEs
+}
+for slug, n := range counts {
+	dst.AddClicks(ctx, slug, n)                   // atomic: clicks = clicks + n (chapter 6.5)
+}
+c.rdb.XAck(ctx, StreamKey, Group, ids...)          // only now: "done"
 ```
 
 Three design choices worth noticing:
 
 - **Batching.** 500 click events for the same viral link become **one** `UPDATE … SET clicks = clicks + 500`, not 500 separate writes. Queues make this kind of aggregation natural, and it dramatically reduces database load.
 - **Ack after the work.** Events are acknowledged only after Postgres has the counts. A crash in between means the batch is redelivered — at-least-once.
-- **Re-claiming pending events.** On each pass, the worker first asks for its **own** pending entries (start ID `"0"`), i.e. ones it received before a crash but never acknowledged, then for new ones (`">"`). Nothing gets stuck.
+- **Re-claiming pending events.** On each pass, the worker first retries its **own** pending entries (start ID `"0"`): ones it received but never acknowledged, because processing failed. Then it takes over **other workers'** pending entries that have sat unacknowledged for over a minute (`XAUTOCLAIM`). Then it reads new ones (`">"`).
+
+That middle step was missing for a long time, and the bug it fixes is worth understanding. Each worker's name includes its process ID, so it's unique. When a worker crashed mid-batch, the replacement (a new process, or a new pod in Kubernetes) had a **different** name, so it never asked for the dead worker's pending entries, and nobody else did either. Those clicks were never counted, and sat in Redis's pending list forever. The comment in the code said crashes caused "a small over-count"; in fact, the crash case caused a permanent *under*-count. A test now replays it: a worker takes three events and "dies" without acknowledging them, and a differently named worker must count all three once they've been idle long enough. When you rely on a queue's redelivery, check who actually redelivers.
 
 ### Workers are just a loop
 

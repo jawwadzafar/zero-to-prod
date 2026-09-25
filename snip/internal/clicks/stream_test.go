@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -64,5 +65,51 @@ func TestRecordAndProcess(t *testing.T) {
 	pending, err := rdb.XPending(ctx, clicks.StreamKey, clicks.Group).Result()
 	if err != nil || pending.Count != 0 {
 		t.Fatalf("pending = %+v, %v; want all acknowledged", pending, err)
+	}
+}
+
+// A worker takes a batch and crashes before acknowledging it. Its replacement
+// has a different name (worker names include the process ID), so it must take
+// over the abandoned events, or those clicks are never counted.
+func TestAbandonedEventsAreTakenOver(t *testing.T) {
+	addr := os.Getenv("SNIP_TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("SNIP_TEST_REDIS_ADDR not set")
+	}
+	ctx := context.Background()
+	rdb := redis.NewClient(&redis.Options{Addr: addr})
+	t.Cleanup(func() { rdb.Close() })
+	rdb.Del(ctx, clicks.StreamKey)
+
+	rec := clicks.NewRecorder(rdb)
+	for _, slug := range []string{"x", "x", "y"} {
+		if err := rec.Record(ctx, slug); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := clicks.NewConsumer(rdb, "setup").EnsureGroup(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The doomed worker reads the events... and dies without acknowledging them.
+	if err := rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group: clicks.Group, Consumer: "worker-crashed-1234",
+		Streams: []string{clicks.StreamKey, ">"}, Count: 10, Block: -1,
+	}).Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := clicks.NewConsumer(rdb, "worker-new-5678").ClaimAfter(50 * time.Millisecond)
+	dst := &counter{m: map[string]int64{}}
+	if n, err := replacement.ProcessOnce(ctx, dst); err != nil || n != 0 {
+		t.Fatalf("too early to take over: n=%d err=%v", n, err) // the events aren't idle long enough yet
+	}
+	time.Sleep(100 * time.Millisecond)
+	n, err := replacement.ProcessOnce(ctx, dst)
+	if err != nil || n != 3 || dst.m["x"] != 2 || dst.m["y"] != 1 {
+		t.Fatalf("take-over: n=%d err=%v counts=%v; want the 3 abandoned events counted", n, err, dst.m)
+	}
+	pending, err := rdb.XPending(ctx, clicks.StreamKey, clicks.Group).Result()
+	if err != nil || pending.Count != 0 {
+		t.Fatalf("pending = %+v, %v; want nothing left behind", pending, err)
 	}
 }
