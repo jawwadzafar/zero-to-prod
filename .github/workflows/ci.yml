@@ -411,8 +411,14 @@ jobs:
           q 'sum(snip_worker_clicks_processed_total)' | jq -e '.[0].value[1] | tonumber > 0'
           curl -s localhost:9090/api/v1/rules | jq -e '.data.groups[] | select(.name == "snip-slo")' > /dev/null   # SLO rules loaded (13.4)
           docker compose --profile observability up -d grafana
-          for _ in $(seq 1 30); do curl -fsS localhost:3000/api/health > /dev/null 2>&1 && break; sleep 2; done
-          curl -s 'localhost:3000/api/search?query=snip' | jq -e '.[] | select(.uid == "snip-overview")'
+          # Grafana can be slow to start, and to make provisioned dashboards searchable,
+          # so wait for the dashboard itself (up to 2 minutes), and say so if it never appears.
+          found=""
+          for _ in $(seq 1 60); do
+            if curl -fsS 'localhost:3000/api/search?query=snip' 2>/dev/null | jq -e '.[] | select(.uid == "snip-overview")' > /dev/null; then found=1; break; fi
+            sleep 2
+          done
+          [ -n "$found" ] || { echo "snip-overview dashboard never appeared"; docker compose logs grafana | tail -40; exit 1; }
           curl -s localhost:3000/api/datasources/uid/prometheus/health | jq -e '.status == "OK"'
       - name: Chapter 13.3 lab — traces reach Jaeger, one per request, with cache spans
         env:
