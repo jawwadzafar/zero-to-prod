@@ -263,10 +263,10 @@ Free, on your own computer. You'll drive snip's full API.
     {
       q: 'A client asks for a link that exists but belongs to another user. What should snip return, and why?',
       options: [
-        '403 Forbidden, to be accurate',
-        '404 Not Found, so it does not confirm the link exists',
-        '200 with the link data',
-        '500 Internal Server Error',
+        '403 Forbidden, because it is accurate and helps the client debug',
+        '404 Not Found, so it doesn’t confirm the link exists',
+        '200 with the link data, since reading a link is harmless',
+        '409 Conflict, because the link belongs to someone else',
       ],
       answer: 1,
       explain: 'Returning 403 would confirm the slug exists, letting attackers probe other users’ data. 404 reveals nothing.',
@@ -274,10 +274,10 @@ Free, on your own computer. You'll drive snip's full API.
     {
       q: 'A mobile app’s POST /api/links times out, and it retries. What risk does that create?',
       options: [
-        'None — POST is idempotent',
-        'The link may be created twice, because POST is not idempotent',
-        'The server will crash',
-        'The API key will be revoked',
+        'None — POST is idempotent, so a retry changes nothing',
+        'The link may be created twice: POST isn’t idempotent',
+        'The server may crash handling two identical requests at once',
+        'The API key may be revoked for sending duplicate requests',
       ],
       answer: 1,
       explain: 'The first request may have succeeded before the connection dropped. Retrying a non-idempotent POST can duplicate the action. Idempotency keys (or unique slugs) prevent that.',
@@ -285,10 +285,10 @@ Free, on your own computer. You'll drive snip's full API.
     {
       q: 'Why wrap list responses in an object like {"links": [...]} instead of returning a bare array?',
       options: [
-        'JSON does not allow bare arrays',
-        'So fields like next_cursor or total can be added later without breaking clients',
-        'It makes responses smaller',
-        'Arrays cannot be paginated',
+        'JSON does not allow an array at the top level of a document',
+        'So fields like next_cursor can be added later without breaking clients',
+        'It makes responses smaller once they are compressed',
+        'Arrays can’t be paginated, but objects can be split into pages',
       ],
       answer: 1,
       explain: 'An object leaves room to grow. Adding a field is backward-compatible; turning an array into an object later would break every client.',

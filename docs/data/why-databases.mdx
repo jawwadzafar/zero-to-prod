@@ -234,10 +234,10 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
     {
       q: 'Two snip requests each read links.json, add a link, and write the file back at the same moment. What can happen?',
       options: [
-        'Both links are saved',
-        'One link is silently lost, because the second write overwrites the first',
-        'The file becomes encrypted',
-        'The operating system merges the two files',
+        'Both links are saved, because each write adds to the file',
+        'One link is silently lost: the second write overwrites the first',
+        'The file is locked, and both requests fail with an error',
+        'The operating system merges the two versions of the file',
       ],
       answer: 1,
       explain: 'This is a race condition: both read the old contents, and the last write wins. Databases prevent it with transactions and locks.',
@@ -245,10 +245,10 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
     {
       q: 'What does durability mean for a database?',
       options: [
-        'It never needs updating',
-        'Once it confirms a write, the data survives crashes and restarts',
-        'It can store very large files',
-        'It is hard to delete',
+        'It never needs updating once the schema has been designed',
+        'Once a write is confirmed, it survives crashes and restarts',
+        'It can store very large files without running out of space',
+        'It keeps a copy of every row that has ever been deleted',
       ],
       answer: 1,
       explain: 'Databases write changes to a log on disk before confirming them, so a crash cannot lose data they already said was saved.',
@@ -256,10 +256,10 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
     {
       q: 'In the playground, INSERT of a duplicate slug fails. What made the database refuse it?',
       options: [
-        'snip’s Go code checked for duplicates',
-        'The table definition declares slug as the PRIMARY KEY, so the database enforces uniqueness itself',
-        'The browser blocked the request',
-        'Duplicates are never allowed in any column',
+        'snip’s Go code checked for the duplicate before inserting it',
+        'slug is declared PRIMARY KEY, so the database enforces uniqueness',
+        'The browser blocked the request, since it had sent it already',
+        'Duplicate values are never allowed in any column of any table',
       ],
       answer: 1,
       explain: 'Constraints in the schema are enforced by the database on every write, from every client. That is integrity you cannot forget to check.',
@@ -267,10 +267,10 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
     {
       q: 'Why is SQL called declarative?',
       options: [
-        'You declare variables before using them',
-        'You describe what data you want, and the database decides how to find it',
-        'It can only declare tables, not query them',
-        'It requires a declaration file',
+        'You declare every variable and type before you can use it',
+        'You say what data you want; the database decides how to get it',
+        'Its statements declare tables, and a separate language queries them',
+        'It requires a declaration file listing the queries in advance',
       ],
       answer: 1,
       explain: 'You write "links of owner 1, most clicks first"; the database chooses the fastest plan — for example, using an index (chapter 6.4).',

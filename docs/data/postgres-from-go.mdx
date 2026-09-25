@@ -302,10 +302,10 @@ Free, on your own computer, using Docker.
     {
       q: 'Why does snip use a connection pool instead of opening a new connection per request?',
       options: [
-        'Postgres only allows one connection',
-        'Opening connections is slow and the database supports a limited number, so a few are opened once and shared',
-        'Pools encrypt the connection',
-        'Go requires pools',
+        'Postgres only allows one connection per program, so it must be shared',
+        'Connecting is slow and limited, so a few are opened once and shared',
+        'Pools encrypt the connection, which a single connection can’t',
+        'Go’s database package refuses to run queries outside a pool',
       ],
       answer: 1,
       explain: 'A pool reuses a small set of connections, avoiding handshake costs on every request and keeping the total within the database’s limit.',
@@ -313,10 +313,10 @@ Free, on your own computer, using Docker.
     {
       q: 'What makes WHERE slug = $1 safe against SQL injection?',
       options: [
-        'Go escapes quotes automatically in strings',
-        'The query structure and the value are sent separately, so the value can only ever be data',
-        'Postgres rejects strings containing quotes',
-        'Slugs are validated by a regular expression',
+        'Go escapes the quotes in every string before sending the query',
+        'The query and the value travel separately, so the value is only data',
+        'Postgres rejects any string that contains a quote character',
+        'Slugs pass a regular expression first, so no quote can get through',
       ],
       answer: 1,
       explain: 'Postgres parses the SQL before the value is inserted, so no value can change the query’s structure. Validation helps too, but placeholders are the real protection.',
@@ -324,10 +324,10 @@ Free, on your own computer, using Docker.
     {
       q: 'Inserting a duplicate slug returns a Postgres error with code 23505. What does snip do with it?',
       options: [
-        'Returns it to the client as a 500',
-        'Translates it to links.ErrSlugTaken, which becomes 409 Conflict (or triggers a retry for random slugs)',
-        'Ignores it',
-        'Deletes the existing link',
+        'Returns it to the client as a 500 with the Postgres message',
+        'Maps it to links.ErrSlugTaken: 409, or a retry for random slugs',
+        'Ignores it, since the slug already points somewhere valid',
+        'Deletes the existing link and inserts the new one in its place',
       ],
       answer: 1,
       explain: 'The store translates database-specific errors into domain errors, keeping pgx details out of the business logic and the HTTP layer.',
@@ -335,10 +335,10 @@ Free, on your own computer, using Docker.
     {
       q: 'How does snip avoid two copies running the same migration at the same time?',
       options: [
-        'It never runs migrations',
-        'It takes a Postgres advisory lock before migrating, and runs each migration in a transaction',
-        'It waits a random amount of time',
-        'Only the first copy connects to the database',
+        'It never runs migrations; an operator runs them by hand first',
+        'It takes a Postgres advisory lock, and runs each migration in a transaction',
+        'It waits a random amount of time, so copies rarely start together',
+        'Only the first copy connects; the others wait until it finishes',
       ],
       answer: 1,
       explain: 'The advisory lock lets only one migrator proceed at a time; the others then find the versions already recorded in schema_migrations.',

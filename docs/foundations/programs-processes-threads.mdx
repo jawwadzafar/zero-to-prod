@@ -238,10 +238,10 @@ Free, on your own computer. Everything here is safe.
     {
       q: 'You run the same program twice. What do you get?',
       options: [
-        'One process with two names',
-        'Two separate processes, each with its own PID and private memory',
-        'Two threads that share memory',
-        'An error — a program can only run once',
+        'One process with two names, sharing a single block of memory',
+        'Two processes, each with its own PID and private memory',
+        'Two threads inside one process, sharing all their memory',
+        'An error — a program file can only be running once at a time',
       ],
       answer: 1,
       explain: 'Each run creates a new process: its own PID and its own private memory. They share nothing unless they arrange it through files, the network or a database.',
@@ -249,10 +249,10 @@ Free, on your own computer. Everything here is safe.
     {
       q: 'What is the main difference between threads and processes?',
       options: [
-        'Threads are slower than processes',
-        'Threads inside one process share the same memory; processes each have private memory',
-        'Processes can only run on one core',
-        'Threads cannot run at the same time',
+        'Threads are slower to start than processes, but otherwise the same',
+        'Threads in one process share memory; processes each have their own',
+        'Processes can only use one core; threads can spread across many',
+        'Threads take turns on one core and never truly run at the same time',
       ],
       answer: 1,
       explain: 'Shared memory makes threads cheap and fast to coordinate, but it also makes them able to interfere with each other — the source of race conditions.',
@@ -260,10 +260,10 @@ Free, on your own computer. Everything here is safe.
     {
       q: 'Two threads each add 1 to a shared counter at the same moment, using read–add–write. The counter was 10. What can the result be?',
       options: [
-        'Always 12',
-        'Always 11',
+        'Always 12, because each thread adds its own 1',
+        'Always 11, because the second write is ignored',
         'Either 11 or 12, depending on timing',
-        'Always 10',
+        'Always 10, because the two writes cancel out',
       ],
       answer: 2,
       explain: 'If one finishes before the other reads, you get 12. If both read 10 before either writes, both write 11 and one update is lost. That timing dependence is a race condition — and why it fails randomly.',
@@ -271,10 +271,10 @@ Free, on your own computer. Everything here is safe.
     {
       q: 'Kubernetes wants to stop your server. Why does it send SIGTERM before SIGKILL?',
       options: [
-        'SIGTERM is faster',
-        'SIGTERM lets the program finish in-flight work and clean up; SIGKILL stops it instantly with no cleanup',
-        'SIGKILL only works on Windows',
-        'There is no difference',
+        'SIGTERM is faster to deliver, so the pod stops sooner',
+        'SIGTERM lets it finish work and clean up; SIGKILL stops it with no cleanup',
+        'SIGKILL can be caught and ignored, so it’s only a fallback',
+        'There is no difference; sending both is a Kubernetes tradition',
       ],
       answer: 1,
       explain: 'SIGTERM is a polite request, so a well-written server stops taking new requests, finishes current ones and exits cleanly. SIGKILL gives no chance to clean up, so it is the last resort.',

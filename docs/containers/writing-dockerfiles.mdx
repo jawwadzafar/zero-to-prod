@@ -349,10 +349,10 @@ Free, on your own computer with Docker.
     {
       q: 'What is the difference between RUN and CMD?',
       options: [
-        'None; they are aliases',
-        'RUN executes at build time and its changes become a layer; CMD is what the container runs when started',
-        'RUN is for Linux, CMD for Windows',
-        'CMD runs before RUN',
+        'None; they are aliases kept for old Dockerfiles',
+        'RUN runs at build time, making a layer; CMD runs when the container starts',
+        'RUN runs a program; CMD runs a shell command in the same way',
+        'CMD runs once at build time; RUN runs each time a container starts',
       ],
       answer: 1,
       explain: 'Putting RUN ./server in a Dockerfile makes the build start your server and hang.',
@@ -360,10 +360,10 @@ Free, on your own computer with Docker.
     {
       q: 'Why copy go.mod/go.sum and download dependencies before copying the rest of the code?',
       options: [
-        'Go requires that order',
-        'So the dependency layer stays cached across code changes: only the steps after the changed files rerun',
-        'It makes the image smaller',
-        'It is required for multi-stage builds',
+        'Go requires go.mod to be present before any source file is copied',
+        'So the dependency layer stays cached when only your code changes',
+        'It makes the image smaller, since dependencies are stored only once',
+        'It is required for multi-stage builds to copy the modules across',
       ],
       answer: 1,
       explain: 'When one layer misses the cache, every later step rebuilds. Put rarely-changing steps first.',
@@ -371,10 +371,10 @@ Free, on your own computer with Docker.
     {
       q: 'How did a multi-stage build shrink dockerlab from 448 MB to 14 MB?',
       options: [
-        'By compressing the image',
-        'The final image contains only the compiled binary on a tiny base; the Go toolchain stayed in the discarded build stage',
-        'By deleting files with RUN rm in the last layer',
-        'By using an older Go version',
+        'By compressing each layer, which Docker unpacks when it runs',
+        'The final image holds only the binary; the Go toolchain stayed behind',
+        'By deleting the Go toolchain with RUN rm in the last layer',
+        'By using an older, smaller Go version to compile the program',
       ],
       answer: 1,
       explain: 'COPY --from=build takes just the result. Tools needed only to build never reach the runtime image.',
@@ -382,10 +382,10 @@ Free, on your own computer with Docker.
     {
       q: 'CMD ./server | tee app.log makes docker stop take 10 seconds. Why?',
       options: [
-        'tee is slow',
-        'Shell form makes /bin/sh PID 1; the shell does not forward SIGTERM, so the server never hears it and is SIGKILLed after the timeout',
-        'The image is too big',
-        'docker stop always takes 10 seconds',
+        'tee is slow to flush its buffer to app.log, so docker stop waits for it to finish',
+        'Shell form makes sh PID 1; it doesn’t pass SIGTERM on, so the server is killed later',
+        'The image is too big, and Docker saves the container’s changes before stopping it',
+        'docker stop always takes 10 seconds, whatever the program does',
       ],
       answer: 1,
       explain: 'Use exec form (a JSON array), or end startup scripts with exec, so your program is PID 1 and can shut down gracefully.',
@@ -393,10 +393,10 @@ Free, on your own computer with Docker.
     {
       q: 'You pass a token with --build-arg and use it in a RUN. Is it safe?',
       options: [
-        'Yes, build args are never stored',
-        'No: build args used in RUN are recorded in the image history and readable by anyone who can pull it. Use BuildKit secret mounts instead',
-        'Yes, if the image is small',
-        'Only if the Dockerfile is private',
+        'Yes, build args are thrown away once the build finishes',
+        'No: it’s kept in the image history; use a BuildKit secret mount',
+        'Yes, if the build uses a multi-stage Dockerfile and the arg is in stage one',
+        'Only if the Dockerfile itself is kept in a private repository',
       ],
       answer: 1,
       explain: 'The lab showed API_TOKEN=super-secret-123 in docker history. Runtime secrets belong in the environment at run time, never in the image.',
@@ -404,10 +404,10 @@ Free, on your own computer with Docker.
     {
       q: 'Why does snip use distroless rather than scratch as its runtime base?',
       options: [
-        'scratch cannot run Go programs',
-        'snip needs CA certificates, timezone data and a non-root user entry, which distroless provides and scratch does not',
-        'distroless includes a shell for debugging',
-        'scratch images cannot be pushed to registries',
+        'scratch cannot run Go programs, which need a C library to start',
+        'snip needs CA certificates, time zones and a non-root user; scratch has none',
+        'distroless includes a shell, so you can exec in when debugging',
+        'scratch images cannot be pushed to registries or signed',
       ],
       answer: 1,
       explain: 'scratch is truly empty. distroless adds just those few essentials, and still no shell or package manager.',

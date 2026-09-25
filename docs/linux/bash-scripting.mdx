@@ -349,10 +349,10 @@ Free, on your own computer. You'll write two scripts, then run snip's real smoke
     {
       q: 'What does set -euo pipefail at the top of a script do?',
       options: [
-        'Makes the script run faster',
-        'Stops on the first failing command, errors on unset variables, and makes pipelines fail if any stage fails',
-        'Turns on colour output',
-        'Runs the script as root',
+        'Makes the script run faster by skipping checks on variables and pipes',
+        'Stops at the first failure, rejects unset variables, fails a pipe if any stage fails',
+        'Turns on colour output and prints each command to the screen before running it',
+        'Runs the script as root, and refuses to continue if sudo is missing',
       ],
       answer: 1,
       explain: '-e stops on failure, -u catches unset (often misspelled) variables, and pipefail stops a failing early stage of a pipeline from being hidden by a successful last stage.',
@@ -360,10 +360,10 @@ Free, on your own computer. You'll write two scripts, then run snip's real smoke
     {
       q: 'file="my notes.txt". Why is rm $file dangerous but rm "$file" safe?',
       options: [
-        'Quotes make rm ask for confirmation',
-        'Unquoted, the shell splits it into two arguments, "my" and "notes.txt"',
-        'Quotes make the file read-only',
-        'There is no difference',
+        'Quotes make rm ask for confirmation before it deletes anything',
+        'Unquoted, the shell splits it into two arguments: "my" and "notes.txt"',
+        'Quotes stop rm from following the file if it is a symbolic link',
+        'There is no difference; quoting only matters inside echo',
       ],
       answer: 1,
       explain: 'Unquoted variables are split on spaces (and wildcards expanded). Double quotes pass the value as exactly one argument. Quote every variable by default.',
@@ -371,10 +371,10 @@ Free, on your own computer. You'll write two scripts, then run snip's real smoke
     {
       q: 'In bash, what does if actually test?',
       options: [
-        'Whether a value is the word "true"',
+        'Whether the value between the brackets is the word "true"',
         'Whether a command succeeded — its exit code is 0',
-        'Whether a file is non-empty',
-        'Whether a variable is a number',
+        'Whether the expression prints any output at all',
+        'Whether a variable holds a number other than 0',
       ],
       answer: 1,
       explain: 'if runs a command and checks its exit code. [[ … ]] is itself a command that succeeds or fails based on a comparison, and grep -q succeeds when it finds a match.',
@@ -382,10 +382,10 @@ Free, on your own computer. You'll write two scripts, then run snip's real smoke
     {
       q: 'Your deploy script has grown to 600 lines with nested data handling and retries. What is the best move?',
       options: [
-        'Keep adding to it — bash can do anything',
-        'Split it into ten bash files',
-        'Rewrite the complex parts in a real programming language with tests',
-        'Remove the error handling to make it shorter',
+        'Keep adding to it — bash can do anything, and one file is simpler',
+        'Split it into ten smaller bash files, each sourced from a main one',
+        'Rewrite the complex parts in a real programming language, with tests',
+        'Remove the error handling and retries so it is short enough to read',
       ],
       answer: 2,
       explain: 'Bash is excellent glue but poor at data structures, error handling and testability at scale. When the script fights you more than the problem does, switch to Go or Python.',

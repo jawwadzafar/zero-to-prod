@@ -233,10 +233,10 @@ Free, on your own computer; the last step talks to a public test server.
     {
       q: 'An API returns 503 Service Unavailable. Whose problem is it most likely to be?',
       options: [
-        'The client sent a malformed request',
-        'The server side — it is overloaded, down, or not ready',
-        'The user’s browser is out of date',
-        'The DNS record is wrong',
+        'The client — it sent a request the server couldn’t parse',
+        'The server side — it is overloaded, down or not ready',
+        'The user’s — their browser is too old for this API',
+        'The network — a DNS record points to the wrong place',
       ],
       answer: 1,
       explain: '5xx codes mean the server failed. 503 specifically means it cannot handle the request right now, often because it is overloaded or restarting. 4xx codes are the ones that blame the request.',
@@ -244,10 +244,10 @@ Free, on your own computer; the last step talks to a public test server.
     {
       q: 'Why does snip redirect with 302 instead of 301?',
       options: [
-        '302 is faster',
-        'Browsers remember 301 redirects permanently, so later clicks would bypass snip and not be counted',
-        '301 is not allowed for short links',
-        '302 is encrypted and 301 is not',
+        '302 responses are smaller, so each redirect loads faster',
+        'Browsers remember 301s, so later clicks would skip snip and go uncounted',
+        '301 is reserved for pages moving within the same site',
+        '302 keeps the original URL private, while 301 reveals it',
       ],
       answer: 1,
       explain: 'A 301 tells browsers the move is permanent, so they may cache it and never ask snip again. A 302 keeps every click coming through snip, where it can be counted — and lets a link be changed or deleted later.',
@@ -255,10 +255,10 @@ Free, on your own computer; the last step talks to a public test server.
     {
       q: 'HTTP is stateless. How do websites keep you logged in?',
       options: [
-        'The server remembers your IP address forever',
+        'The server remembers your IP address and matches each request to it',
         'The client sends proof (a cookie or token) with every request',
-        'The connection stays open all day',
-        'HTTPS stores your login',
+        'The connection stays open for as long as you’re logged in',
+        'HTTPS stores your login inside the encrypted connection itself',
       ],
       answer: 1,
       explain: 'Each request carries a cookie or an Authorization token that the server checks. Because nothing depends on the server remembering the previous request, any copy of the server can answer — which is what makes scaling out possible.',
@@ -266,10 +266,10 @@ Free, on your own computer; the last step talks to a public test server.
     {
       q: 'You request a page with no credentials and get 401. You log in, try an admin page, and get 403. What changed?',
       options: [
-        'Nothing — they mean the same',
-        '401 meant "I don’t know who you are"; 403 means "I know who you are, and you’re not allowed"',
-        '403 means the server crashed',
-        '401 means the page moved',
+        'Nothing — both mean "log in first", just from different servers',
+        '401 meant "who are you?"; 403 means "I know you, and you’re not allowed"',
+        '403 means your session expired between the two requests',
+        '401 means the page moved; 403 means it was deleted',
       ],
       answer: 1,
       explain: '401 is about authentication (identity missing or invalid). 403 is about authorization (identity known, permission denied). Chapter 7.4 builds on exactly this distinction.',

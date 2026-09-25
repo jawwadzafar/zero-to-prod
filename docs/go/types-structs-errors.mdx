@@ -275,10 +275,10 @@ Free, on your own computer.
     {
       q: 'owners := map[string]string{}; v := owners["missing"]. What is v?',
       options: [
-        'nil',
-        'An error',
-        'The empty string "" — the zero value for string',
-        'The program crashes',
+        'nil, because the key is missing',
+        'An error, returned as a second value',
+        '"" — the zero value for string',
+        'The program panics with "key not found"',
       ],
       answer: 2,
       explain: 'Reading a missing key returns the value type’s zero value. Use v, ok := owners["missing"] when you need to know whether the key existed.',
@@ -286,10 +286,10 @@ Free, on your own computer.
     {
       q: 'Why does snip’s store use func (s *Store) Save(…) with a * receiver?',
       options: [
-        'Pointers are faster to type',
-        'Save must change the original store, and a plain receiver would change a copy',
-        'Go requires a pointer on every method',
-        'It makes the method private',
+        'Pointers are faster to copy, so every method should take one',
+        'Save must change the original, and a plain receiver gets a copy',
+        'Go requires a pointer receiver on every method of a struct',
+        'It makes the method private to the store package',
       ],
       answer: 1,
       explain: 'Without a pointer receiver, the method works on a copy, and the changes vanish when it returns. Methods that modify their value need *T.',
@@ -308,10 +308,10 @@ Free, on your own computer.
     {
       q: 'What is the main benefit of Go returning errors as values instead of throwing exceptions?',
       options: [
-        'Programs never fail',
-        'Every place that can fail is visible in the code, and the caller must decide what to do right there',
-        'Errors are automatically logged',
-        'It uses less memory',
+        'Programs can’t crash, because every error must be handled',
+        'Every place that can fail is visible, and the caller decides what to do',
+        'Errors are logged automatically, with the line that caused them',
+        'It uses less memory, because no stack trace is recorded',
       ],
       answer: 1,
       explain: 'Explicit error handling makes failure paths impossible to overlook — valuable in backends, where networks, databases and inputs fail constantly.',

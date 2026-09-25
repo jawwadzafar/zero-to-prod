@@ -303,10 +303,10 @@ Free, safe, on your own computer. Everything happens inside a practice folder.
     {
       q: 'You type kubectl and get "command not found", but you installed it an hour ago. What are the two most likely explanations?',
       options: [
-        'The internet is down, or kubectl is broken',
-        'It is installed in a folder that is not in $PATH, or this terminal started before $PATH was updated',
-        'You need to restart the computer twice',
-        'kubectl only works with sudo',
+        'The internet is down, or the kubectl download was corrupted',
+        'Its folder isn’t in $PATH, or this terminal started before $PATH changed',
+        'You need to restart the computer so the program gets registered',
+        'kubectl only runs with sudo until it has been configured',
       ],
       answer: 1,
       explain: 'The shell finds commands by searching $PATH. Either the install location is not listed there, or your terminal loaded $PATH before the change. Check with which, fix $PATH, or open a new terminal.',
@@ -314,10 +314,10 @@ Free, safe, on your own computer. Everything happens inside a practice folder.
     {
       q: 'You run ls *.log in a folder with a.log and b.log. What does the ls program actually receive?',
       options: [
-        'The text *.log',
-        'The two arguments a.log and b.log — the shell expanded the * first',
-        'Nothing; ls reads the folder itself',
-        'An error, because * is not allowed',
+        'The text *.log, which ls then matches against the folder',
+        'The arguments a.log and b.log — the shell expanded the * first',
+        'Nothing; ls reads the folder itself and filters the names',
+        'An error, because * must be quoted to reach a program',
       ],
       answer: 1,
       explain: 'Globbing happens in the shell, before the program starts. ls never sees the *. That is why quoting ("*.log") changes behaviour: it stops the shell expanding.',
@@ -325,10 +325,10 @@ Free, safe, on your own computer. Everything happens inside a practice folder.
     {
       q: 'A script works when run from its own folder but fails with "file not found" when run from elsewhere. What is the most likely cause?',
       options: [
-        'The script is too long',
-        'It uses relative paths, which are resolved from the current working directory',
-        'Linux does not allow running scripts from other folders',
-        'The file was deleted',
+        'The script is too long for Linux to load from another folder',
+        'It uses relative paths, resolved from the current working directory',
+        'Linux only allows running scripts from inside their own folder',
+        'The file is hidden from scripts started in other folders',
       ],
       answer: 1,
       explain: 'Relative paths depend on where you are standing. Run pwd to check, and use absolute paths (or paths computed from the script’s own location) in automation.',

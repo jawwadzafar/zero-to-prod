@@ -235,10 +235,10 @@ ORDER BY links DESC, tag;
     {
       q: 'Why are columnar databases like ClickHouse so fast at "total clicks per day over a billion rows"?',
       options: [
-        'They keep everything in memory',
-        'They store each column together, so a query reads only the columns it needs, heavily compressed',
-        'They skip rows at random',
-        'They use more CPU cores than Postgres',
+        'They keep every row in memory, so nothing is ever read from disk',
+        'Each column is stored together, so a query reads only what it needs, compressed',
+        'They sample a random slice of the rows and scale the total up',
+        'They give each row its own CPU core, so rows are counted in parallel',
       ],
       answer: 1,
       explain: 'Row stores read whole rows even when a query needs one column. Column stores read just that column, compressed — ideal for scanning and summarising, poor for updating single rows.',
@@ -246,10 +246,10 @@ ORDER BY links DESC, tag;
     {
       q: 'Where should snip store link preview images?',
       options: [
-        'In a bytea column in the links table',
-        'In object storage such as S3, with the object key stored in Postgres',
-        'In Redis',
-        'In the Go binary',
+        'In a bytea column in the links table, next to the URL',
+        'In object storage like S3, with its key saved in Postgres',
+        'In Redis, which serves binary data faster than any disk',
+        'In the Go binary, embedded at build time for speed',
       ],
       answer: 1,
       explain: 'Files belong in cheap, durable object storage; the database keeps a small reference. Large files inside the database bloat it and slow backups.',
@@ -257,10 +257,10 @@ ORDER BY links DESC, tag;
     {
       q: 'A user updates their profile and immediately reloads the page, which reads from a database replica. The old profile shows. Why?',
       options: [
-        'The update failed',
-        'Replication lag: the replica had not yet received the change from the primary',
-        'The browser cached the page',
-        'Replicas cannot store profiles',
+        'The update failed quietly, and the page shows what’s really stored',
+        'Replication lag: the replica hadn’t received the change yet',
+        'The browser cached the page and didn’t ask the server again',
+        'Replicas only copy tables once a night, during the backup',
       ],
       answer: 1,
       explain: 'Replicas trail the primary slightly. Read-your-own-writes should go to the primary (or wait for the replica to catch up).',
@@ -268,10 +268,10 @@ ORDER BY links DESC, tag;
     {
       q: 'What is the strongest reason not to add a new datastore "just in case"?',
       options: [
-        'New databases are always slower',
-        'Every datastore must be run, secured, backed up, monitored, kept in sync and paid for — permanent cost for imagined benefit',
-        'Postgres forbids it',
-        'You can only use one database per application',
+        'New databases are always slower than the one you already tuned',
+        'Each one must be run, secured, backed up, monitored and synced — forever',
+        'Postgres refuses to share its data with any other kind of store',
+        'An application’s drivers can only talk to one kind of database',
       ],
       answer: 1,
       explain: 'Operational cost is forever. Add specialised stores when a measured need justifies them.',

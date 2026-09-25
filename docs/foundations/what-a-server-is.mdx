@@ -203,10 +203,10 @@ Free, on your own computer. You'll run two real servers and talk to them.
     {
       q: 'Why must the rule "you can only delete your own links" be enforced in the backend, not only in the frontend?',
       options: [
-        'The backend is faster',
-        'Code running on the user’s device can be changed by the user, so it cannot be trusted to enforce rules',
-        'Frontends cannot display errors',
-        'Rules are only allowed in databases',
+        'The backend is faster at checking rules, so users wait less',
+        'Code on the user’s device can be changed by the user, so it can’t enforce rules',
+        'Frontends cannot show error messages when a rule is broken',
+        'Rules must live in the database, and only the backend can reach it',
       ],
       answer: 1,
       explain: 'Anything on the user’s device is under their control. The server is the only place you control, so every rule that matters must be checked there, even if the frontend also checks it for convenience.',
@@ -214,10 +214,10 @@ Free, on your own computer. You'll run two real servers and talk to them.
     {
       q: 'In the life-of-a-request diagram, why does snip check Redis before Postgres?',
       options: [
-        'Redis holds data Postgres does not have',
-        'Redis keeps hot data in memory, so most lookups avoid the slower database',
-        'Postgres is only for backups',
-        'Redis is required by HTTP',
+        'Redis holds data Postgres does not have, such as the short links',
+        'Redis keeps hot data in memory, so most lookups skip the database',
+        'Postgres is only for backups and is never read during a redirect',
+        'HTTP requires a cache in front of any database it talks to',
       ],
       answer: 1,
       explain: 'Redis is a cache: a fast in-memory copy of popular data. Postgres remains the source of truth. On a cache miss, snip reads Postgres and fills the cache for next time.',
@@ -225,10 +225,10 @@ Free, on your own computer. You'll run two real servers and talk to them.
     {
       q: 'You stop snip, then curl localhost:8080 prints "connection refused". What does that confirm?',
       options: [
-        'Your internet is down',
-        'DNS failed to find localhost',
+        'Your internet is down, so curl couldn’t leave the machine',
+        'DNS failed to turn "localhost" into an address',
         'Nothing is listening on port 8080 — the server process is gone',
-        'snip crashed the operating system',
+        'snip crashed the operating system’s networking on the way out',
       ],
       answer: 2,
       explain: 'The server is just a process listening on a port. Stop the process and the port is empty, so the operating system refuses the connection.',

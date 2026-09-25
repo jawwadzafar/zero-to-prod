@@ -321,10 +321,10 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
     {
       q: 'Inside the Compose stack, snip is configured with a database host of localhost and fails with "connection refused". Why?',
       options: [
-        'Postgres is not installed',
-        'Inside a container, localhost is that container itself; other services are reached by their service name, e.g. postgres',
-        'Port 5432 must be published',
-        'Compose does not support Postgres',
+        'Postgres isn’t installed inside the snip container, so nothing answers',
+        'In a container, localhost is the container itself; use the service name, postgres',
+        'Port 5432 must be published with ports: before other containers can reach it',
+        'Compose starts Postgres on a random host port, so 5432 is wrong',
       ],
       answer: 1,
       explain: 'Each container has its own network namespace. Docker’s DNS resolves service names on the project network.',
@@ -332,10 +332,10 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
     {
       q: 'What is the difference between docker compose down and docker compose down -v?',
       options: [
-        'None',
-        'down removes containers and the network but keeps named volumes; down -v also deletes the volumes (your database)',
-        'down -v is verbose mode',
-        'down only stops containers',
+        'None; -v only prints more detail about what is being removed',
+        'down keeps named volumes; down -v deletes them too (your database)',
+        'down -v also removes the images, so the next up rebuilds them',
+        'down only stops containers; down -v removes them and their logs',
       ],
       answer: 1,
       explain: 'Use down -v deliberately, when you want a clean slate.',
@@ -343,10 +343,10 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
     {
       q: 'Why does snip’s api service use depends_on with condition: service_healthy for Postgres?',
       options: [
-        'To make Postgres start faster',
-        'A started container is not a ready database; waiting for the healthcheck (pg_isready) avoids connecting too early',
-        'It is required for volumes to work',
-        'To limit Postgres memory',
+        'To make Postgres start first, so it gets the most memory',
+        'Started isn’t ready: waiting for pg_isready avoids connecting too early',
+        'Without it the database volume could be mounted by two containers at once',
+        'To restart the api automatically whenever Postgres is restarted',
       ],
       answer: 1,
       explain: 'Plain depends_on only orders container starts. Apps should still retry, because in production nothing guarantees order.',
@@ -354,10 +354,10 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
     {
       q: 'You edit Go code and run docker compose up -d, but the running API does not change. Why?',
       options: [
-        'Compose caches HTTP responses',
-        'The containers use the image built earlier; you need docker compose up -d --build to rebuild it',
-        'Go code cannot run in containers',
-        'You must delete the volume first',
+        'Compose caches HTTP responses until the containers are restarted',
+        'It still uses the old image; run docker compose up -d --build',
+        'Go code is compiled when a container starts, not when it restarts',
+        'You must delete the volume first, since the old binary is stored there',
       ],
       answer: 1,
       explain: 'up -d recreates containers whose configuration changed, but only --build rebuilds images from source.',
@@ -365,10 +365,10 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
     {
       q: 'Why is only nginx given a ports: entry in snip’s compose file?',
       options: [
-        'The API cannot listen on a port',
-        'nginx is the single entry point; API copies are reachable only on the private network, behind the proxy',
-        'Compose allows only one published port',
-        'Ports are published automatically for other services',
+        'The API listens on a Unix socket rather than a port inside Compose',
+        'nginx is the one entry point; the API copies stay on the private network',
+        'Compose allows only one published port per project',
+        'Other services get their ports published automatically on startup',
       ],
       answer: 1,
       explain: 'The reverse-proxy pattern of chapter 8.3: one controlled door, with internals unreachable from outside.',
@@ -376,10 +376,10 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
     {
       q: 'What is Compose not designed to do?',
       options: [
-        'Start several containers with one command',
-        'Keep services running across a fleet of machines, rescheduling them when a machine dies',
-        'Create a private network for a project',
-        'Mount volumes',
+        'Start several containers with one command, in dependency order',
+        'Run services across many machines, moving them when one dies',
+        'Create a private network for a project so services find each other',
+        'Mount named volumes that survive when the containers are recreated',
       ],
       answer: 1,
       explain: 'Compose manages one host. Multi-machine scheduling, self-healing and rolling deploys are what orchestrators like Kubernetes (Part 10) do.',

@@ -265,10 +265,10 @@ Free, on your own computer.
     {
       q: 'In func(w http.ResponseWriter, r *http.Request), what are w and r?',
       options: [
-        'w is the request, r is the response',
-        'r is everything the client sent; w is how the handler writes the response',
-        'Both are the request body',
-        'They are the server’s address and port',
+        'w is the request being written in, r is the response being read',
+        'r is what the client sent; w is how you write the reply',
+        'Both are the request body: w to write to it, r to read it',
+        'They are the server’s write buffer and read buffer for the socket',
       ],
       answer: 1,
       explain: 'r (the Request) holds the method, URL, headers and body from the client. w (the ResponseWriter) is where you write the status, headers and body you send back.',
@@ -276,10 +276,10 @@ Free, on your own computer.
     {
       q: 'What does the route pattern GET /{code} match, and how does the handler get the code?',
       options: [
-        'Only the literal path /{code}; it cannot read it',
-        'Any GET /something path; the handler reads it with r.PathValue("code")',
-        'Every method on every path',
-        'Only POST requests',
+        'Only the literal path /{code}, braces included; it can’t read it',
+        'Any GET /something; the handler reads r.PathValue("code")',
+        'Every method on every path, and code holds the whole path',
+        'Only GET requests whose query string contains code=something',
       ],
       answer: 1,
       explain: 'Braces mark a wildcard. The matched segment is available via r.PathValue with the wildcard’s name.',
@@ -287,10 +287,10 @@ Free, on your own computer.
     {
       q: 'Why does snip v0 wrap the request body with io.LimitReader(r.Body, 2048)?',
       options: [
-        'To make reading faster',
-        'So a client cannot make the server read an enormous body into memory',
-        'Because URLs are always exactly 2048 bytes',
-        'LimitReader decrypts the body',
+        'To make reading faster by reading the body in 2 KB blocks',
+        'So a client can’t make it read a huge body into memory',
+        'Because URLs are always padded to exactly 2048 bytes',
+        'LimitReader decrypts the body in 2048-byte pieces for safety',
       ],
       answer: 1,
       explain: 'Never trust the client: without a limit, a huge upload could exhaust the server’s memory. Limiting input is a basic defence.',
@@ -298,10 +298,10 @@ Free, on your own computer.
     {
       q: 'You restart snip v0 and every short link returns 404. Why?',
       options: [
-        'The map was cleared by the router',
-        'Links were only in memory, which is lost when the process stops',
-        'The codes expired after one minute',
-        'curl caches old results',
+        'The router cleared the map because the routes were registered again',
+        'Links lived only in memory, lost when the process stopped',
+        'The codes expired after one minute, as short links always do',
+        'curl caches the old 404s and keeps showing them after a restart',
       ],
       answer: 1,
       explain: 'A process’s memory disappears when it exits (chapters 1.1 and 1.2). Durable data needs storage — which is what Part 6 adds.',

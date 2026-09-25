@@ -291,10 +291,10 @@ Free, on your own computer.
     {
       q: 'In package links, which of these can other packages use: NormalizeURL, slugPattern, ErrNotFound, alphabet?',
       options: [
-        'All of them',
-        'NormalizeURL and ErrNotFound — names starting with a capital letter are exported',
-        'Only lowercase names',
-        'None — packages are private',
+        'All of them, because they live in the same module',
+        'NormalizeURL and ErrNotFound: capitalised names are exported',
+        'slugPattern and alphabet, because lowercase names are public',
+        'None, unless they are listed in the package’s export file',
       ],
       answer: 1,
       explain: 'Go uses capitalisation for visibility. Capitalised names are exported; lowercase names are private to their package.',
@@ -302,10 +302,10 @@ Free, on your own computer.
     {
       q: 'What is go.sum for?',
       options: [
-        'It adds up the lines of code in the project',
-        'It records checksums of every dependency so builds get exactly the tested code and tampering is detected',
-        'It lists the project’s tests',
-        'It is a backup of go.mod',
+        'It adds up the size of each dependency so downloads can be checked',
+        'It records checksums of each dependency, so tampering is detected',
+        'It lists the project’s tests and whether each one passed last time',
+        'It is a backup of go.mod, used if the main file gets corrupted',
       ],
       answer: 1,
       explain: 'go.sum pins the exact contents of every dependency. If downloaded code does not match, the build fails. Commit it alongside go.mod.',
@@ -313,10 +313,10 @@ Free, on your own computer.
     {
       q: 'How does postgres.Store come to satisfy the links.Store interface?',
       options: [
-        'It declares "implements links.Store"',
-        'It has all the methods the interface lists, with matching signatures — Go checks this automatically',
-        'It inherits from memory.Store',
-        'main registers it at startup',
+        'It declares "implements links.Store" above its type definition',
+        'It has every method the interface lists, and Go checks this for you',
+        'It inherits from memory.Store, which already implements the interface',
+        'main registers it with the links package when the program starts',
       ],
       answer: 1,
       explain: 'Go interfaces are satisfied implicitly. Any type with the right methods fits, which is why snip can offer both a memory and a Postgres store.',
@@ -324,10 +324,10 @@ Free, on your own computer.
     {
       q: 'Why does snip create the Store in main and pass it into links.NewService, instead of the Service opening its own database connection?',
       options: [
-        'Because main is faster',
-        'So the same Service can be given a memory store, a Postgres store, or a test fake — it becomes swappable and testable',
-        'Because services cannot open connections in Go',
-        'To reduce the number of files',
+        'Because main runs first, so the connection is ready before any request',
+        'So the Service can be given memory, Postgres or a test fake: swappable and testable',
+        'Because Go only lets the main package open network connections',
+        'To keep all database code in one file, so the project stays smaller',
       ],
       answer: 1,
       explain: 'That is dependency injection. The Service depends only on the Store interface; main decides which real implementation to plug in, and tests plug in fakes.',

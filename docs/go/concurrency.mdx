@@ -305,10 +305,10 @@ Free, on your own computer.
     {
       q: 'How does Go’s HTTP server handle many requests at the same time?',
       options: [
-        'It handles one request at a time, very quickly',
-        'It starts a goroutine for each connection, so each request runs concurrently',
-        'It starts a new process for every request',
-        'It only works on machines with many CPU cores',
+        'It handles one request at a time, but so quickly that nobody notices the queue',
+        'It starts a goroutine per connection, so requests run concurrently',
+        'It starts a new operating-system process for every request it accepts',
+        'It gives each CPU core one request, and queues the rest behind them',
       ],
       answer: 1,
       explain: 'Each connection gets its own goroutine. Goroutines are cheap, and the runtime switches between them whenever one waits on the network or disk.',
@@ -316,10 +316,10 @@ Free, on your own computer.
     {
       q: 'Why does snip’s in-memory store lock a mutex in every method?',
       options: [
-        'To make it faster',
-        'Many request goroutines use the same map at once, and unsynchronised writes cause races or crashes',
-        'Maps require a password',
-        'To save memory',
+        'To make it faster, since a locked map lets Go skip bounds checks',
+        'Many goroutines share the map, and unsynchronised writes race or crash',
+        'Maps can only be read by the goroutine that created them',
+        'To save memory by letting goroutines share one copy of each link',
       ],
       answer: 1,
       explain: 'Go maps are not safe for concurrent writes. The (RW)mutex makes each read-modify-write happen one at a time, preventing lost updates and "concurrent map writes" crashes.',
@@ -327,10 +327,10 @@ Free, on your own computer.
     {
       q: 'What is context.Context used for?',
       options: [
-        'Storing global configuration',
-        'Carrying deadlines and cancellation through all the functions working on one task',
-        'Logging errors',
-        'Creating goroutines',
+        'Storing global configuration that every package can read at startup',
+        'Carrying deadlines and cancellation through the calls for one task',
+        'Logging errors with the request ID attached, so they can be traced',
+        'Creating goroutines and waiting for all of them to finish',
       ],
       answer: 1,
       explain: 'A context tells every function involved when to give up: a timeout passed, the client disconnected, or the server is shutting down.',
@@ -338,10 +338,10 @@ Free, on your own computer.
     {
       q: 'A program starts a goroutine that waits to receive from a channel nobody ever sends to. What happens?',
       options: [
-        'Go automatically deletes it after a minute',
-        'The goroutine is leaked — it waits forever, holding its memory',
-        'The program crashes immediately',
-        'The channel sends a zero value',
+        'The garbage collector notices it is stuck and deletes it after a while',
+        'It leaks: it waits forever, holding on to its memory',
+        'The program crashes immediately with a "deadlock" error',
+        'The channel gives it a zero value after a timeout, so it carries on',
       ],
       answer: 1,
       explain: 'A blocked goroutine never exits on its own. Leaks accumulate until memory runs out. Always give waits an exit: close the channel, or select on ctx.Done().',

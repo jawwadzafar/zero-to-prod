@@ -306,10 +306,10 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
     {
       q: 'Why is deploying the latest tag a bad idea in production?',
       options: [
-        'latest images are always larger',
-        'latest is a movable label: machines can run different code under the same name, and there is nothing precise to roll back to',
-        'Registries forbid pulling latest',
-        'latest images cannot be scanned',
+        'latest images are always larger, since they include debug tools',
+        'latest moves: machines can run different code under one name, with nothing to roll back to',
+        'Registries rate-limit pulls of latest far more than pinned tags',
+        'latest images can’t be scanned, because scanners need a version number',
       ],
       answer: 1,
       explain: 'Deploy immutable tags (such as the commit SHA) or digests, so "what is running?" always has an exact answer.',
@@ -317,10 +317,10 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
     {
       q: 'What does govulncheck do that a plain image scanner does not?',
       options: [
-        'It scans OS packages',
-        'It checks whether your code actually calls the vulnerable functions, so unreachable vulnerabilities do not fail the build',
-        'It fixes vulnerabilities automatically',
-        'It signs images',
+        'It scans the OS packages in the image as well as the Go modules',
+        'It checks whether your code calls the vulnerable functions at all',
+        'It upgrades vulnerable modules automatically and opens a pull request',
+        'It signs the image, so the cluster can refuse unscanned ones',
       ],
       answer: 1,
       explain: 'Reachability analysis cuts noise: a CVE in code you never call is reported but not treated as urgent.',
@@ -328,10 +328,10 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
     {
       q: 'How does snip build an arm64 image quickly on an amd64 CI machine?',
       options: [
-        'It emulates an ARM CPU with QEMU',
-        'The build stage runs natively (FROM --platform=$BUILDPLATFORM) and Go cross-compiles for the target architecture',
-        'It only builds amd64',
-        'GitHub provides ARM runners automatically',
+        'It emulates an ARM CPU with QEMU for every step of the build',
+        'The build stage runs natively and Go cross-compiles for arm64',
+        'It only builds amd64; ARM machines translate it when they run it',
+        'GitHub moves the job to an ARM runner automatically when it sees arm64',
       ],
       answer: 1,
       explain: 'Emulated compiling is often 5–20× slower. The runtime stage only copies files, which needs no emulation.',
@@ -339,10 +339,10 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
     {
       q: 'What is an SBOM for?',
       options: [
-        'Making images smaller',
-        'Listing every package and version in an artefact, so you can quickly find everything affected when a new vulnerability is announced',
-        'Encrypting images',
-        'Speeding up builds',
+        'Making images smaller by listing files that can be removed',
+        'Listing every package and version, so you can find what a new CVE affects',
+        'Encrypting images so only machines with the key can run them',
+        'Speeding up builds by telling the cache which layers to keep',
       ],
       answer: 1,
       explain: 'A software bill of materials is an ingredient list. With SBOMs, "which services contain library X?" takes minutes.',
@@ -350,10 +350,10 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
     {
       q: 'Which container setting effectively gives root on the host to anyone who controls the container?',
       options: [
-        '--read-only',
-        'Mounting /var/run/docker.sock (or running with --privileged)',
-        '--cap-drop ALL',
-        '--memory 128m',
+        '--read-only, which lets it write straight to the host’s disk',
+        'Mounting /var/run/docker.sock, or --privileged',
+        '--cap-drop ALL, which removes the kernel’s checks',
+        '--user 0, which is the same as root on the host',
       ],
       answer: 1,
       explain: 'With the Docker socket, a container can start another container with the host filesystem mounted. Treat both as full host access.',
@@ -361,10 +361,10 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
     {
       q: 'Your image was built a year ago and your code has not changed. Is it still fine to run?',
       options: [
-        'Yes: unchanged code means unchanged risk',
-        'Probably not: the base image and dependencies have likely had security fixes since. Rebuild regularly and re-scan deployed images',
-        'Yes, if it was scanned when built',
-        'Only if it uses Alpine',
+        'Yes: unchanged code means unchanged risk, so it needs no attention',
+        'Probably not: its base and dependencies have had fixes since; rebuild and re-scan',
+        'Yes, if it was scanned when built and nothing was found then',
+        'Only if it uses Alpine, whose packages update themselves',
       ],
       answer: 1,
       explain: 'New CVEs are published about old software every day. A scan at build time says nothing about vulnerabilities found since.',

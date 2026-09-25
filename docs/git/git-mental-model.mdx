@@ -270,10 +270,10 @@ The last command deletes the practice directory with `rm -rf`, which asks no que
     {
       q: 'What is a Git commit?',
       options: [
-        'A list of the lines you changed',
-        'A snapshot of the whole project, with a message, author, time and a link to the previous commit',
-        'A backup copy of one file',
-        'An upload to GitHub',
+        'A list of the lines you changed since the previous commit',
+        'A snapshot of the whole project, plus message, author, time and parent',
+        'A backup copy of each file you changed, stored separately',
+        'An upload of your changes to GitHub, marked with your name',
       ],
       answer: 1,
       explain: 'Commits are snapshots linked to their parents, forming history. Diffs are computed by comparing snapshots. Uploading to GitHub is a separate step (push).',
@@ -292,10 +292,10 @@ The last command deletes the practice directory with `rm -rf`, which asks no que
     {
       q: 'A commit that was pushed and pulled by your whole team introduced a bug. What is the safe way to undo it?',
       options: [
-        'git commit --amend',
-        'git revert <hash> — a new commit that undoes it, leaving shared history intact',
-        'Delete the .git folder',
-        'git restore .',
+        'git commit --amend, then push so everyone gets the fix',
+        'git revert <hash>: a new commit undoing it, shared history untouched',
+        'git reset --hard to the commit before it, then force-push',
+        'git restore . to put every file back as it was before',
       ],
       answer: 1,
       explain: 'Rewriting shared history (amend, reset, rebase) causes pain for everyone who already has it. revert adds a new commit that reverses the change, which everyone can simply pull.',
@@ -303,10 +303,10 @@ The last command deletes the practice directory with `rm -rf`, which asks no que
     {
       q: 'You accidentally committed an API key and pushed it to a public repository. You delete it in the next commit. Is it safe now?',
       options: [
-        'Yes — the latest version no longer contains it',
-        'No — it is still in history and may already have been scraped; revoke the key and create a new one',
-        'Yes, if the repository is small',
-        'Only if you also run git status',
+        'Yes — the latest version no longer contains it, and that is what people clone',
+        'No — it’s still in history and may be scraped already; revoke it and make a new one',
+        'Yes, if nobody has starred or forked the repository yet',
+        'Only if you also squash the two commits into one',
       ],
       answer: 1,
       explain: 'Git keeps every snapshot, so the key is still in history, and bots scan public repositories within minutes. A committed secret is a leaked secret: revoke and replace it.',

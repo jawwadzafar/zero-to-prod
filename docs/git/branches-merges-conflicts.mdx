@@ -255,10 +255,10 @@ The last command deletes the practice directory with `rm -rf`, which asks no que
     {
       q: 'What is a Git branch, really?',
       options: [
-        'A full copy of the project folder',
+        'A full copy of the project folder, kept inside .git',
         'A named, movable label pointing at a commit',
-        'A separate repository on GitHub',
-        'A backup of the main branch',
+        'A separate repository that shares history with main',
+        'A frozen backup of main taken when you create it',
       ],
       answer: 1,
       explain: 'A branch is just a name pointing at the latest commit of a line of work. Creating one copies nothing, which is why branches are cheap and used for every change.',
@@ -266,10 +266,10 @@ The last command deletes the practice directory with `rm -rf`, which asks no que
     {
       q: 'When does Git report a merge conflict?',
       options: [
-        'Whenever two branches changed the same file',
-        'When both branches changed the same lines in different ways',
-        'Whenever a merge creates a merge commit',
-        'When the branches have different names',
+        'Whenever both branches changed the same file at all',
+        'When both branches changed the same lines differently',
+        'Whenever the merge needs a merge commit to join them',
+        'When the branches were created by different people',
       ],
       answer: 1,
       explain: 'Git merges changes line by line. Different parts of the same file combine automatically; only overlapping, different edits need a human decision.',
@@ -277,10 +277,10 @@ The last command deletes the practice directory with `rm -rf`, which asks no que
     {
       q: 'git push is rejected because the remote has commits you do not have. What should you do?',
       options: [
-        'git push --force',
-        'git pull to merge their commits into yours, resolve any conflicts, then push',
-        'Delete your branch and start over',
-        'Wait a day and try again',
+        'git push --force, since your commits are the newer ones',
+        'git pull to merge their commits in, resolve conflicts, then push',
+        'Delete your local branch, clone again and redo your work',
+        'Wait until the remote finishes processing, then push again',
       ],
       answer: 1,
       explain: 'Force-pushing would erase your teammates’ commits. Integrate their work first with pull, then push the combined history.',
@@ -288,10 +288,10 @@ The last command deletes the practice directory with `rm -rf`, which asks no que
     {
       q: 'Why should you never rebase commits that teammates have already pulled?',
       options: [
-        'Rebase is slower than merge',
-        'Rebase rewrites commits with new hashes, so everyone else’s history no longer matches',
-        'Rebase deletes the branch',
-        'Rebase only works on main',
+        'Rebase is slower than merge on history others have pulled',
+        'Rebase makes new commits with new hashes, so others’ history won’t match',
+        'Rebase deletes the original branch once it has finished',
+        'Rebase only works on commits nobody has pushed yet, and fails',
       ],
       answer: 1,
       explain: 'Rebased commits are new commits. Teammates who have the old ones end up with duplicated, diverging history. Rebase only your own unshared work.',

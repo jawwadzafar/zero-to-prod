@@ -263,10 +263,10 @@ Free, safe, on your own computer. Everything happens in a scratch folder.
     {
       q: 'What does chmod 755 on a script mean?',
       options: [
-        'Only the owner can run it',
+        'Only the owner can run it; everyone else can only read it',
         'Owner can read, write and run; group and others can read and run',
-        'Everyone can change it',
-        'Nobody can read it',
+        'Everyone can read, change and run it, including other users',
+        'Owner can read and write; group and others can only run it',
       ],
       answer: 1,
       explain: '7 = rwx for the owner; 5 = r-x for group and others. It is the standard permission for programs other users are allowed to run but not modify.',
@@ -274,10 +274,10 @@ Free, safe, on your own computer. Everything happens in a scratch folder.
     {
       q: 'Your web server can see its HTML files but gets "permission denied" reading them. The server runs as user www-data. What is the right fix?',
       options: [
-        'chmod 777 on every file',
-        'Run the web server as root',
-        'Give www-data (or its group) read permission on the files, and x on the folders leading to them',
-        'Delete and recreate the files',
+        'chmod 777 on every file, so no user is ever refused',
+        'Run the web server as root, which can read every file on the machine',
+        'Give www-data read on the files and x on the folders above them',
+        'Delete the files and recreate them as www-data using sudo -u www-data',
       ],
       answer: 2,
       explain: 'Grant exactly the access needed to exactly the user that needs it. 777 and running as root both "work" by removing protection, which turns any bug into a security hole.',
@@ -285,10 +285,10 @@ Free, safe, on your own computer. Everything happens in a scratch folder.
     {
       q: 'You set API_URL=http://localhost:8080 in your shell, then run your program, but it says API_URL is empty. What happened?',
       options: [
-        'Environment variables only work on servers',
-        'The variable was not exported, so the child process did not inherit it',
-        'Your program needs sudo',
-        'URLs cannot be stored in variables',
+        'Environment variables only reach programs after you restart the shell',
+        'It wasn’t exported, so the child process did not inherit it',
+        'Your program needs sudo to read variables set by your user',
+        'The colon in the URL ended the variable, so it was empty',
       ],
       answer: 1,
       explain: 'Without export, the variable lives only in the shell. Child processes inherit only exported variables. Use export API_URL=… or set it for one command: API_URL=… ./program.',

@@ -322,10 +322,10 @@ Free, on your own computer. You'll practise in a throwaway Linux container, so n
     {
       q: 'You ran sudo systemctl start snip and it works, but after a reboot snip is not running. What did you forget?',
       options: [
-        'sudo systemctl restart snip',
-        'sudo systemctl enable snip — start only runs it now; enable makes it start at boot',
-        'To install snip with apt',
-        'To reboot twice',
+        'sudo systemctl restart snip, so the new unit file is loaded',
+        'sudo systemctl enable snip — start runs it now; enable runs it at boot',
+        'To install snip with apt, so it is registered as a system package',
+        'sudo systemctl daemon-reload, so systemd remembers the unit',
       ],
       answer: 1,
       explain: 'start and enable are separate: start runs the service now, enable registers it to start at boot. enable --now does both.',
@@ -333,10 +333,10 @@ Free, on your own computer. You'll practise in a throwaway Linux container, so n
     {
       q: 'A service keeps crashing and its unit file has Restart=on-failure. Where do you look first to see why?',
       options: [
-        'The firewall rules',
-        'journalctl -u <service> — its stdout/stderr and systemd’s notes about each crash',
-        'crontab -l',
-        'The package list',
+        'The firewall rules, in case the port is being blocked',
+        'journalctl -u <service>: its output plus systemd’s notes on each crash',
+        'crontab -l, in case a scheduled job keeps stopping it',
+        'The package list, in case an update replaced the binary',
       ],
       answer: 1,
       explain: 'systemd captures the service’s output in the journal, including the error printed just before each crash and the exit code. Restart hides the outage, not the cause.',
@@ -344,10 +344,10 @@ Free, on your own computer. You'll practise in a throwaway Linux container, so n
     {
       q: 'The disk is 100% full. You delete a 20 GB log file, but df still shows the disk as full. Why?',
       options: [
-        'df is cached for 24 hours',
-        'A running process still has the file open, so the space is not freed until it closes it',
-        'Deleted files go to a recycle bin',
-        'The file was a symbolic link',
+        'df caches its numbers, so it will catch up in a few minutes',
+        'A running process still has the file open, so its space isn’t freed yet',
+        'Deleted files go to a recycle bin until you empty it with rm -rf',
+        'The file was a symbolic link, so only the link was removed',
       ],
       answer: 1,
       explain: 'On Linux, deleting removes the name, but the data stays until every process holding the file open closes it. Restart the process, or truncate the file instead of deleting it.',
@@ -355,10 +355,10 @@ Free, on your own computer. You'll practise in a throwaway Linux container, so n
     {
       q: 'Your nightly cron job works when you run it by hand but fails in cron with "command not found". Most likely cause?',
       options: [
-        'cron cannot run scripts',
-        'cron runs jobs with a minimal environment and PATH, so commands need absolute paths',
-        'The job runs too early in the morning',
-        'cron requires root',
+        'cron can only run single commands, not whole scripts',
+        'cron runs jobs with a minimal PATH, so commands need absolute paths',
+        'The job runs before the disks are mounted in the morning',
+        'cron requires root, and your script runs as your own user',
       ],
       answer: 1,
       explain: 'Your interactive shell has your full $PATH and variables; cron does not. Use absolute paths (/usr/local/bin/…) or set PATH at the top of the crontab or script.',

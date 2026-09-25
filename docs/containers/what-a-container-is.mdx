@@ -263,10 +263,10 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
     {
       q: 'What is a running container, from the host kernel’s point of view?',
       options: [
-        'A small virtual machine with its own kernel',
-        'An ordinary process (or group of processes) with its own namespaces and cgroup limits',
-        'A compressed file',
-        'A Docker-only feature unrelated to Linux',
+        'A small virtual machine with its own kernel, started very quickly',
+        'An ordinary process with its own namespaces and cgroup limits',
+        'A compressed file that the kernel unpacks and runs in memory',
+        'A Docker feature that runs beside the kernel rather than on it',
       ],
       answer: 1,
       explain: 'In the lab, snip appeared in the host’s ps output with a normal PID. Namespaces change its view; cgroups limit its resources.',
@@ -274,10 +274,10 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
     {
       q: 'Namespaces and cgroups do different jobs. Which is right?',
       options: [
-        'Namespaces limit memory; cgroups hide processes',
-        'Namespaces control what a process can see; cgroups control how much it can use',
-        'Both only affect networking',
-        'Cgroups are for Windows; namespaces are for Linux',
+        'Namespaces limit memory and CPU; cgroups hide other processes',
+        'Namespaces control what it can see; cgroups, how much it can use',
+        'Both only affect networking: one for addresses, one for bandwidth',
+        'Cgroups group containers by project; namespaces name them',
       ],
       answer: 1,
       explain: 'The PID, mount, network and UTS namespaces give a private view. Cgroups enforce memory, CPU and process-count limits.',
@@ -285,10 +285,10 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
     {
       q: 'A container keeps restarting and exits with code 137. What is the most likely cause?',
       options: [
-        'A syntax error in the code',
-        'It exceeded its memory limit and the kernel’s OOM killer sent SIGKILL (128 + 9 = 137)',
-        'The port was already in use',
-        'The image tag was wrong',
+        'A syntax error in the code, so it exits as soon as it starts',
+        'It went over its memory limit and was OOM-killed (128 + 9 = 137)',
+        'The port was already in use, so it couldn’t bind and exited',
+        'The image tag was wrong, so an old version keeps being pulled',
       ],
       answer: 1,
       explain: 'Confirm with docker inspect (OOMKilled: true), then fix the memory use or raise the limit.',
@@ -296,10 +296,10 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
     {
       q: 'You run Postgres in a container without a volume, then docker rm it. What happens to the data?',
       options: [
-        'It is saved in the image',
-        'It is lost: it lived in the container’s writable layer, which is deleted with the container',
-        'Docker backs it up automatically',
-        'It moves to the host’s /var/lib/postgresql',
+        'It is saved in the image, and comes back when you run it again',
+        'It’s lost with the container’s writable layer',
+        'Docker backs it up automatically to an anonymous volume',
+        'It moves to the host’s /var/lib/postgresql folder',
       ],
       answer: 1,
       explain: 'Images are read-only; each container’s writes go to its own temporary layer. Data that must survive belongs in a volume.',
@@ -307,10 +307,10 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
     {
       q: 'What is the difference between an image tag and a digest?',
       options: [
-        'There is none',
-        'A tag is a movable label; a digest is the content’s hash, so it always refers to exactly the same image',
-        'Digests are for private images only',
-        'Tags are more secure than digests',
+        'There is none; a digest is the long form of a tag',
+        'A tag can move; a digest is the content’s hash, so it never changes',
+        'Digests are for private images, tags for public ones',
+        'Tags are signed by the registry; digests are only a checksum',
       ],
       answer: 1,
       explain: 'postgres:16 changes as new 16.x releases ship. postgres@sha256:… never changes.',
@@ -318,10 +318,10 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
     {
       q: 'Why can’t a Linux container run directly on macOS without a VM?',
       options: [
-        'macOS forbids containers',
-        'Containers use the host’s kernel, and a Linux container needs a Linux kernel, which Docker Desktop provides in a small VM',
-        'Containers need a GPU',
-        'Docker only works on Ubuntu',
+        'macOS forbids processes from hiding each other, which containers need',
+        'Containers share the host kernel, and Linux containers need a Linux one',
+        'Containers need hardware support that only Intel Macs had',
+        'Docker images are built for Ubuntu and must run on Ubuntu',
       ],
       answer: 1,
       explain: 'A container is not a VM. It brings files, not a kernel.',

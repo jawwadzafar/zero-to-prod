@@ -287,10 +287,10 @@ Free, on your own computer, in `~/code/zero-to-prod/snip`.
     {
       q: 'In snip’s layers, which statement is true?',
       options: [
-        'links imports httpapi so it can write responses',
-        'httpapi and store/postgres depend on links; links depends on neither',
-        'Every package imports every other package',
-        'main contains the business rules',
+        'links imports httpapi, so it can write HTTP responses itself',
+        'httpapi and store/postgres depend on links; links on neither',
+        'Every package imports every other, so no one owns a rule',
+        'main contains the business rules, so they are easy to find',
       ],
       answer: 1,
       explain: 'Dependencies point inward: the edges (HTTP, database) depend on the core, which only declares interfaces. That keeps the business rules independent of technology and easy to test.',
@@ -298,10 +298,10 @@ Free, on your own computer, in `~/code/zero-to-prod/snip`.
     {
       q: 'Why does snip refuse to start when SNIP_RATE_LIMIT=sixty?',
       options: [
-        'Because rate limits must be above 100',
-        'Failing fast turns a config typo into an obvious startup error instead of mysterious behaviour later',
-        'Because environment variables cannot contain letters',
-        'To save memory',
+        'Because rate limits must be above 100 to protect the database',
+        'Failing fast makes a config typo an obvious startup error, not a mystery later',
+        'Because environment variables cannot contain letters, only digits',
+        'To fall back to no limit at all, which would be unsafe in production',
       ],
       answer: 1,
       explain: 'Silently falling back to a default hides mistakes until they cause trouble in production. A clear refusal at startup is found and fixed immediately.',
@@ -309,10 +309,10 @@ Free, on your own computer, in `~/code/zero-to-prod/snip`.
     {
       q: 'Postgres is unreachable for 30 seconds. What should snip’s /healthz and /readyz report?',
       options: [
-        'Both fail, so the platform restarts snip',
-        '/healthz stays OK (the process is fine); /readyz fails, so traffic pauses until Postgres returns',
-        'Both stay OK',
-        '/healthz fails and /readyz stays OK',
+        'Both fail, so the platform restarts snip and reconnects',
+        '/healthz stays OK; /readyz fails, pausing traffic until Postgres is back',
+        'Both stay OK, because snip can serve from Redis in the meantime',
+        '/healthz fails and /readyz stays OK, so it restarts but keeps traffic',
       ],
       answer: 1,
       explain: 'Restarting snip would not fix Postgres and would slow recovery. Readiness pauses traffic; liveness only fails when a restart would actually help.',
@@ -320,10 +320,10 @@ Free, on your own computer, in `~/code/zero-to-prod/snip`.
     {
       q: 'What problem do the http.Server timeouts in snip solve?',
       options: [
-        'They make responses faster',
-        'Slow or silent clients cannot hold connections open forever and exhaust the server',
-        'They limit the number of links',
-        'They encrypt the connection',
+        'They make responses faster by closing idle connections early',
+        'Slow or silent clients can’t hold connections open and exhaust it',
+        'They limit how many links a single client can create per minute',
+        'They force slow clients onto an encrypted connection',
       ],
       answer: 1,
       explain: 'Without timeouts, a client can trickle data (Slowloris) and tie up resources indefinitely. Every wait in a service needs an upper bound.',

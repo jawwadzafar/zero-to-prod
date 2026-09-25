@@ -278,10 +278,10 @@ Free, on your own computer. You'll create a key, use it with GitHub, and SSH int
     {
       q: 'SSH warns "REMOTE HOST IDENTIFICATION HAS CHANGED". What should you do?',
       options: [
-        'Always delete known_hosts and reconnect',
-        'Find out why: a rebuilt server explains it; if not, someone may be intercepting the connection',
-        'Ignore it — it is cosmetic',
-        'Switch to password login',
+        'Delete known_hosts and reconnect; the warning clears itself',
+        'Find out why: a rebuilt server explains it; if not, you may be intercepted',
+        'Ignore it — the key exchange still encrypts the connection',
+        'Switch to password login until the new key has been confirmed',
       ],
       answer: 1,
       explain: 'The server’s identity no longer matches what you saw before. Legitimate reasons exist (a rebuilt machine), but so does an attack. Confirm first, then remove the old entry with ssh-keygen -R.',
@@ -289,10 +289,10 @@ Free, on your own computer. You'll create a key, use it with GitHub, and SSH int
     {
       q: 'The database only listens on localhost on the server. How can you query it from your laptop without exposing it?',
       options: [
-        'Open port 5432 to the internet temporarily',
-        'Use an SSH tunnel: ssh -L 5433:localhost:5432 server, then connect to localhost:5433',
-        'Copy the whole database to your laptop',
-        'Disable the firewall',
+        'Open port 5432 to the internet for as long as you need it',
+        'An SSH tunnel: ssh -L 5433:localhost:5432 server, then use localhost:5433',
+        'Copy the whole database to your laptop and query the copy there',
+        'Disable the firewall on the server while you run your queries',
       ],
       answer: 1,
       explain: 'The tunnel carries your connection, encrypted, through SSH; the server connects to its own localhost:5432. The database is never exposed to the network.',
@@ -300,10 +300,10 @@ Free, on your own computer. You'll create a key, use it with GitHub, and SSH int
     {
       q: 'Why are SSH keys safer than passwords?',
       options: [
-        'Keys are shorter',
-        'The private key never crosses the network and is far too long to guess; the server only checks a signature',
-        'Keys expire every day',
-        'Passwords are not encrypted by SSH',
+        'Keys are shorter, so there is less to leak if someone is watching',
+        'The private key never crosses the network, and it’s far too long to guess',
+        'Keys expire every day, so a stolen key is only useful briefly',
+        'Passwords are sent unencrypted by SSH, while keys are encrypted',
       ],
       answer: 1,
       explain: 'With keys, you prove possession by signing a challenge. There is nothing short to brute-force and nothing secret sent over the wire. Password logins are the main target of internet-wide bot attacks.',

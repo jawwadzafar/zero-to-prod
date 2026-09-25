@@ -155,10 +155,10 @@ Two minutes, in your browser and terminal. Free.
     {
       q: 'When someone visits a snip short link, what does snip send back?',
       options: [
-        'The web page the long link points to',
+        'The web page the long link points to, fetched by snip and passed along',
         'A redirect: a response telling the browser to go to the long address',
-        'A list of all the links snip knows',
-        'A copy of the short code',
+        'A list of every link snip knows, so the browser can pick the right one',
+        'A copy of the short code, which the browser then looks up on its own',
       ],
       answer: 1,
       explain: 'snip never serves the destination page itself. It answers with a redirect (like the 301 you saw from github.com), and the browser then fetches the long address on its own.',
@@ -166,10 +166,10 @@ Two minutes, in your browser and terminal. Free.
     {
       q: 'Why does snip count clicks through a queue and a separate worker instead of updating the count during the redirect?',
       options: [
-        'Because databases cannot count',
-        'So the visitor is redirected immediately and never waits for the counting',
-        'Because queues are more secure',
-        'Because the worker is written in a different language',
+        'Because databases cannot add numbers safely while other requests are reading',
+        'So the visitor is redirected at once and never waits for the counting',
+        'Because a queue keeps the click data encrypted until the worker reads it',
+        'Because the worker is written in a different language from the redirect code',
       ],
       answer: 1,
       explain: 'The redirect is what the visitor cares about, so it must be instant. Dropping a "click happened" note in a queue takes almost no time; the worker does the slower counting in the background.',
@@ -188,10 +188,10 @@ Two minutes, in your browser and terminal. Free.
     {
       q: 'What is the best way to use the reference code in the snip/ folder?',
       options: [
-        'Copy each file into your project before reading the chapter',
-        'Ignore it completely',
-        'Write your own version following the chapter, then compare with the reference to find differences',
-        'Only read it after finishing the whole handbook',
+        'Copy each file into your project first, then read the chapter to understand it',
+        'Ignore it completely; the chapters contain everything the reference contains',
+        'Write your own version from the chapter, then compare it with the reference',
+        'Only open it after finishing the whole handbook, as a final exam of sorts',
       ],
       answer: 2,
       explain: 'Like an answer key: attempt it yourself first (that is where learning happens), then compare. Copy-pasting gives you working code and no understanding.',

@@ -271,10 +271,10 @@ Free, in the playgrounds above (each has its own database; **Reset** restores it
     {
       q: 'EXPLAIN ANALYZE shows "Seq Scan on links … Rows Removed by Filter: 9,999,980" for a query returning 20 rows. What does that tell you?',
       options: [
-        'The query is as fast as possible',
-        'Postgres read the whole table and discarded almost all of it — an index on the filtered column would likely help',
-        'The table is corrupted',
-        'The LIMIT is too small',
+        'The query is as fast as it can be, since only 20 rows came back',
+        'It read the whole table and threw nearly all of it away: add an index',
+        'The table is corrupted, and Postgres is skipping the damaged rows',
+        'The LIMIT is too small, so Postgres filtered extra rows to be safe',
       ],
       answer: 1,
       explain: 'A sequential scan that throws away nearly every row is the classic sign of a missing index for that WHERE clause.',
@@ -282,10 +282,10 @@ Free, in the playgrounds above (each has its own database; **Reset** restores it
     {
       q: 'snip has an index on (owner_id, created_at DESC). Which query can use it well?',
       options: [
-        'WHERE created_at > ‘2026-09-01’ (only)',
+        'WHERE created_at > ‘2026-09-01’ ORDER BY created_at DESC',
         'WHERE owner_id = 42 ORDER BY created_at DESC LIMIT 20',
-        'WHERE url LIKE ‘%docs%’',
-        'WHERE clicks > 100',
+        'WHERE url LIKE ‘%docs%’ ORDER BY created_at DESC',
+        'WHERE clicks > 100 AND created_at > now() - interval ‘1 day’',
       ],
       answer: 1,
       explain: 'A composite index is sorted by its first column, then its second. Filtering on owner_id and sorting by created_at matches it perfectly; filtering only on the second column usually cannot use it.',
@@ -293,10 +293,10 @@ Free, in the playgrounds above (each has its own database; **Reset** restores it
     {
       q: 'Why not add an index on every column?',
       options: [
-        'Postgres allows only one index per table',
-        'Every index slows down writes and uses disk and memory; unused ones are pure cost',
-        'Indexes make reads slower',
-        'Indexes delete data',
+        'Postgres allows only one index per table, plus the primary key',
+        'Each index slows writes and uses disk and memory; unused ones are pure cost',
+        'Indexes make reads slower, because Postgres must pick one first',
+        'Indexes on text columns lock the table on every read',
       ],
       answer: 1,
       explain: 'Each insert or update must maintain every index. Index what your real, frequent queries need, and measure.',
@@ -304,10 +304,10 @@ Free, in the playgrounds above (each has its own database; **Reset** restores it
     {
       q: 'A page lists 50 links and runs one query per link to fetch each owner’s name. What is this, and the fix?',
       options: [
-        'A deadlock; add a lock',
-        'The N+1 problem; fetch all owners in one query with a JOIN or WHERE id = ANY(...)',
-        'Normal behaviour; nothing to fix',
-        'A missing primary key',
+        'A deadlock between the queries; take a table lock first',
+        'The N+1 problem: fetch all owners at once, with a JOIN or ANY(...)',
+        'Normal behaviour; 51 small queries are as fast as one big one',
+        'A missing primary key, so each owner lookup scans the table',
       ],
       answer: 1,
       explain: '51 round trips instead of 1 or 2. Each query is fast; the round trips add up. Batch them into a single query.',

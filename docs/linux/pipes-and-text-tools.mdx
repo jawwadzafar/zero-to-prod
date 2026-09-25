@@ -291,10 +291,10 @@ Free, on your own computer. You'll create a small sample web-server log and inte
     {
       q: 'What does cmd > out.txt 2>&1 do?',
       options: [
-        'Sends only errors to out.txt',
+        'Sends only the errors to out.txt, and output to the screen',
         'Sends both normal output and errors to out.txt',
-        'Runs cmd twice',
-        'Appends to out.txt',
+        'Runs cmd twice, once for each of the two streams',
+        'Appends to out.txt instead of overwriting it',
       ],
       answer: 1,
       explain: '> out.txt sends stdout to the file; 2>&1 then sends stderr to wherever stdout currently goes — the same file. (Use >> to append instead of replacing.)',
@@ -302,10 +302,10 @@ Free, on your own computer. You'll create a small sample web-server log and inte
     {
       q: 'You run cat log | uniq -c and the counts look wrong — the same line appears several times with different counts. Why?',
       options: [
-        'uniq is broken',
-        'uniq only merges adjacent duplicates, so you need to sort first',
-        'cat changes the lines',
-        'The log is too big for uniq',
+        'uniq counts characters, not lines, unless you pass -l',
+        'uniq only merges adjacent duplicates, so you must sort first',
+        'cat adds invisible line endings, so equal lines differ',
+        'The log is too big, so uniq counts it in separate chunks',
       ],
       answer: 1,
       explain: 'uniq compares each line with the one before it. Sorting first puts identical lines next to each other: sort | uniq -c.',
@@ -313,10 +313,10 @@ Free, on your own computer. You'll create a small sample web-server log and inte
     {
       q: 'Why does sort data.txt > data.txt leave you with an empty file?',
       options: [
-        'sort deletes files it reads',
-        'The shell empties data.txt for the > redirection before sort starts reading it',
-        'Files cannot be sorted in place',
-        'The file was already empty',
+        'sort deletes the files it reads once it has loaded them',
+        'The shell empties data.txt for > before sort starts reading it',
+        'sort writes its output before reading, so it sees nothing',
+        'sort saw a lock on the file and gave up without writing',
       ],
       answer: 1,
       explain: 'Redirections are set up before the command runs, and > truncates the file immediately. Write to a new file and rename it afterwards.',

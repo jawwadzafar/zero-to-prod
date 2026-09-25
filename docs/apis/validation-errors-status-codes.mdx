@@ -237,10 +237,10 @@ Free, on your own computer. Start the reference snip in memory mode (`SNIP_LOG_F
     {
       q: 'The mobile app already validates URLs before sending them. Does snip still need to validate?',
       options: [
-        'No — that would be duplicated work',
-        'Yes — anyone can call the API directly, so server-side checks are the only ones that count',
-        'Only for admin users',
-        'Only in production',
+        'No — the app’s checks already run before any request is sent',
+        'Yes — anyone can call the API directly, so only server checks count',
+        'Only for admin users, since they bypass the app’s checks',
+        'Only in production, where real users send real data',
       ],
       answer: 1,
       explain: 'Client-side checks improve the user experience but can be bypassed with curl or a script. The server is the only real line of defence.',
@@ -248,10 +248,10 @@ Free, on your own computer. Start the reference snip in memory mode (`SNIP_LOG_F
     {
       q: 'Why does snip use json.Decoder with DisallowUnknownFields?',
       options: [
-        'It makes decoding faster',
-        'So a typo like {"link": ...} is rejected clearly instead of silently ignored',
-        'JSON requires it',
-        'To hide unknown fields from logs',
+        'It makes decoding faster by skipping fields it does not know',
+        'So a typo like {"link": ...} is rejected, not silently ignored',
+        'JSON requires it whenever a struct has tags on its fields',
+        'To hide unknown fields from the logs, in case they hold secrets',
       ],
       answer: 1,
       explain: 'A lenient decoder would drop the unknown field and then report a confusing "invalid url". Strict decoding points at the real mistake.',
@@ -270,10 +270,10 @@ Free, on your own computer. Start the reference snip in memory mode (`SNIP_LOG_F
     {
       q: 'Why does snip allow-list slug characters (letters, digits, - and _) instead of deny-listing bad ones?',
       options: [
-        'Allow-lists are shorter to type',
-        'It is impossible to list every dangerous input, but easy to describe exactly what is valid',
-        'Deny-lists are not supported by Go',
-        'Allow-lists are faster',
+        'Allow-lists are shorter to type than a list of every bad character',
+        'You can’t list every dangerous input, but you can describe what is valid',
+        'Go’s regular expressions can only match allowed characters',
+        'Allow-lists run faster, because they stop at the first match',
       ],
       answer: 1,
       explain: 'Attackers find inputs you did not think to block. Describing precisely what is allowed rejects everything else by default.',

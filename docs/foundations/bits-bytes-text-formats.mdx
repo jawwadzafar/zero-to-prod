@@ -250,10 +250,10 @@ Free, on your own computer. These tools are preinstalled on macOS and Linux/WSL 
     {
       q: 'A customer named "José" appears as "JosÃ©" on a report. What is the most likely cause?',
       options: [
-        'The database lost data',
+        'The database lost the accented letter and filled the gap with junk',
         'UTF-8 bytes were read as if they were a different, older encoding',
-        'The customer typed their name wrong',
-        'The report is using too small a font',
+        'The customer typed their name with the wrong keyboard layout',
+        'The report font has no glyph for é, so it draws two others',
       ],
       answer: 1,
       explain: 'é is two bytes in UTF-8 (c3 a9). Read as Latin-1, those two bytes become two characters, Ã and ©. The bytes are fine; the label is wrong. The fix is to make every step use UTF-8.',
@@ -261,10 +261,10 @@ Free, on your own computer. These tools are preinstalled on macOS and Linux/WSL 
     {
       q: 'Which is the safest way to store a price of $19.99?',
       options: [
-        'As the floating-point number 19.99',
-        'As the whole number 1999 (cents), or in a decimal type such as NUMERIC',
-        'As the text "nineteen ninety-nine"',
-        'As a Unix timestamp',
+        'As the floating-point number 19.99, which is exact to two decimals',
+        'As 1999 cents in an integer, or in a decimal type like NUMERIC',
+        'As the text "19.99", so no rounding can happen along the way',
+        'As a 32-bit float, which saves space and still holds two decimals',
       ],
       answer: 1,
       explain: 'Floating point cannot represent most decimal fractions exactly, and errors add up. Whole cents or a proper decimal type are exact.',
@@ -272,10 +272,10 @@ Free, on your own computer. These tools are preinstalled on macOS and Linux/WSL 
     {
       q: 'A Kubernetes config stores a password as "cGFzc3dvcmQxMjM=" (Base64). Is the password protected?',
       options: [
-        'Yes — Base64 is a strong encryption method',
-        'Only if the text is long enough',
+        'Yes — Base64 scrambles it, and only the cluster holds the key',
+        'Only if the encoded text is long enough to resist guessing',
         'No — Base64 is an encoding anyone can reverse instantly',
-        'Yes, as long as the file is YAML',
+        'Yes, as long as the file is YAML and not plain JSON',
       ],
       answer: 2,
       explain: 'Base64 only rewrites bytes as safe text characters. It hides nothing. Real protection needs encryption and access control (chapters 7.1 and 7.6).',
@@ -283,10 +283,10 @@ Free, on your own computer. These tools are preinstalled on macOS and Linux/WSL 
     {
       q: 'What is the golden rule for storing times in a backend?',
       options: [
-        'Store each time in the user’s local time zone',
+        'Store each time in the user’s own time zone, as they entered it',
         'Store and process in UTC; convert to local time only for display',
-        'Store only the date, never the time',
-        'Store times as plain text like "next Tuesday"',
+        'Store only the date, since times shift with daylight saving',
+        'Store times as text in the server’s zone, e.g. "2024-03-01 09:00"',
       ],
       answer: 1,
       explain: 'UTC has no daylight saving and means the same everywhere, so comparisons and arithmetic stay correct. Local time is a presentation detail for humans.',

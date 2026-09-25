@@ -306,10 +306,10 @@ Free, on your own computer, using Docker.
     {
       q: 'In the cache-aside pattern, what happens on a cache miss?',
       options: [
-        'The request fails',
-        'The application reads the database, returns the answer, and stores it in the cache for next time',
-        'Redis fetches from Postgres by itself',
-        'The cache is cleared',
+        'The request fails and the client retries once the cache is warm',
+        'The app reads the database, answers, and caches it for next time',
+        'Redis fetches the row from Postgres by itself and returns it',
+        'The whole cache is cleared, since it’s clearly out of date',
       ],
       answer: 1,
       explain: 'The application owns the logic: try the cache, fall back to the source of truth, and fill the cache on the way out.',
@@ -317,10 +317,10 @@ Free, on your own computer, using Docker.
     {
       q: 'Why does snip delete from Postgres first and only then evict the cache entry?',
       options: [
-        'Redis is slower than Postgres',
-        'If the cache were cleared first, a racing request could re-read the old row from the database and re-cache it',
-        'Postgres requires it',
-        'It does not matter',
+        'Redis is slower than Postgres, so it should go last',
+        'Evicting first lets a racing request re-cache the old row from the database',
+        'Postgres locks the row until the cache has been told about it',
+        'It doesn’t matter; both finish within a millisecond anyway',
       ],
       answer: 1,
       explain: 'Evicting first leaves a window where the old value is still in the database. Change the truth first, then remove the copy.',
@@ -328,10 +328,10 @@ Free, on your own computer, using Docker.
     {
       q: 'A popular key expires and thousands of requests hit the database at once. What is this called?',
       options: [
-        'A deadlock',
-        'A cache stampede (thundering herd)',
-        'Negative caching',
-        'A cold start',
+        'A deadlock between the cache and the database',
+        'A cache stampede',
+        'Negative caching, where misses are remembered too',
+        'A cold start, as after a fresh deploy',
       ],
       answer: 1,
       explain: 'Many simultaneous misses for the same key overwhelm the origin. Request coalescing, jittered TTLs and refresh-ahead are common fixes.',
@@ -339,10 +339,10 @@ Free, on your own computer, using Docker.
     {
       q: 'Why must Redis not be snip’s source of truth?',
       options: [
-        'Redis cannot store URLs',
-        'Redis is memory-first: depending on configuration it can lose recent writes on a crash and evicts keys when memory is full',
-        'Redis is too slow',
-        'Redis does not support TTLs',
+        'Redis cannot store URLs longer than a few hundred characters',
+        'It’s memory-first: it may lose recent writes in a crash, and evicts keys when full',
+        'Redis is too slow for writes, even though it is fast for reads',
+        'Redis has no way to make a key last forever; every key must expire',
       ],
       answer: 1,
       explain: 'Caches may forget things at any time — that is their contract. Durable, correct data lives in Postgres; Redis holds copies that can be rebuilt.',

@@ -282,10 +282,10 @@ Steps 1–2 run in the playground above. Step 3 needs Docker and two terminals �
     {
       q: 'A transaction inserts a link and then an UPDATE fails a CHECK constraint. What happens to the inserted link?',
       options: [
-        'It stays — the INSERT already succeeded',
-        'It is undone — the whole transaction is rolled back (atomicity)',
-        'It is moved to another table',
-        'Postgres asks the user',
+        'It stays — the INSERT succeeded before the UPDATE ran',
+        'It is undone: the whole transaction rolls back',
+        'It stays, but is hidden until the constraint is fixed',
+        'Postgres keeps it and only rolls back the failed UPDATE',
       ],
       answer: 1,
       explain: 'Atomicity means all or nothing. Any failure before COMMIT undoes every change in the transaction.',
@@ -293,10 +293,10 @@ Steps 1–2 run in the playground above. Step 3 needs Docker and two terminals �
     {
       q: 'Two requests each run SELECT clicks, add 1 in Go, then UPDATE clicks = <new value>. What can go wrong under Postgres’s default isolation?',
       options: [
-        'Nothing — Read Committed prevents it',
-        'A lost update: both read the same value and one increment disappears',
-        'A dirty read',
-        'The table is locked forever',
+        'Nothing — Read Committed makes each UPDATE wait its turn',
+        'A lost update: both read the same value, and one +1 vanishes',
+        'A dirty read: one request sees the other’s uncommitted value',
+        'A deadlock, since each request waits for the other’s row',
       ],
       answer: 1,
       explain: 'Read Committed does not prevent lost updates. Use UPDATE … SET clicks = clicks + 1 (atomic), SELECT … FOR UPDATE, or a stricter isolation level with retries.',
@@ -304,10 +304,10 @@ Steps 1–2 run in the playground above. Step 3 needs Docker and two terminals �
     {
       q: 'Why does snip insert new slugs directly instead of first checking whether the slug is free?',
       options: [
-        'Checking is too slow',
-        'Check-then-insert races; the PRIMARY KEY lets the database accept exactly one and reject the other atomically',
-        'Postgres cannot check for existing rows',
-        'Duplicate slugs are allowed',
+        'Checking first is too slow on a table with millions of links',
+        'Check-then-insert races; the PRIMARY KEY accepts exactly one',
+        'Postgres can’t check for an existing row inside a transaction',
+        'Duplicate slugs are allowed, and the newest one wins',
       ],
       answer: 1,
       explain: 'Two requests could both see "free" and both insert. The unique constraint is the only race-free judge; snip maps the duplicate error to 409.',
@@ -315,10 +315,10 @@ Steps 1–2 run in the playground above. Step 3 needs Docker and two terminals �
     {
       q: 'Postgres reports "deadlock detected". What should the application do?',
       options: [
-        'Crash, since data is corrupted',
-        'Retry the aborted transaction (with a limit), and prevent future deadlocks by locking rows in a consistent order',
-        'Disable locking',
-        'Switch to a different database',
+        'Crash, since a deadlock means the data may be corrupted',
+        'Retry it (with a limit), and lock rows in a consistent order',
+        'Disable row locking for the tables involved in the deadlock',
+        'Wait: Postgres retries the transaction by itself',
       ],
       answer: 1,
       explain: 'Postgres aborts one transaction so the other can finish; nothing is corrupted. The victim should be retried, and consistent lock ordering plus short transactions make deadlocks rarer.',

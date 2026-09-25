@@ -302,10 +302,10 @@ Free, on your own computer.
     {
       q: 'What is the main value of an automated test suite?',
       options: [
-        'It proves the code has no bugs',
-        'It catches, within seconds, when a change breaks existing behaviour — giving confidence to change code',
-        'It makes programs run faster',
-        'It replaces code review',
+        'It proves the code has no bugs in the parts that the tests cover',
+        'It catches within seconds when a change breaks existing behaviour',
+        'It makes programs run faster, because tested code is optimised',
+        'It replaces code review, since the tests already read every line',
       ],
       answer: 1,
       explain: 'Tests cannot prove the absence of bugs, but they re-check known behaviour instantly after every change. That is what lets teams change code often and safely.',
@@ -313,10 +313,10 @@ Free, on your own computer.
     {
       q: 'Why are table-driven tests popular in Go?',
       options: [
-        'They run in parallel automatically',
-        'Many cases are listed compactly, each reported by name, and adding a case is one line',
-        'They do not need the testing package',
-        'They make coverage 100%',
+        'They run in parallel automatically, one goroutine per row of the table',
+        'Cases are listed compactly, reported by name, and each new one is a line',
+        'They don’t need the testing package, so they build faster',
+        'They guarantee 100% coverage, since every branch gets its own row',
       ],
       answer: 1,
       explain: 'A table of inputs and expected outputs plus one loop with t.Run keeps tests readable, precise about which case failed, and easy to extend when bugs are found.',
@@ -324,10 +324,10 @@ Free, on your own computer.
     {
       q: 'Why does snip’s Service test use an in-memory store and a fake cache instead of Postgres and Redis?',
       options: [
-        'Postgres cannot be tested',
-        'The fakes make the test fast and focused on the business logic; real databases are covered by separate integration tests',
-        'Fakes find more bugs than real systems',
-        'To avoid writing SQL',
+        'Postgres can’t run inside go test, so its code can’t be tested at all',
+        'Fakes keep it fast and focused on logic; integration tests cover the real stores',
+        'Fakes find more bugs than real systems, because they are stricter',
+        'To avoid writing SQL, which the tests are not allowed to contain',
       ],
       answer: 1,
       explain: 'Interfaces let tests plug in fast stand-ins. Unit tests check logic in microseconds; integration tests (which skip without a database) check the real boundaries.',
@@ -335,10 +335,10 @@ Free, on your own computer.
     {
       q: 'A test passes most of the time but fails randomly about once in twenty runs. What should you do?',
       options: [
-        'Re-run the pipeline until it passes',
-        'Delete it',
-        'Treat it as a real problem: find the source of non-determinism (timing, shared state, randomness, network) and fix it',
-        'Mark it as skipped forever',
+        'Re-run the pipeline until it passes; one green run proves it works',
+        'Delete it, since a test that sometimes fails tells you nothing',
+        'Treat it as real: find the non-determinism (timing, shared state, network) and fix it',
+        'Mark it as skipped, and add a note so someone fixes it later',
       ],
       answer: 2,
       explain: 'Flaky tests teach people to ignore failures and often hide real races. Find and fix the cause — go test -race is a good first step.',

@@ -250,10 +250,10 @@ Free, safe, on your own computer (and read-only against public sites).
     {
       q: 'curl says "connection refused" when you try localhost:8080. What does that tell you?',
       options: [
-        'DNS is broken',
+        'DNS couldn’t turn "localhost" into an address',
         'The machine was reached, but nothing is listening on port 8080',
-        'A firewall is silently dropping packets',
-        'The internet is down',
+        'A firewall is silently dropping the packets on the way in',
+        'The internet connection is down, so the request never left',
       ],
       answer: 1,
       explain: 'Refused means the OS answered "no one is listening here". The path works; the program is not running, or is on another port or address. A silent firewall would cause a timeout instead.',
@@ -272,10 +272,10 @@ Free, safe, on your own computer (and read-only against public sites).
     {
       q: 'Which protocol would a video-calling app most likely use for the audio itself, and why?',
       options: [
-        'TCP, because every sound must arrive in order',
-        'UDP, because a brief glitch is better than waiting for lost packets to be resent',
-        'DNS, because it is fast',
-        'NAT, because it is private',
+        'TCP, because every sound must arrive, and in order',
+        'UDP: a brief glitch beats waiting for lost packets to be resent',
+        'DNS, because its tiny messages travel faster than anything else',
+        'NAT, because it keeps the call private between the two homes',
       ],
       answer: 1,
       explain: 'For live audio, old data is useless by the time it could be resent. UDP delivers what it can immediately; TCP would stall the call waiting for retransmissions.',
@@ -283,10 +283,10 @@ Free, safe, on your own computer (and read-only against public sites).
     {
       q: 'You changed your site’s DNS record to a new server. Some users still reach the old one an hour later. Why?',
       options: [
-        'DNS changes never work',
-        'Resolvers cached the old answer until its TTL expires',
-        'Their computers are too slow',
-        'The new server rejected them',
+        'DNS changes need a full day before any server will accept them',
+        'Resolvers cached the old answer until its TTL runs out',
+        'Their browsers are still holding an open TCP connection',
+        'The new server rejected them and sent them back to the old one',
       ],
       answer: 1,
       explain: 'Every DNS answer carries a TTL saying how long it may be cached. Until it expires, resolvers keep giving out the old address. Lower the TTL ahead of planned changes.',

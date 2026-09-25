@@ -358,10 +358,10 @@ Two of these have a twist worth noticing. In **6**, deleting `k7Qz2a` works — 
     {
       q: 'What does SELECT slug FROM links WHERE clicks > 10 ORDER BY clicks DESC LIMIT 3 return?',
       options: [
-        'The 3 oldest links',
-        'The slugs of up to 3 links with more than 10 clicks, most-clicked first',
-        'Every link, sorted',
-        'The total number of clicks',
+        'The 3 oldest links that have more than 10 clicks',
+        'Slugs of up to 3 links with over 10 clicks, most-clicked first',
+        'Every link’s slug, sorted by clicks, stopping after 3 errors',
+        'The total clicks of the 3 links with more than 10 each',
       ],
       answer: 1,
       explain: 'WHERE filters rows, ORDER BY … DESC sorts biggest first, and LIMIT keeps the first 3.',
@@ -380,10 +380,10 @@ Two of these have a twist worth noticing. In **6**, deleting `k7Qz2a` works — 
     {
       q: 'WHERE country = NULL returns no rows even though some countries are missing. Why?',
       options: [
-        'NULL values cannot be stored',
-        'Any comparison with NULL is unknown, not true; use IS NULL',
-        'The column is empty',
-        'Postgres ignores NULL columns',
+        'NULL values cannot be stored, so the rows were never saved',
+        'Comparing with NULL gives unknown, not true; use IS NULL',
+        'The column holds empty strings, not NULL, so nothing matches',
+        'Postgres skips NULL columns when it builds the result',
       ],
       answer: 1,
       explain: 'NULL means unknown, so "equals unknown" is itself unknown and never matches. IS NULL is the correct test.',
@@ -391,10 +391,10 @@ Two of these have a twist worth noticing. In **6**, deleting `k7Qz2a` works — 
     {
       q: 'You ran UPDATE links SET url = ‘https://x.example’; and every link changed. What was missing, and what habit prevents it?',
       options: [
-        'A LIMIT; always add LIMIT 1',
-        'A WHERE clause; write it first as a SELECT and check the rows before updating',
-        'An ORDER BY; always sort first',
-        'Nothing — UPDATE always changes every row',
+        'A LIMIT; always add LIMIT 1 to updates',
+        'A WHERE; write it as a SELECT first and check the rows',
+        'An ORDER BY; updates without one change every row',
+        'Nothing — UPDATE always changes every row in the table',
       ],
       answer: 1,
       explain: 'Without WHERE, UPDATE and DELETE affect the whole table. Selecting first shows exactly which rows will change; transactions let you undo before committing.',

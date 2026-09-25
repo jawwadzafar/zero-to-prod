@@ -351,10 +351,10 @@ The second is a classic pattern: filter to either tag, group per link, and keep 
     {
       q: 'Why does snip use the slug itself as the primary key of links?',
       options: [
-        'Text primary keys are always best',
-        'Slugs must be unique, never change, and every redirect looks up by slug — so the key gives the hottest query a perfect index',
-        'Postgres does not support numeric keys',
-        'To save disk space',
+        'Text primary keys are always faster than numbers in Postgres',
+        'Slugs are unique, never change, and every redirect looks them up',
+        'Postgres can’t generate numeric keys without a separate sequence table',
+        'To save disk space, since slugs are shorter than numeric IDs',
       ],
       answer: 1,
       explain: 'A natural key works well when it is truly unique, stable and the main lookup. If slugs could be renamed, a surrogate id plus a UNIQUE slug would be safer.',
@@ -362,10 +362,10 @@ The second is a classic pattern: filter to either tag, group per link, and keep 
     {
       q: 'What does REFERENCES api_keys (id) ON DELETE CASCADE do on links.owner_id?',
       options: [
-        'Copies the API key into each link',
-        'Guarantees every owner_id exists, and deletes a key’s links when the key is deleted',
-        'Encrypts the owner id',
-        'Makes owner_id optional',
+        'Copies the key’s id into each link and keeps the two in sync',
+        'Every owner_id must exist; deleting a key deletes its links',
+        'Stops anyone deleting a key while it still has links',
+        'Makes owner_id optional, and sets it to NULL if the key goes',
       ],
       answer: 1,
       explain: 'The foreign key prevents references to missing rows; CASCADE says deleting the parent also deletes its children. RESTRICT or SET NULL are the alternatives.',
@@ -373,10 +373,10 @@ The second is a classic pattern: filter to either tag, group per link, and keep 
     {
       q: 'A table stores each link with its owner’s email copied into every row. What problem is this?',
       options: [
-        'It uses too little disk',
-        'An update anomaly: changing the email means updating many rows, and missing one leaves conflicting data',
-        'Emails cannot be stored in Postgres',
-        'It makes JOINs impossible',
+        'It uses too little disk, so Postgres packs rows inefficiently',
+        'An update anomaly: change the email and every row must change, or they disagree',
+        'Emails in many rows break the table’s primary key',
+        'It makes JOINs impossible, since the email is not a number',
       ],
       answer: 1,
       explain: 'Storing a fact in many places invites inconsistency. Normalise: keep the email once in the owner table and reference it.',
@@ -384,10 +384,10 @@ The second is a classic pattern: filter to either tag, group per link, and keep 
     {
       q: 'How do you model "a link can have many tags and a tag can be on many links"?',
       options: [
-        'A tags column holding a comma-separated list',
-        'A join table (link_tags) with one row per link–tag pair and foreign keys to both',
-        'A foreign key from tags to links',
-        'Duplicate the link row once per tag',
+        'A tags column holding a comma-separated list of the tag names',
+        'A join table, link_tags: one row per link–tag pair',
+        'A foreign key from tags to links, one per tag',
+        'One links row per tag, sharing the same slug',
       ],
       answer: 1,
       explain: 'Many-to-many needs a junction table. Comma-separated lists cannot be indexed, validated or joined properly.',
