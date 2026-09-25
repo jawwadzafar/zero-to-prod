@@ -156,6 +156,10 @@ GitOps with Argo CD or **Flux** is the default way many organisations run Kubern
 
 Free, on a kind cluster. This lab runs in snip's CI on every push, on a fresh cluster, with Argo CD syncing the exact commit under test. Use a **new** cluster, so Argo CD's snip doesn't collide with the one from Part 10: `kind create cluster --name gitops`.
 
+:::danger
+The clean-up deletes the `gitops` kind cluster and everything in it. Make sure your kubectl context is the lab cluster, not a real one, before you delete anything: `kubectl config current-context` should say `kind-gitops`.
+:::
+
 1. **Install Argo CD.**
    ```bash
    kubectl create namespace argocd
