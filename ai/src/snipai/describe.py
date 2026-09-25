@@ -81,8 +81,9 @@ Rules:
 }
 # v3 won chapter 14.5's comparison on balance (qwen2.5:1.5b, 12 pages): it fixed
 # v1's over-cautious UNKNOWNs and v2's descriptions of login and error pages,
-# at the cost of ~65% more input tokens. Remaining known failures: the cookie
-# wall, and one answer over 25 words.
+# at the cost of ~65% more input tokens. A later run on different hardware
+# ranked v2 and v3 within one case of each other, so the evidence is thin:
+# re-measure with more cases and several runs before relying on it (14.10).
 DEFAULT_PROMPT = "v3"
 
 

@@ -184,7 +184,29 @@ museum-german
 
 The page never mentions Vienna. v1 and v2 **invented** it (a German-language city museum, so "Vienna" is a plausible guess), and every automatic check passed, because none of them checks facts. v3 got it right, possibly thanks to its examples. This is exactly the kind of error that makes automatic checks necessary but not sufficient.
 
-**The decision:** snipai's default is now v3 (`DEFAULT_PROMPT` in `describe.py`, with a comment recording why). It's the best balance on this evidence, with its remaining failures written down. The obvious next step, **v4**, is in the lab: add a cookie-notice example, and enforce the 25-word limit **in code** rather than only asking for it. A rule that code can check should be checked by code: the model is asked nicely, the code insists.
+### A later run disagreed
+
+This section was written from the run above, and three CI runs in a row produced exactly the same table. The **fourth run**, same code, same model, same temperature 0 and seed, came back different:
+
+```text
+check                    v1       v2       v3
+unknown when right    10/12    10/12    10/12
+format                  6/7    11/11     9/11
+no boilerplate          7/7    10/11    11/11
+overall                 92%      94%      93%
+
+--- v3: failures
+  login: unknown when right: "Sign in to continue. Email address. Password. Keep me signed in. Forgot your password? Don't have an account? Create one."
+```
+
+This time **v2** answered UNKNOWN for the login page, and **v3** copied the login page's text back word for word. Nothing in the code changed. The most likely explanation is the machine: CI jobs run on whichever computer is free, and different processors can do floating-point arithmetic in slightly different orders, which occasionally changes which token is "most likely" at temperature 0. From that point, the whole answer diverges.
+
+Two lessons, and they're more important than the prompt tips above:
+
+- **"Repeatable" only holds on the same setup.** Temperature 0 and a fixed seed made runs identical on one machine, not everywhere.
+- **With 12 cases, "v3 is best" was never a robust finding.** One or two answers flipping changes the ranking. The honest conclusion is: v2 and v3 both fix v1's over-caution and clearly help formatting; neither reliably handles cookie walls; and telling them apart needs more cases and several runs, which is exactly what chapter 14.10 is about.
+
+**The decision:** snipai's default is v3 (`DEFAULT_PROMPT` in `describe.py`, with a comment recording why): it had the best balance on the first runs, and it's no worse than v2 on the later one. But the evidence is thin, and the comment says so. The obvious next step, **v4**, is in the lab: add a cookie-notice example, and enforce the 25-word limit **in code** rather than only asking for it. A rule that code can check should be checked by code: the model is asked nicely, the code insists.
 
 :::info[If you've written code]
 This is a **regression test suite for a prompt**. Like unit tests, the checks are cheap, fast and repeatable, and they catch specific failures, not overall quality. As a reminder of their limits: the **fake model** (which just copies each page's first sentence, chapter 14.4) scores 93% on them. The checks can't tell whether a description is *useful*. Judging that needs a human, or another model as a judge, which is exactly where chapter 14.10 picks up.
