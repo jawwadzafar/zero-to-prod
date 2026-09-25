@@ -299,6 +299,57 @@ jobs:
           grep -o "OLLAMA_NUM_PARALLEL:[0-9]*" /tmp/ollama-parallel.log | tee /dev/stderr | grep -q "OLLAMA_NUM_PARALLEL:4"
           OLLAMA_NUM_PARALLEL=4 uv run python -m snipai.bench qwen2.5:0.5b qwen2.5:1.5b
 
+  identity:
+    name: Identity labs — MFA, SSO with Keycloak, policies with OPA, mutual TLS (chapters 7.7–7.11)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: snip
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: snip/go.mod
+          cache-dependency-path: snip/go.sum
+      - name: Start Keycloak with snip's lab realm
+        run: |
+          docker run -d --name keycloak -p 8180:8080 \
+            -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
+            -v "$PWD/deploy/keycloak:/opt/keycloak/data/import:ro" \
+            keycloak/keycloak:26.4 start-dev --import-realm
+      - name: Chapter 7.7 lab — TOTP codes match RFC 6238, and the command works
+        run: |
+          go test -v ./examples/totp/...
+          S=$(go run ./examples/totp/cmd enroll | awk '/secret:/{print $2}')
+          go run ./examples/totp/cmd verify "$S" "$(go run ./examples/totp/cmd code "$S" | cut -d' ' -f1)"
+      - name: Chapter 7.8 lab — reset tokens, and a real k-anonymity breach check
+        run: |
+          go test -v ./examples/accountsec/...
+          go run ./examples/accountsec/cmd 'password123' 'P@ssw0rd' 'correct horse battery staple' | tee /tmp/breached.txt
+          grep '"password123"' /tmp/breached.txt | grep -qv ' 0 times'   # a famously leaked password must be found
+      - name: Chapters 7.7 and 7.9 lab — SSO through Keycloak, TOTP enrollment, 2FA login, replay refused
+        run: |
+          for _ in $(seq 1 90); do curl -fsS -o /dev/null localhost:8180/realms/snip/.well-known/openid-configuration && break; sleep 2; done
+          go build -o /tmp/oidcrp ./examples/oidcrp/cmd
+          OIDC_ISSUER=http://localhost:8180/realms/snip OIDC_CLIENT_ID=snip-web \
+            OIDC_CLIENT_SECRET=lab-only-client-secret /tmp/oidcrp > /tmp/rp.log 2>&1 &
+          for _ in $(seq 1 20); do curl -fsS -o /dev/null localhost:8765/ && break; sleep 1; done
+          ./scripts/sso-lab.sh
+          cat /tmp/rp.log
+      - name: Chapter 7.10 lab — the links policy passes its tests in OPA; relationship checks
+        run: |
+          docker run --rm -v "$PWD/deploy/opa:/policy:ro" openpolicyagent/opa:1.21.0 fmt --fail --list /policy
+          docker run --rm -v "$PWD/deploy/opa:/policy:ro" openpolicyagent/opa:1.21.0 check --strict /policy
+          docker run --rm -v "$PWD/deploy/opa:/policy:ro" openpolicyagent/opa:1.21.0 test -v /policy
+          go test -v ./examples/rebac/...
+      - name: Chapter 7.11 lab — mutual TLS with SPIFFE-style identities
+        run: |
+          go run ./examples/mtls/cmd | tee /tmp/mtls.txt
+          grep -q "200 hello spiffe://snip.local/worker" /tmp/mtls.txt
+          test "$(grep -c 'refused during the TLS handshake' /tmp/mtls.txt)" = 3
+          grep -q "403" /tmp/mtls.txt
+
   snip-image:
     name: snip container image builds
     runs-on: ubuntu-latest

@@ -1,0 +1,60 @@
+{
+  "realm": "snip",
+  "enabled": true,
+  "displayName": "snip (local lab identity provider)",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "roles": {
+    "realm": [
+      { "name": "links-admin", "description": "May manage every link (chapter 7.10)" }
+    ]
+  },
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Lab",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "alice-lab-password", "temporary": false }],
+      "realmRoles": ["links-admin"]
+    },
+    {
+      "username": "bob",
+      "email": "bob@example.com",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Lab",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "bob-lab-password", "temporary": false }],
+      "requiredActions": ["CONFIGURE_TOTP"]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "snip-web",
+      "name": "snip web (chapter 7.9 relying party)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "lab-only-client-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:8765/callback"],
+      "webOrigins": ["http://localhost:8765"],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ]
+}
