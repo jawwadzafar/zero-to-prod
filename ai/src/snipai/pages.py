@@ -31,6 +31,7 @@ class Page:
     url: str  # the final URL, after redirects
     title: str
     text: str
+    summary: str = ""  # the page's own <meta name="description">, if it has one
 
 
 def is_public_host(host: str) -> bool:
@@ -89,43 +90,75 @@ def _fetch(
                     body += chunk
                     if len(body) > MAX_BYTES:
                         break
-            title, text = extract_text(body.decode("utf-8", errors="replace"))
-            return Page(url=url, title=title, text=text[:max_chars])
+            ex = extract(body.decode("utf-8", errors="replace"))
+            return Page(url=url, title=ex.title, text=ex.text[:max_chars], summary=ex.summary)
     raise FetchError(f"too many redirects from {url}")
 
 
+@dataclass
+class Extracted:
+    title: str
+    text: str
+    summary: str
+
+
 class _TextExtractor(HTMLParser):
-    SKIP = {"script", "style", "noscript", "svg", "nav", "footer", "header"}
+    # Never visible content, and each always has an end tag. (Page headers,
+    # navigation and footers are kept: sites vary too much to drop them safely,
+    # and a tag whose end is missing, like </head>, would hide the whole page.)
+    SKIP = {"script", "style", "noscript", "template", "svg"}
 
     def __init__(self) -> None:
         super().__init__()
         self.title = ""
-        self.parts: list[str] = []
+        self.summary = ""
+        self.all_text: list[str] = []
+        self.main_text: list[str] = []  # text inside <main>, where most sites put the content
         self._skipping = 0
+        self._in_main = 0
         self._in_title = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "title":
+            self._in_title = True
+        elif tag == "meta":
+            a = dict(attrs)
+            if (a.get("name") or a.get("property") or "").lower() in (
+                "description",
+                "og:description",
+            ):
+                self.summary = self.summary or (a.get("content") or "")
+        elif tag == "main":
+            self._in_main += 1
         if tag in self.SKIP:
             self._skipping += 1
-        elif tag == "title":
-            self._in_title = True
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == "title":
+            self._in_title = False
+        elif tag == "main" and self._in_main:
+            self._in_main -= 1
         if tag in self.SKIP and self._skipping:
             self._skipping -= 1
-        elif tag == "title":
-            self._in_title = False
 
     def handle_data(self, data: str) -> None:
         if self._in_title:
             self.title += data
         elif not self._skipping and data.strip():
-            self.parts.append(data.strip())
+            self.all_text.append(data.strip())
+            if self._in_main:
+                self.main_text.append(data.strip())
 
 
-def extract_text(html: str) -> tuple[str, str]:
-    """(title, visible text) from an HTML document, skipping scripts, styles
-    and page chrome such as navigation and footers."""
-    parser = _TextExtractor()
-    parser.feed(html)
-    return " ".join(parser.title.split()), " ".join(" ".join(parser.parts).split())
+def _clean(text: str) -> str:
+    return " ".join(text.split())
+
+
+def extract(html: str) -> Extracted:
+    """Title, visible text (from <main> if the page has one, else the whole
+    body) and the page's own summary, from an HTML document."""
+    p = _TextExtractor()
+    p.feed(html)
+    p.close()
+    text = p.main_text or p.all_text
+    return Extracted(title=_clean(p.title), text=_clean(" ".join(text)), summary=_clean(p.summary))

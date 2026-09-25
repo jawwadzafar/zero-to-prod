@@ -23,6 +23,8 @@ If the text doesn't make clear what the page is about, reply with exactly: UNKNO
 
 TITLE: {title}
 
+THE PAGE'S OWN SUMMARY: {summary}
+
 TEXT: {text}"""
 
 
@@ -34,7 +36,7 @@ class Description:
 
 
 def describe(page: Page, llm: LLM) -> Description:
-    prompt = PROMPT.format(title=page.title, text=page.text)
+    prompt = PROMPT.format(title=page.title, summary=page.summary or "(none)", text=page.text)
     completion = llm.complete(prompt, system=SYSTEM, max_tokens=100)
     text = completion.text.strip()
     if text == "UNKNOWN" or completion.truncated:
@@ -58,9 +60,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{url}\n  skipped: {e}\n")
             continue
         print(f"{page.url}\n  title: {page.title or '(none)'}")
+        # Show what the model will see: most bad answers start with bad input.
+        print(f"  page text: {len(page.text)} characters, starting {page.text[:70]!r}")
         if args.stream:
             print("  ", end="")
-            prompt = PROMPT.format(title=page.title, text=page.text)
+            prompt = PROMPT.format(
+                title=page.title, summary=page.summary or "(none)", text=page.text
+            )
             for piece in llm.stream(prompt, system=SYSTEM, max_tokens=100):
                 print(piece, end="", flush=True)
             print("\n")

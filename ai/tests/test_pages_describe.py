@@ -5,20 +5,27 @@ import pytest
 
 from snipai.describe import describe
 from snipai.llm import Completion, FakeLLM
-from snipai.pages import FetchError, Page, extract_text, fetch_page, is_public_host
+from snipai.pages import FetchError, Page, extract, fetch_page, is_public_host
 
 HTML = """<html><head><title> The Go Programming Language </title>
-<script>var tracking = 1;</script><style>body {}</style></head>
-<body><nav>Docs Packages Play</nav><h1>Build simple, secure, scalable systems with Go</h1>
-<p>Go is an open source programming language supported by Google.</p>
-<footer>Copyright</footer></body></html>"""
+<meta name="description" content="Go is an open source programming language.">
+<script>var tracking = 1;</script><style>body {}</style>
+<body><nav>Docs Packages Play</nav><main><h1>Build simple, secure, scalable systems with Go</h1>
+<svg><path d="M0 0"/></svg><p>Go is an open source programming language supported by Google.</p>
+</main><footer>Copyright</footer></body></html>"""
 
 
-def test_extract_text_skips_scripts_and_page_chrome() -> None:
-    title, text = extract_text(HTML)
-    assert title == "The Go Programming Language"
-    assert text.startswith("Build simple, secure, scalable systems with Go")
-    assert "tracking" not in text and "Packages" not in text and "Copyright" not in text
+def test_extract_prefers_main_and_reads_the_meta_description() -> None:
+    ex = extract(HTML)  # note: no </head> in the HTML, as on many real pages
+    assert ex.title == "The Go Programming Language"
+    assert ex.summary == "Go is an open source programming language."
+    assert ex.text.startswith("Build simple, secure, scalable systems with Go")
+    assert "tracking" not in ex.text and "Packages" not in ex.text and "Copyright" not in ex.text
+
+
+def test_extract_without_main_uses_the_whole_body() -> None:
+    ex = extract("<body><header>Menu</header><p>Hello there.</p></body>")
+    assert ex.text == "Menu Hello there." and ex.summary == ""
 
 
 def test_private_and_metadata_addresses_are_not_public() -> None:
@@ -46,7 +53,7 @@ def test_redirect_to_the_metadata_service_is_refused() -> None:
 
 
 def test_describe_with_the_fake_model() -> None:
-    page = Page(url="https://go.dev/", title="Go", text=extract_text(HTML)[1])
+    page = Page(url="https://go.dev/", title="Go", text=extract(HTML).text)
     d = describe(page, FakeLLM())
     # The fake takes the first sentence of the text; the heading has no full stop,
     # so it runs on into the paragraph. A real model would do better.
