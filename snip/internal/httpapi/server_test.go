@@ -243,3 +243,38 @@ func TestReadyzHardVsDegradable(t *testing.T) {
 		})
 	}
 }
+
+func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
+	url, key := newTestServer(t, 100)
+	req, _ := http.NewRequest(http.MethodGet, url+"/api/links", nil)
+	req.Header.Set("Authorization", "bearer "+key)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("lowercase scheme: status %d, want 200", res.StatusCode)
+	}
+}
+
+func TestRequestIDIsEchoedOnlyWhenPlain(t *testing.T) {
+	url, _ := newTestServer(t, 100)
+	for id, keep := range map[string]bool{
+		"abc-123_DEF.9":             true,
+		"has space":                 false,
+		"<script>alert(1)</script>": false,
+		strings.Repeat("a", 65):     false,
+	} {
+		req, _ := http.NewRequest(http.MethodGet, url+"/healthz", nil)
+		req.Header.Set("X-Request-ID", id)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if got := res.Header.Get("X-Request-ID"); (got == id) != keep {
+			t.Errorf("X-Request-ID %q: echoed %q, keep=%v", id, got, keep)
+		}
+	}
+}

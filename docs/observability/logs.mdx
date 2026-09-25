@@ -115,11 +115,13 @@ snip gives every request an ID, returns it to the client in a header, and puts i
 
 ```go
 id := r.Header.Get("X-Request-ID")
-if id == "" || len(id) > 64 {
+if !validRequestID(id) {          // empty, over 64 characters, or anything but letters, digits and -_.
 	id = newRequestID()           // 8 random bytes, as hex
 }
 w.Header().Set("X-Request-ID", id)
 ```
+
+Reusing an ID a proxy in front of snip already assigned lets one ID follow the request through every system. But the header comes from outside, and snip copies it into its logs and its response, so it only accepts short, plain IDs; anything else gets a fresh one. (Chapter 7.5's rule: never trust input just because it's a header.)
 
 This makes three things possible:
 

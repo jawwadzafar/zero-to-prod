@@ -158,7 +158,9 @@ func (s *Server) observe(next http.Handler) http.Handler {
 		defer func() {                                // runs AFTER the handler, even if it panics
 			if p := recover(); p != nil {
 				s.log.ErrorContext(r.Context(), "panic", "panic", p, "request_id", id)
-				writeError(rec, http.StatusInternalServerError, "internal", "something went wrong on our side")
+				if !rec.wroteHeader {                 // too late for an error page if the response had started
+					writeError(rec, http.StatusInternalServerError, "internal", "something went wrong on our side")
+				}
 			}
 			s.metrics.Requests.WithLabelValues(r.Pattern, r.Method, strconv.Itoa(rec.status)).Inc()
 			s.log.InfoContext(r.Context(), "request",

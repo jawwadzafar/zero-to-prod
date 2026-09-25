@@ -25,12 +25,38 @@ const (
 // statusRecorder remembers the status code a handler wrote, for logs and metrics.
 type statusRecorder struct {
 	http.ResponseWriter
-	status int
+	status      int
+	wroteHeader bool
 }
 
 func (r *statusRecorder) WriteHeader(code int) {
-	r.status = code
+	if !r.wroteHeader {
+		r.status, r.wroteHeader = code, true
+	}
 	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	r.wroteHeader = true // an implicit 200
+	return r.ResponseWriter.Write(b)
+}
+
+// Unwrap lets http.ResponseController reach the real writer (to flush, or
+// set deadlines) through this wrapper.
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
+
+// validRequestID accepts IDs from upstream proxies only if they're short and
+// plain, since they're echoed into logs and response headers.
+func validRequestID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
+			return false
+		}
+	}
+	return true
 }
 
 // observe wraps every request: gives it an ID, recovers from panics, and
@@ -39,7 +65,7 @@ func (s *Server) observe(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		id := r.Header.Get("X-Request-ID")
-		if id == "" || len(id) > 64 {
+		if !validRequestID(id) {
 			id = newRequestID()
 		}
 		w.Header().Set("X-Request-ID", id)
@@ -52,8 +78,15 @@ func (s *Server) observe(next http.Handler) http.Handler {
 
 		defer func() {
 			if p := recover(); p != nil {
+				if p == http.ErrAbortHandler { //nolint:errorlint // a sentinel panic value, compared as net/http does
+					panic(p) // the handler asked net/http to abort the response; let it
+				}
 				s.log.ErrorContext(ctx, "panic", "panic", p, "request_id", id)
-				writeError(rec, http.StatusInternalServerError, "internal", "something went wrong on our side")
+				if rec.wroteHeader {
+					rec.status = http.StatusInternalServerError // too late to change the response; record the failure
+				} else {
+					writeError(rec, http.StatusInternalServerError, "internal", "something went wrong on our side")
+				}
 			}
 			route := r.Pattern // e.g. "GET /{slug}" — low-cardinality, safe as a metric label
 			if route == "" {
@@ -91,8 +124,9 @@ func newRequestID() string {
 // header and puts the key's owner into the request context.
 func (s *Server) requireKey(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
+		// The scheme name is case-insensitive (RFC 9110): "bearer" works too.
+		scheme, key, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+		if !ok || !strings.EqualFold(scheme, "Bearer") {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="snip"`)
 			writeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid API key")
 			return

@@ -167,8 +167,9 @@ The database holds `key_hash`, never the key. If the database leaks, the attacke
 ```go
 func (s *Server) requireKey(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
+		// The scheme name is case-insensitive (RFC 9110): "bearer" works too.
+		scheme, key, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+		if !ok || !strings.EqualFold(scheme, "Bearer") {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="snip"`)
 			writeError(w, http.StatusUnauthorized, "unauthorized", "missing or invalid API key")
 			return
