@@ -104,9 +104,12 @@ jobs:
           /tmp/loadgen -url http://localhost:8095/hot -c 20 -d 8s &
           LOADGEN_PID=$!
           sleep 1
-          go tool pprof -top -cum -nodecount=40 "http://localhost:6060/debug/pprof/profile?seconds=5" | tee /tmp/prof.txt
+          curl -fsS -o /tmp/cpu.pprof "http://localhost:6060/debug/pprof/profile?seconds=5"
           wait "$LOADGEN_PID"   # a bare `wait` would also wait for snip, which never exits (chapter 13.6)
-          grep -q "httpapi.(\*Server).redirect" /tmp/prof.txt
+          go tool pprof -top -cum -nodecount=40 /tmp/snip /tmp/cpu.pprof
+          # Check the handler shows up anywhere in the profile, not just in the top 40:
+          # how it ranks against syscalls and logging varies from machine to machine.
+          go tool pprof -top -cum -nodecount=1000 /tmp/snip /tmp/cpu.pprof | grep -q "httpapi.(\*Server).redirect"
           curl -s "localhost:6060/debug/pprof/goroutine?debug=1" | head -3
           kill "$SNIP_PID"
 
