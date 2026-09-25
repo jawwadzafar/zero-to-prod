@@ -10,6 +10,7 @@ Pick one with environment variables:
 
     SNIPAI_PROVIDER=fake|ollama|anthropic   (default: fake)
     SNIPAI_MODEL=...                        (default depends on the provider)
+    SNIPAI_TEMPERATURE=0                    (ollama only; for repeatable comparisons)
     ANTHROPIC_API_KEY=...                   (for anthropic; never commit it)
     OLLAMA_URL=http://localhost:11434       (for ollama)
 """
@@ -88,8 +89,9 @@ def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 
 
 class FakeLLM:
-    """Returns the first sentence found after the last 'TEXT:' marker in the
-    prompt (or of the whole prompt). Not intelligent, but predictable, free,
+    """Returns the first sentence of the page text in the prompt (inside
+    <text>...</text>, or after the last 'TEXT:' marker, or of the whole
+    prompt). Not intelligent, but predictable, free,
     and good enough to exercise all the code around a model call."""
 
     name = "fake"
@@ -101,7 +103,10 @@ class FakeLLM:
         self, prompt: str, *, system: str | None = None, max_tokens: int = 500
     ) -> Completion:
         start = time.perf_counter()
-        source = prompt.rsplit("TEXT:", 1)[-1]
+        if "<text>" in prompt:  # the page text, fenced in tags (chapter 14.5)
+            source = prompt.rsplit("<text>", 1)[-1].split("</text>", 1)[0]
+        else:
+            source = prompt.rsplit("TEXT:", 1)[-1]
         match = re.search(r"[^.!?\n]*[A-Za-z][^.!?\n]*[.!?]", source)
         words = (match.group(0) if match else source).split()
         text = " ".join(words[:max_tokens])
@@ -192,9 +197,12 @@ class OllamaLLM:
         model: str = "qwen2.5:0.5b",
         *,
         base_url: str = "http://localhost:11434",
+        temperature: float
+        | None = None,  # None = the model's default; 0 = always the likeliest token
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self.model = model
+        self.temperature = temperature
         # Local models can be slow on a laptop CPU: allow two minutes.
         self._http = httpx.Client(base_url=base_url, timeout=120.0, transport=transport)
 
@@ -203,12 +211,10 @@ class OllamaLLM:
     ) -> dict[str, object]:
         messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": prompt})
-        return {
-            "model": self.model,
-            "messages": messages,
-            "stream": stream,
-            "options": {"num_predict": max_tokens},
-        }
+        options: dict[str, object] = {"num_predict": max_tokens}
+        if self.temperature is not None:
+            options |= {"temperature": self.temperature, "seed": 42}  # repeatable runs
+        return {"model": self.model, "messages": messages, "stream": stream, "options": options}
 
     def complete(
         self, prompt: str, *, system: str | None = None, max_tokens: int = 500
@@ -247,5 +253,8 @@ def get_llm() -> LLM:
         return AnthropicLLM(model or "claude-haiku-4-5")
     if provider == "ollama":
         url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-        return OllamaLLM(model or "qwen2.5:0.5b", base_url=url)
+        temp = os.environ.get("SNIPAI_TEMPERATURE")
+        return OllamaLLM(
+            model or "qwen2.5:0.5b", base_url=url, temperature=float(temp) if temp else None
+        )
     raise ValueError(f"SNIPAI_PROVIDER must be fake, ollama or anthropic, not {provider!r}")

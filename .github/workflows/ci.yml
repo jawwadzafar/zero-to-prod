@@ -151,7 +151,7 @@ jobs:
   ai-ollama:
     name: ai with a real open model (Ollama)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: ai
@@ -175,6 +175,14 @@ jobs:
           uv run python -m snipai.describe https://go.dev/ https://www.python.org/ | tee /tmp/describe.txt
           grep -q "description: " /tmp/describe.txt
           uv run python -m snipai.describe --stream https://go.dev/
+      - name: Chapter 14.5 lab — compare prompt versions on 12 fixed pages with a 1.5B model (temperature 0)
+        env:
+          SNIPAI_PROVIDER: ollama
+          SNIPAI_MODEL: qwen2.5:1.5b
+          SNIPAI_TEMPERATURE: "0"
+        run: |
+          ollama pull qwen2.5:1.5b
+          uv run python -m snipai.prompt_lab v1 v2 v3
 
   snip-image:
     name: snip container image builds

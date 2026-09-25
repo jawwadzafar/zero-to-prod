@@ -24,3 +24,4 @@ uv run ruff check . && uv run mypy   # lint and type-check
 | `snipai.llm` | One interface to language models: fake (offline), Ollama (local), Anthropic (API) | 14.4 |
 | `snipai.pages` | Fetch a page safely (SSRF checks) and extract its text | 14.4 |
 | `snipai.describe` | snip's first AI feature: a one-line description of a link's page | 14.4 |
+| `snipai.prompt_lab` | Compare prompt versions on fixed pages with automatic checks | 14.5 |
