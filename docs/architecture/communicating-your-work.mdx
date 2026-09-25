@@ -1,0 +1,280 @@
+---
+title: "15.4 Communicating your work"
+sidebar_label: "15.4 Communicating your work"
+description: "The writing and talking that turns good engineering into recognised, useful engineering: commit messages and pull request descriptions, asking for help well, status updates that lead with the answer, explaining technical work to non-technical people, incident communication, and giving and receiving review — with real examples from this handbook's repository."
+---
+
+# 15.4 Communicating your work
+
+Two engineers fix the same bug in the same way. One commits it with the message "fix", says nothing, and moves on. The other writes a commit message saying what broke and why, a pull request description that a reviewer can check in five minutes, and a two-line note in the team channel: "The slow redirects on Tuesday were Redis timeouts; fixed, and we've added a test so it can't come back." A month later, only one of them is known for fixing it, and only one fix is understood well enough that nobody undoes it.
+
+Engineering is a team activity, and most of the team only ever sees your work through what you write and say about it. This chapter is about doing that well. None of it is about being a gifted writer or speaker: it's a handful of habits, and you can learn them the same way you learned `git`.
+
+## What you'll learn
+
+- **Commit messages** and **pull request descriptions** that reviewers and future readers thank you for.
+- **Asking for help** in a way that gets fast, good answers.
+- **Status updates** that lead with the answer.
+- **Explaining** technical work to people who aren't engineers.
+- **Incident communication**: short, regular, factual.
+- **Code review**: giving and receiving it well.
+
+---
+
+## Write for a reader who wasn't there
+
+:::note[Everyday anchor]
+A note on the fridge. "Back later" helps nobody. "Gone to the shop, back by 6, dinner's in the oven: take it out at 5:30" answers every question the reader will have, before they have to ask. The difference isn't talent: it's thinking about who reads it, and what they need to do next.
+:::
+
+Every piece of workplace writing has the same test: **can someone who wasn't in your head act on it?** That reader might be a reviewer tomorrow, a teammate at 3 a.m. during an incident, or you in a year. Three habits cover most of it:
+
+- **Lead with the point.** The conclusion, the request or the decision first; the explanation after. Busy readers read the first two lines and decide whether to read more.
+- **Be specific.** "Redirect p99 went from 12 ms to 180 ms at 14:05" beats "the site got slow". Numbers, names, times, links.
+- **Say what you need.** A review by Friday? A decision between two options? Nothing, just information? Readers shouldn't have to guess.
+
+---
+
+## Commit messages and pull requests
+
+A **commit message** explains one change to future readers of the history: people running `git log` or `git blame` to find out why a line is the way it is (chapter 3.1). The conventional shape is a short summary line (under about 70 characters, saying what the change does), a blank line, then a body that explains **why**: the code already shows *what*.
+
+This repository uses short prefixes (`docs:`, `ai:`, `snip:`) so the history reads like a table of contents. A real one from building Part 14:
+
+```text
+ai: benchmark sends a different prompt each time (so cached prompts can't fake
+a fast first token), adds a long-prompt first-token measurement and prints
+token counts; ci: rerun with the server allowed 4 parallel requests
+```
+
+It says what changed, and the reason in brackets is the part that saves the next reader: without it, "a different prompt each time" looks like pointless complexity someone might remove.
+
+A **pull request** (**PR**, chapter 3.3) description is for the reviewer. A good one answers, in order:
+
+1. **What and why**, in two or three sentences. Link the issue or the incident.
+2. **How**: the approach, and anything surprising a reviewer should know ("the retry is deliberately removed: ADR 6").
+3. **How it was tested**: the commands you ran, with results; screenshots for anything visual.
+4. **Risks and rollout**: what could break, how you'd know, how to undo it.
+5. **What you want from the reviewer**: "mainly check the SQL in `store.go`"; "happy to split this if it's too big".
+
+Keep PRs **small**. A 200-line change gets a real review; a 2,000-line change gets "looks good to me", because nobody can hold it in their head. If a change is big, split it into steps that each make sense alone: a refactor, then the feature, then the clean-up.
+
+:::info[If you've written code]
+Tests and a clear description are the most effective way to get your pull requests merged quickly, in any team or open-source project. Reviewers aren't avoiding your PR because they're busy. They're avoiding it because they can't tell what it does or whether it's safe, and finding out is work you could have done for them.
+:::
+
+---
+
+## Asking for help
+
+Asking for help is a skill, and the good version gets answers several times faster. The pattern:
+
+- **What you're trying to do**, the goal, not just the step you're stuck on. (Sometimes the answer is "there's an easier way to do that".)
+- **What happened**, exactly: the command, the full error message, the relevant log lines. Pasted as text, not a photo of a screen.
+- **What you expected** instead.
+- **What you've tried**, and what each attempt showed.
+
+A bad question and a good one, about a real failure from chapter 10.5:
+
+```text
+Bad:  "snip doesn't work on kubernetes, any ideas?"
+
+Good: "I'm deploying snip to kind with its manifests (chapter 10.5). After my change
+       to the rate limit, the api pods go Error, then CrashLoopBackOff.
+       `kubectl logs --previous` on the newest pod shows:
+         snip: SNIP_RATE_LIMIT: must be a positive integer
+       I set it with `kubectl set env deploy/api SNIP_RATE_LIMIT=0`, meaning "no
+       limit". I expected 0 to switch limiting off. Is there a supported way to
+       disable the limiter, or should I set a very high number?"
+```
+
+Writing the good version often answers the question: by the time you've listed what you tried and what you expected, the mismatch is visible. That's not a failure of asking; it's the point. And when the answer comes, write down what fixed it, in the thread, for the next person who searches for that error.
+
+There's also a timing skill. Struggling alone for a while teaches you a lot; struggling alone for two days when a colleague could unblock you in five minutes wastes the team's time. A rule of thumb many teams use: try seriously for about 30 minutes to an hour, then ask, showing what you tried.
+
+---
+
+## Status updates: answer first
+
+A **status update** tells people where things stand so they can plan. Structure it the way a reader wants it:
+
+```text
+Webhooks: on track for Friday.
+- Done: delivery, retries, signing; tests pass.
+- This week: the delivery log page; load test at 50 events/s.
+- Risk: the customer dashboard needs a design review we haven't scheduled.
+  Need: 30 minutes with Priya by Wednesday.
+```
+
+The first line is the answer to "are we OK?". **Green, yellow or red, stated plainly**, with the date. Then what's done, what's next, and any risk, each with what you need from whom. If the news is bad, it goes first, early, with a plan: "Webhooks will slip to next Wednesday, because signing took longer than planned; the rest is on track." Bad news delivered early is a planning problem. Delivered late, it's a trust problem.
+
+---
+
+## Explaining to people who aren't engineers
+
+You've been reading an example of this for fifteen parts. Every chapter in this handbook follows the same ladder: an everyday comparison first, then the plain mechanism, then the real system, then what goes wrong, then the judgment. The same ladder works when you explain your work to a manager, a customer or a colleague in sales:
+
+- **Start with what they care about**: the effect on users, money, time or risk. Not the technology.
+- **Use a comparison from everyday life**, then the minimum mechanism needed to follow the decision.
+- **Give the decision you need from them, and its trade-off**, in their terms.
+
+An example: explaining chapter 13.5's Redis fix to a product manager.
+
+```text
+Too technical: "Readiness probes were gating on a degradable dependency and the
+go-redis client had default retries, so a hung Redis made every pod unready."
+
+Better: "On Tuesday we tested what happens if our cache breaks, and found that
+it would have taken the whole site down, even though the cache is optional. It
+was like a shop closing because the till's receipt printer jammed. We've fixed
+it: the site now keeps working without the cache, a little slower. One thing to
+know: during a cache outage, click counts for that period are lost. We think
+that's acceptable; tell us if it isn't."
+```
+
+The second version is longer, but every sentence answers something the reader cares about, and it ends with the one decision that's theirs to make.
+
+---
+
+## Incident communication
+
+During an incident (chapter 13.4), communication is part of the fix. Customers, support staff and leadership all need to know what's happening, and engineers need to be left alone to fix it. The patterns:
+
+- **One incident channel, one coordinator.** The person communicating is often not the person debugging.
+- **Regular, short updates** at a stated interval ("next update in 30 minutes"), even when there's no news. Silence makes people assume the worst and interrupt the responders.
+- **Facts, impact and next step**: what users are experiencing, what's known, what's being done, when the next update is. No speculation about causes until they're known.
+- **A clear end**: "Resolved at 15:42. Redirects are normal. Clicks between 14:05 and 15:40 were not counted. A postmortem will follow."
+
+```text
+14:20 — Investigating: some short links are slow to redirect (a few seconds) or
+time out. Creating links is unaffected. We're looking at our cache servers.
+Next update 14:50.
+```
+
+Afterwards, the **postmortem** (chapter 13.5) is the written version: blameless, specific, with actions. It's one of the most-read documents a team produces, so it's worth writing well.
+
+---
+
+## Code review: giving and receiving
+
+Code review (chapter 3.3) is communication in its most concentrated form: written, about someone's work, often between people who've never met.
+
+**When reviewing:**
+
+- **Review the change, not the person.** "This query runs once per link in the loop; could we fetch them in one query?" not "you always write slow code".
+- **Explain why**, and link to the reason: a chapter, an ADR, a benchmark.
+- **Mark the weight** of each comment: "blocking: this loses data if the worker restarts" versus "nit: I'd name this `slugLen`, not a blocker". Reviewers who don't do this leave authors guessing which of 20 comments matter.
+- **Say what's good.** It tells the author what to keep doing, and it's true more often than reviews suggest.
+- **Ask questions when you're unsure**: "What happens here if Redis is down?" You might learn something, and so might they.
+
+**When receiving:**
+
+- **Assume good intent.** Written comments read harsher than spoken ones.
+- **The reviewer is a first reader.** If they misunderstood the code, other readers will too: improve the code or add a comment, not just a reply.
+- **It's fine to disagree**, with reasons. If it goes back and forth more than twice, talk it through in person or on a call.
+- **Thank people.** Reviewing is work.
+
+---
+
+## Lab
+
+About 45 minutes. Writing only.
+
+1. **Rewrite a commit message.** Run `git log --format="%h %s" -20` in any repository you've worked in, including this one. Pick your worst message and rewrite it: a summary line saying what the change does, and a body saying why.
+
+2. **Write a PR description** for the ADR you wrote in chapter 15.2's lab (soft deletes), using the five parts above. Include a "how it was tested" section, even if the honest answer is "not yet: this is a proposal".
+
+3. **Ask a good question.** Think of the last time you were stuck on something technical (from this handbook's labs, or anywhere). Write the question you *should* have asked, with the four parts. Did writing it make the answer obvious?
+
+4. **Explain to a non-engineer.** Pick one decision from snip's ADRs (chapter 15.2), and explain it to someone who doesn't write code, in under 100 words, starting with what they care about. Then try it on an actual person, and note which part they asked about.
+
+5. **Write an incident update.** Chapter 13.5's game day froze Redis. Write the first status update you'd post if that had happened in production at 14:05, and the "resolved" message at 14:40.
+
+---
+
+## Self-check
+
+<Quiz
+  id="architecture-communicating-your-work"
+  questions={[
+    {
+      q: 'What should the body of a commit message mainly explain?',
+      options: [
+        'Every line that changed',
+        'Why the change was made; the diff already shows what changed',
+        'Who reviewed it',
+        'How long it took',
+      ],
+      answer: 1,
+      explain: 'Future readers can see the what. The why is what gets lost, and what stops good changes being undone.',
+    },
+    {
+      q: 'Which of these belongs in a good request for help?',
+      options: [
+        'Just "it doesn’t work"',
+        'The goal, the exact command and full error text, what you expected, and what you’ve already tried',
+        'A photo of your screen',
+        'An apology for asking',
+      ],
+      answer: 1,
+      explain: 'The more precisely you describe the gap between expected and actual, the faster (and more often yourself) someone can close it.',
+    },
+    {
+      q: 'Your project will be late. When should you say so?',
+      options: [
+        'Only when the deadline arrives',
+        'As soon as you know, first thing in the update, with the new date and the reason',
+        'Never; work harder instead',
+        'After you’ve fixed it',
+      ],
+      answer: 1,
+      explain: 'Early bad news is a planning problem. Late bad news is a trust problem.',
+    },
+    {
+      q: 'Why mark review comments as "blocking" or "nit"?',
+      options: [
+        'It’s required by GitHub',
+        'So the author knows which comments must be addressed before merging, and which are optional suggestions',
+        'To make reviews longer',
+        'Nits are always wrong',
+      ],
+      answer: 1,
+      explain: 'Twenty unweighted comments leave the author guessing. Weighting them respects everyone’s time.',
+    },
+    {
+      q: 'During an incident with no new information for 30 minutes, what should the communicator do?',
+      options: [
+        'Stay silent until there’s news',
+        'Post the scheduled update anyway: current impact, what’s being done, when the next update will be',
+        'Guess the cause to reassure people',
+        'Ask the responders for a status every five minutes',
+      ],
+      answer: 1,
+      explain: 'Regular updates, even "no change", stop people assuming the worst and interrupting the responders.',
+    },
+  ]}
+/>
+
+<details>
+<summary>You've spent three weeks on a project, and in the review meeting a senior engineer points out a fundamental flaw you missed. How do you handle it in the moment, and what would you change next time?</summary>
+
+**In the moment:** listen fully, ask questions until you understand the flaw exactly ("so if two workers claim the same event, both deliver it?"), and thank them: finding it now is much cheaper than finding it in production. Don't defend the design reflexively, and don't collapse either. If you're not sure they're right, say so calmly and agree how to find out ("let me write a test for that case today"). Then agree the next step: fix, redesign, or a smaller change.
+
+**Next time:** the flaw was found after three weeks because the design wasn't reviewed before the building started. Write a short design document (chapter 15.2) in the first days, with the risky parts called out, and ask that same senior engineer to look at it. Share work in progress early and in small pieces: an hour of their time in week one is worth more than an hour in week three. Feedback is cheapest when the work is least finished.
+
+</details>
+
+<details>
+<summary>A manager asks: "Why does the AI feature need a week of evaluation work before launch? It already works in the demo." Answer in a way that's accurate and useful to them.</summary>
+
+Something like:
+
+"The demo shows it working on the examples we picked. The evaluation shows how often it works on the questions real users will ask, and how it fails when it doesn't. When we measured our document assistant, the model gave confident answers with made-up citations to questions it should have declined, and our automated grader turned out to be unreliable too (chapters 14.8 and 14.10). We only found that by measuring.
+
+The week buys three things: a number for how often answers are right, so we launch knowing the quality rather than hoping; a list of the failures that matter most, so we fix those first; and a test we can rerun on every change, so a future update can't quietly make it worse. Without it, our users find the failures for us, in public.
+
+If a week is too long, we can do a smaller version in two days and launch to a small group first, then measure with real questions."
+
+It leads with their concern (why wait?), uses a concrete example, names what the time buys in their terms (risk, quality, speed later), and offers a trade-off they can decide on.
+
+</details>
