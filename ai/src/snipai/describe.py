@@ -79,7 +79,11 @@ Rules:
 </examples>""",
     ),
 }
-DEFAULT_PROMPT = "v1"
+# v3 won chapter 14.5's comparison on balance (qwen2.5:1.5b, 12 pages): it fixed
+# v1's over-cautious UNKNOWNs and v2's descriptions of login and error pages,
+# at the cost of ~65% more input tokens. Remaining known failures: the cookie
+# wall, and one answer over 25 words.
+DEFAULT_PROMPT = "v3"
 
 
 @dataclass
