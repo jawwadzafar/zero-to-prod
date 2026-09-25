@@ -166,6 +166,17 @@ def main(argv: list[str] | None = None) -> int:
     for (g, p), n in confusions.most_common(5):
         print(f"    {g} -> {p}: {n}")
 
+    # What a careless split would have reported: passages shuffled at random,
+    # so the test set shares chapters (and their wording) with training.
+    shuffled = list(range(len(chunks)))
+    random.Random(1).shuffle(shuffled)
+    x_all = np.concatenate([x_train, x_test])
+    y_all = np.concatenate([y_train, [index[g] for g in gold]])
+    held, kept = np.array(shuffled[: len(test)]), np.array(shuffled[len(test) :])
+    leaky = SoftmaxRegression().fit(x_all[kept], y_all[kept], len(classes))
+    leaky_acc = float(np.mean(leaky.predict(x_all[held]) == y_all[held]))
+    print(f"  the same head, tested on randomly held-out passages instead: {leaky_acc:.0%}")
+
     print("\nlearning curve (trained head, test accuracy):")
     rng = random.Random(7)
     order = list(range(len(train)))
