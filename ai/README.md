@@ -28,3 +28,4 @@ uv run ruff check . && uv run mypy   # lint and type-check
 | `snipai.tagger` | Structured output: category, tags and language, validated and retried | 14.6 |
 | `snipai.ask` | Tool use: answer questions about your links through snip's API | 14.6 |
 | `snipai.embed` | Embeddings, chunking and vector search over this handbook | 14.7 |
+| `snipai.rag` | Ask the handbook: retrieval-augmented generation with checked citations | 14.8 |
