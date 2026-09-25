@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/signal"
@@ -86,12 +87,15 @@ func run() error {
 			if ctx.Err() != nil {
 				break
 			}
-			log.Error("processing clicks failed; retrying", "err", err, "retry_in", backoff)
+			// Jitter (chapter 8.1): wait a random time between half and all of the
+			// backoff, so workers that failed together don't retry in lockstep.
+			wait := backoff/2 + rand.N(backoff/2+1)
+			log.Error("processing clicks failed; retrying", "err", err, "retry_in", wait)
 			select {
-			case <-time.After(backoff):
+			case <-time.After(wait):
 			case <-ctx.Done():
 			}
-			backoff = min(backoff*2, 30*time.Second) // exponential backoff (chapter 8.4)
+			backoff = min(backoff*2, 30*time.Second) // exponential backoff (chapter 8.1)
 			continue
 		}
 		backoff = time.Second

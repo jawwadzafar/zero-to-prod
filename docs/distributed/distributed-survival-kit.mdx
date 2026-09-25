@@ -82,11 +82,16 @@ Many failures are **transient**: a dropped packet, a restarting server, a brief 
 
 So retries need three things:
 
-1. **Exponential backoff** — wait longer after each failure: 50 ms, 100 ms, 200 ms, 400 ms… giving the dependency room to recover. snip's click worker does exactly this when processing fails, doubling its wait up to 30 seconds (`cmd/snip-worker/main.go`):
-   ```go
-   backoff = min(backoff*2, 30*time.Second) // exponential backoff (chapter 8.4)
-   ```
+1. **Exponential backoff** — wait longer after each failure: 50 ms, 100 ms, 200 ms, 400 ms… giving the dependency room to recover.
 2. **Jitter** — add randomness to each wait, so clients spread out instead of retrying in lockstep.
+
+   snip's click worker does both when processing fails (`cmd/snip-worker/main.go`): it waits a random time between half and all of its current backoff, then doubles the backoff, up to 30 seconds:
+   ```go
+   wait := backoff/2 + rand.N(backoff/2+1)
+   ...
+   backoff = min(backoff*2, 30*time.Second) // exponential backoff (chapter 8.1)
+   ```
+   (For a long time it had only the backoff, found in a later review. With several workers and a Postgres restart, they would all fail at the same moment and retry at the same moments: exactly the waves described above.)
 3. **A limit** — a maximum number of attempts or a total time budget, after which you report failure. Some systems also cap retries as a percentage of traffic ("retry budget"), so retries can never more than double the load.
 
 And one rule overrides everything: **only retry operations that are safe to repeat.** Which brings us to the most important idea in this chapter.
