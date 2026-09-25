@@ -159,6 +159,8 @@ jobs:
         run: uv run python -m snipai.rag
       - name: Chapter 14.10 lab — evaluate "ask the handbook" end to end (fake model and embedder)
         run: uv run python -m snipai.evals
+      - name: Chapter 14.12 lab — prompting versus a trained head (offline embedder, fake model)
+        run: uv run python -m snipai.finetune 10
       - name: Chapter 14.4 lab — describe real pages with the offline fake model; unsafe URLs are refused
         run: |
           uv run python -m snipai.describe https://go.dev/ https://www.python.org/ http://169.254.169.254/latest/meta-data/ | tee /tmp/describe.txt
@@ -259,6 +261,13 @@ jobs:
           nproc; free -g | head -2
           uv run python -m snipai.bench qwen2.5:0.5b qwen2.5:1.5b
           ollama list
+      - name: Chapter 14.12 lab — prompting a 1.5B model versus a head trained on real embeddings
+        env:
+          SNIPAI_PROVIDER: ollama
+          SNIPAI_MODEL: qwen2.5:1.5b
+          SNIPAI_TEMPERATURE: "0"
+          SNIPAI_EMBEDDER: ollama
+        run: uv run python -m snipai.finetune 45
       - name: Chapter 14.5 lab — compare prompt versions on 12 fixed pages with a 1.5B model (temperature 0)
         env:
           SNIPAI_PROVIDER: ollama
