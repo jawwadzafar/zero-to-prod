@@ -276,6 +276,13 @@ jobs:
         run: |
           ollama pull qwen2.5:1.5b
           uv run python -m snipai.prompt_lab v1 v2 v3
+      - name: Chapter 14.11 lab — the same benchmark with the server allowed 4 requests in parallel
+        run: |
+          pkill -f "ollama serve" || true
+          sleep 2
+          OLLAMA_NUM_PARALLEL=4 nohup ollama serve > /tmp/ollama-parallel.log 2>&1 &
+          for _ in $(seq 1 30); do curl -fsS localhost:11434/api/version && break; sleep 1; done
+          OLLAMA_NUM_PARALLEL=4 uv run python -m snipai.bench qwen2.5:0.5b qwen2.5:1.5b
 
   snip-image:
     name: snip container image builds

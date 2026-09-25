@@ -23,3 +23,20 @@ def test_one_request_reads_ollamas_counters() -> None:
         s = one_request(http, "tiny")
     assert s.output_tokens == 50 and s.gen_tokens_per_s == 25.0  # 50 tokens in 2 s
     assert s.prompt_tokens_per_s == 200.0 and s.first_token_s > 0
+
+
+def test_every_request_has_a_different_prompt() -> None:
+    prompts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        prompts.append(json.loads(request.content)["prompt"])
+        done = {"response": "ok", "done": True, "eval_count": 1, "eval_duration": 1}
+        return httpx.Response(200, content=json.dumps(done).encode())
+
+    with httpx.Client(
+        base_url="http://ollama.test", transport=httpx.MockTransport(handler)
+    ) as http:
+        one_request(http, "tiny")
+        one_request(http, "tiny", context="Some sources. ")
+    assert len(set(prompts)) == 2  # no identical prompts for the server to reuse
+    assert "Some sources. " in prompts[1] and prompts[1].endswith("use one.")
