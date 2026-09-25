@@ -23,7 +23,7 @@ import re
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import anthropic
 import httpx
@@ -56,15 +56,32 @@ class LLM(Protocol):
     model: str
 
     def complete(
-        self, prompt: str, *, system: str | None = None, max_tokens: int = 500
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        max_tokens: int = 500,
+        schema: dict[str, Any] | None = None,
     ) -> Completion:
-        """Send one prompt and wait for the whole answer."""
+        """Send one prompt and wait for the whole answer. With a JSON `schema`,
+        the answer is JSON matching it (structured output, chapter 14.6)."""
         ...
 
     def stream(
         self, prompt: str, *, system: str | None = None, max_tokens: int = 500
     ) -> Iterator[str]:
         """Yield the answer piece by piece, as the model generates it."""
+        ...
+
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        *,
+        system: str | None = None,
+        max_tokens: int = 1000,
+    ) -> Turn:
+        """One turn of a conversation in which the model may request tool calls."""
         ...
 
 
@@ -100,9 +117,19 @@ class FakeLLM:
         self.model = model
 
     def complete(
-        self, prompt: str, *, system: str | None = None, max_tokens: int = 500
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        max_tokens: int = 500,
+        schema: dict[str, Any] | None = None,
     ) -> Completion:
         start = time.perf_counter()
+        if schema is not None:
+            text = json.dumps(example_from_schema(schema, schema.get("$defs", {})))
+            return Completion(
+                text, self.model, len(prompt.split()), len(text.split()), "end_turn", 0.0
+            )
         if "<text>" in prompt:  # the page text, fenced in tags (chapter 14.5)
             source = prompt.rsplit("<text>", 1)[-1].split("</text>", 1)[0]
         else:
@@ -118,6 +145,16 @@ class FakeLLM:
             stop_reason="max_tokens" if len(words) > max_tokens else "end_turn",
             seconds=time.perf_counter() - start,
         )
+
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        *,
+        system: str | None = None,
+        max_tokens: int = 1000,
+    ) -> Turn:
+        return fake_chat(messages, tools)
 
     def stream(
         self, prompt: str, *, system: str | None = None, max_tokens: int = 500
@@ -150,7 +187,12 @@ class AnthropicLLM:
         )
 
     def complete(
-        self, prompt: str, *, system: str | None = None, max_tokens: int = 500
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        max_tokens: int = 500,
+        schema: dict[str, Any] | None = None,
     ) -> Completion:
         start = time.perf_counter()
         response = self._client.messages.create(
@@ -158,6 +200,10 @@ class AnthropicLLM:
             max_tokens=max_tokens,
             system=system or anthropic.omit,
             messages=[{"role": "user", "content": prompt}],
+            # Structured output: the API constrains the answer to this JSON schema.
+            output_config=(
+                {"format": {"type": "json_schema", "schema": schema}} if schema else anthropic.omit
+            ),
         )
         # The answer is a list of content blocks; we want the text ones.
         text = "".join(block.text for block in response.content if block.type == "text")
@@ -169,6 +215,16 @@ class AnthropicLLM:
             stop_reason=response.stop_reason or "",
             seconds=time.perf_counter() - start,
         )
+
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        *,
+        system: str | None = None,
+        max_tokens: int = 1000,
+    ) -> Turn:
+        return anthropic_chat(self._client, self.model, messages, tools, system, max_tokens)
 
     def stream(
         self, prompt: str, *, system: str | None = None, max_tokens: int = 500
@@ -207,20 +263,40 @@ class OllamaLLM:
         self._http = httpx.Client(base_url=base_url, timeout=120.0, transport=transport)
 
     def _body(
-        self, prompt: str, system: str | None, max_tokens: int, stream: bool
+        self,
+        prompt: str,
+        system: str | None,
+        max_tokens: int,
+        stream: bool,
+        schema: dict[str, Any] | None = None,
     ) -> dict[str, object]:
         messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": prompt})
         options: dict[str, object] = {"num_predict": max_tokens}
         if self.temperature is not None:
             options |= {"temperature": self.temperature, "seed": 42}  # repeatable runs
-        return {"model": self.model, "messages": messages, "stream": stream, "options": options}
+        body: dict[str, object] = {
+            "model": self.model,
+            "messages": messages,
+            "stream": stream,
+            "options": options,
+        }
+        if schema:
+            body["format"] = schema  # Ollama's structured output: constrain to this JSON schema
+        return body
 
     def complete(
-        self, prompt: str, *, system: str | None = None, max_tokens: int = 500
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        max_tokens: int = 500,
+        schema: dict[str, Any] | None = None,
     ) -> Completion:
         start = time.perf_counter()
-        res = self._http.post("/api/chat", json=self._body(prompt, system, max_tokens, False))
+        res = self._http.post(
+            "/api/chat", json=self._body(prompt, system, max_tokens, False, schema)
+        )
         res.raise_for_status()
         data = res.json()
         return Completion(
@@ -231,6 +307,17 @@ class OllamaLLM:
             stop_reason="max_tokens" if data.get("done_reason") == "length" else "end_turn",
             seconds=time.perf_counter() - start,
         )
+
+    def chat(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        *,
+        system: str | None = None,
+        max_tokens: int = 1000,
+    ) -> Turn:
+        options = self._body("", None, max_tokens, False)["options"]
+        return ollama_chat(self._http, self.model, options, messages, tools, system)  # type: ignore[arg-type]
 
     def stream(
         self, prompt: str, *, system: str | None = None, max_tokens: int = 500
@@ -258,3 +345,195 @@ def get_llm() -> LLM:
             model or "qwen2.5:0.5b", base_url=url, temperature=float(temp) if temp else None
         )
     raise ValueError(f"SNIPAI_PROVIDER must be fake, ollama or anthropic, not {provider!r}")
+
+
+def example_from_schema(schema: dict[str, Any], defs: dict[str, Any]) -> Any:
+    """The simplest value matching a JSON schema: what the fake model answers."""
+    if "default" in schema:
+        return schema["default"]
+    if "$ref" in schema:
+        return example_from_schema(defs[schema["$ref"].split("/")[-1]], defs)
+    if "enum" in schema:
+        return schema["enum"][0]
+    if "anyOf" in schema:
+        return example_from_schema(schema["anyOf"][0], defs)
+    kind = schema.get("type")
+    if kind == "object":
+        props = schema.get("properties", {})
+        return {k: example_from_schema(v, defs) for k, v in props.items()}
+    if kind == "array":
+        return []
+    return {"string": "unknown", "integer": 0, "number": 0.0, "boolean": False}.get(str(kind))
+
+
+# ---------------------------------------------------------------------------
+# Tool use (chapter 14.6): the model asks us to call functions
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ToolSpec:
+    """A function the model may ask to call: a name, what it does, and a JSON
+    schema for its arguments. The description is what the model reads to decide."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+
+@dataclass
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass
+class Message:
+    """One entry in a provider-neutral conversation."""
+
+    role: str  # "user", "assistant" or "tool"
+    text: str = ""
+    tool_calls: list[ToolCall] | None = None  # assistant: calls it wants made
+    call_id: str = ""  # tool: which call this is the result of
+    name: str = ""  # tool: which tool produced it
+
+
+@dataclass
+class Turn:
+    """The model's reply: some text, and possibly requests to call tools."""
+
+    text: str
+    tool_calls: list[ToolCall]
+    completion: Completion
+
+
+def _to_anthropic(messages: list[Message]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        if m.role == "user":
+            out.append({"role": "user", "content": m.text})
+        elif m.role == "assistant":
+            blocks: list[dict[str, Any]] = [{"type": "text", "text": m.text}] if m.text else []
+            blocks += [
+                {"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments}
+                for c in m.tool_calls or []
+            ]
+            out.append({"role": "assistant", "content": blocks})
+        else:  # tool results travel back inside a *user* message, one block per call
+            block = {"type": "tool_result", "tool_use_id": m.call_id, "content": m.text}
+            if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list):
+                out[-1]["content"].append(block)
+            else:
+                out.append({"role": "user", "content": [block]})
+    return out
+
+
+def anthropic_chat(
+    client: anthropic.Anthropic,
+    model: str,
+    messages: list[Message],
+    tools: list[ToolSpec],
+    system: str | None,
+    max_tokens: int,
+) -> Turn:
+    start = time.perf_counter()
+    response = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system or anthropic.omit,
+        messages=_to_anthropic(messages),  # type: ignore[arg-type]
+        tools=[
+            {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+            for t in tools
+        ],
+    )
+    text = "".join(b.text for b in response.content if b.type == "text")
+    calls = [
+        ToolCall(b.id, b.name, dict(b.input)) for b in response.content if b.type == "tool_use"
+    ]
+    return Turn(
+        text,
+        calls,
+        Completion(
+            text,
+            response.model,
+            response.usage.input_tokens,
+            response.usage.output_tokens,
+            response.stop_reason or "",
+            time.perf_counter() - start,
+        ),
+    )
+
+
+def ollama_chat(
+    http: httpx.Client,
+    model: str,
+    options: dict[str, object],
+    messages: list[Message],
+    tools: list[ToolSpec],
+    system: str | None,
+) -> Turn:
+    msgs: list[dict[str, Any]] = [{"role": "system", "content": system}] if system else []
+    for m in messages:
+        if m.role == "assistant":
+            requested = [
+                {"function": {"name": c.name, "arguments": c.arguments}} for c in m.tool_calls or []
+            ]
+            msgs.append({"role": "assistant", "content": m.text, "tool_calls": requested})
+        elif m.role == "tool":
+            msgs.append({"role": "tool", "content": m.text, "tool_name": m.name})
+        else:
+            msgs.append({"role": "user", "content": m.text})
+    body = {
+        "model": model,
+        "messages": msgs,
+        "stream": False,
+        "options": options,
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.input_schema,
+                },
+            }
+            for t in tools
+        ],
+    }
+    start = time.perf_counter()
+    res = http.post("/api/chat", json=body)
+    res.raise_for_status()
+    data = res.json()
+    msg = data["message"]
+    calls = [
+        ToolCall(f"call_{i}", c["function"]["name"], dict(c["function"].get("arguments") or {}))
+        for i, c in enumerate(msg.get("tool_calls") or [])
+    ]
+    text = msg.get("content", "")
+    return Turn(
+        text,
+        calls,
+        Completion(
+            text,
+            model,
+            data.get("prompt_eval_count", 0),
+            data.get("eval_count", 0),
+            "tool_use" if calls else "end_turn",
+            time.perf_counter() - start,
+        ),
+    )
+
+
+def fake_chat(messages: list[Message], tools: list[ToolSpec]) -> Turn:
+    """A scripted policy: call the first tool once, then answer with what it
+    returned. Enough to exercise the whole tool loop offline."""
+    last = messages[-1]
+    if last.role == "user" and tools:
+        t = tools[0]
+        args = example_from_schema(t.input_schema, t.input_schema.get("$defs", {}))
+        call = ToolCall("call_0", t.name, args)
+        return Turn("", [call], Completion("", "fake", 0, 0, "tool_use", 0.0))
+    answer = f"Here is what {last.name or 'the tool'} returned: {last.text[:300]}"
+    return Turn(answer, [], Completion(answer, "fake", 0, len(answer.split()), "end_turn", 0.0))

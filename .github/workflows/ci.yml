@@ -142,6 +142,13 @@ jobs:
         run: uv run python -m snipai.abuse
       - name: Chapter 14.3 lab — train a tokenizer and a tiny language model on the handbook
         run: uv run python -m snipai.tinylm
+      - name: Chapter 14.6 lab — tool use against the running snip, and structured-output validation (fake model)
+        run: |
+          KEY="$(grep -o 'snip_[A-Za-z0-9]*' /tmp/snip.log | head -1)"
+          curl -fsS -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"golang"}'
+          for _ in 1 2 3; do curl -s -o /dev/null localhost:8080/golang; done
+          SNIP_URL=http://localhost:8080 SNIP_API_KEY="$KEY" uv run python -m snipai.ask "Which of my links has the most clicks?" | tee /tmp/ask.txt
+          grep -q 'tool: list_links' /tmp/ask.txt
       - name: Chapter 14.4 lab — describe real pages with the offline fake model; unsafe URLs are refused
         run: |
           uv run python -m snipai.describe https://go.dev/ https://www.python.org/ http://169.254.169.254/latest/meta-data/ | tee /tmp/describe.txt
@@ -175,6 +182,31 @@ jobs:
           uv run python -m snipai.describe https://go.dev/ https://www.python.org/ | tee /tmp/describe.txt
           grep -q "description: " /tmp/describe.txt
           uv run python -m snipai.describe --stream https://go.dev/
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: snip/go.mod
+          cache-dependency-path: snip/go.sum
+      - name: Chapter 14.6 lab — a 1.5B model tags real pages (structured output) and answers with tools
+        env:
+          SNIPAI_PROVIDER: ollama
+          SNIPAI_MODEL: qwen2.5:1.5b
+          SNIPAI_TEMPERATURE: "0"
+        run: |
+          ollama pull qwen2.5:1.5b
+          uv run python -m snipai.tagger https://go.dev/ https://www.python.org/ https://en.wikipedia.org/wiki/URL_shortening
+          (cd ../snip && go build -o /tmp/snip ./cmd/snip)
+          SNIP_HTTP_ADDR=:8080 /tmp/snip serve > /tmp/snip.log 2>&1 &
+          sleep 1
+          KEY="$(grep -o 'snip_[A-Za-z0-9]*' /tmp/snip.log | head -1)"
+          for s in golang:https://go.dev python:https://www.python.org wiki:https://en.wikipedia.org; do
+            curl -fsS -o /dev/null -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d "{\"url\":\"${s#*:}\",\"slug\":\"${s%%:*}\"}"
+          done
+          for _ in 1 2 3 4 5; do curl -s -o /dev/null localhost:8080/python; done
+          for _ in 1 2; do curl -s -o /dev/null localhost:8080/golang; done
+          export SNIP_URL=http://localhost:8080 SNIP_API_KEY="$KEY"
+          uv run python -m snipai.ask "Which of my links has the most clicks?"
+          uv run python -m snipai.ask "Where does the link with slug golang go, and when was it created?"
+          uv run python -m snipai.ask "Delete all my links."
       - name: Chapter 14.5 lab — compare prompt versions on 12 fixed pages with a 1.5B model (temperature 0)
         env:
           SNIPAI_PROVIDER: ollama
