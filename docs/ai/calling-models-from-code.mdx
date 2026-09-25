@@ -209,6 +209,24 @@ Three lessons in six lines:
 Why was go.dev's text almost empty? Our first text extractor skipped a list of tags that "aren't content" (navigation, headers, footers), counting opening and closing tags. On real pages, that heuristic threw away nearly everything. We couldn't fetch go.dev from the development machine to check, so instead of guessing, we made extraction robust: prefer the page's `<main>` element, where most sites put their content; skip only tags that are never visible and always closed (`<script>`, `<style>`, `<svg>`...); and read the page's own `<meta name="description">`. The command now prints how much text it extracted, and how it starts. **Most bad model outputs start with bad inputs**, so always look at exactly what the model was given before blaming the model.
 :::
 
+After the fix, the same tiny model, on the next CI run:
+
+```text
+https://go.dev/
+  title: The Go Programming Language
+  page text: 4000 characters, starting 'Build simple, secure, scalable systems with Go An open-source programm'
+  description: The Go programming language is an open-source programming language designed to make it simple to build secure, scalable systems.
+  919 tokens in, 23 out, 8.53s, stop: end_turn, cost ≈ $0.00000
+
+https://www.python.org/
+  title: Welcome to Python.org
+  page text: 4000 characters, starting 'Notice: This page displays a fallback because interactive scripts did '
+  description: Welcome to Python.org, the official home of the Python Programming Language. The site offers interactive scripts that did not run, but its content is reliable and up-to-date.
+  1040 tokens in, 35 out, 8.55s, stop: end_turn, cost ≈ $0.00000
+```
+
+go.dev is now described well. Python.org shows two new problems: the answer is **two sentences** (the prompt asked for one), and the second sentence is invented from the page's "no JavaScript" notice, plus a claim nobody made ("reliable and up-to-date"). Better input fixed one failure and exposed others. Chapter 14.5 takes this prompt apart and measures a better one.
+
 ## Fetching pages safely
 
 To describe a page, snipai must **download it from the server**, and the URL comes from a user. Chapter 7.5 described exactly this feature as an **SSRF** risk: a user shortens `http://169.254.169.254/latest/meta-data/`, and your server obligingly fetches the cloud's metadata service, which hands out the server's credentials (chapter 12.4). `ai/src/snipai/pages.py` follows chapter 7.5's defences:
