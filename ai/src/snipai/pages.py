@@ -3,8 +3,9 @@
 Fetching a URL that a *user* gave you, from your server, is dangerous: the
 URL could point at your own internal network (http://10.0.0.5/admin) or the
 cloud's metadata service (http://169.254.169.254/, chapter 12.4). That attack
-is called server-side request forgery (SSRF). So every hop, including each
-redirect, is checked to be a public address before we connect.
+is server-side request forgery (SSRF, chapter 7.5). So, as chapter 7.5
+prescribes: only http(s), every hop (including each redirect) must resolve to
+public addresses, and size and time are limited.
 """
 
 from __future__ import annotations

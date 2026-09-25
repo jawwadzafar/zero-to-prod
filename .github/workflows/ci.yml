@@ -391,7 +391,7 @@ jobs:
           kubectl -n snip run probe --image=curlimages/curl:8.22.0 --restart=Never --command -- sh -c '
             ok=0; bad=0; end=$(( $(date +%s) + 45 ))
             while [ "$(date +%s)" -lt "$end" ]; do
-              if curl -fs -m 2 http://api/healthz > /dev/null; then ok=$((ok+1)); else bad=$((bad+1)); fi
+              if curl -fs -m 2 http://api/healthz > /dev/null; then ok=$((ok+1)); else rc=$?; bad=$((bad+1)); echo "failed at $(date +%T): curl exit $rc"; fi
               sleep 0.1
             done
             echo "ok=$ok bad=$bad"'
