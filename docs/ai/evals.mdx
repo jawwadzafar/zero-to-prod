@@ -96,7 +96,7 @@ def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
 
 8 out of 10 is somewhere between **49% and 94%**. 80 out of 100, the same rate, is between **71% and 87%**. If two versions' intervals overlap heavily, you haven't shown a difference: get more cases before deciding. That's why eval sets grow: every real failure you find becomes a new case (chapter 14.5's self-check), and the intervals narrow.
 
-A second source of uncertainty is the model itself. At temperature 0 with a fixed seed, snipai's local runs are *mostly* repeatable: the full evaluation below gave identical results on two separate CI runs, and the prompt lab gave identical tables three times, then two different ones (chapter 14.5). Small differences between machines can tip a borderline answer. Hosted models often aren't exactly repeatable even at temperature 0 (chapter 14.3), and some don't let you set temperature at all. For those, run each case several times and count the share of passes, not one pass or fail.
+A second source of uncertainty is the model itself. At temperature 0 with a fixed seed, snipai's local runs are *mostly* repeatable: the full evaluation below gave identical results on two separate CI runs and a different faithfulness score on a third, and the prompt lab gave identical tables three times, then two different ones (chapter 14.5). Small differences between machines can tip a borderline answer. Hosted models often aren't exactly repeatable even at temperature 0 (chapter 14.3), and some don't let you set temperature at all. For those, run each case several times and count the share of passes, not one pass or fail.
 
 ---
 
@@ -142,6 +142,8 @@ Read it stage by stage, as the eval intends.
 ```
 
 The first (and one other verdict like it) says the answer doesn't contain a claim that the answer *visibly contains*. The second invents a chapter that wasn't among the sources (Part 14 was excluded) and demands it be mentioned. The third (and one other) checks the opposite of what it was asked: not "is everything in the answer supported by the sources?" but "is everything in the sources in the answer?", which no four-sentence answer passes. At least five of the ten "unfaithful" verdicts give reasons that are wrong on their face.
+
+A third CI run, a few hours later, confirmed it. Retrieval, citations and abstention came out exactly the same, and faithfulness came out **1/14 (7%, 95% CI 1%–31%)**, with reasons like "the answer does not include the claim that '8.1 Distributed systems survival kit > Idempotency: making retries safe' is stated in the sources." Three answers the judge had passed before, it now failed. Same code, same questions: the verdicts moved more than the retrieval did.
 
 So the honest reading of "faithful: 29%" is: **we don't know how faithful the answers are, because the judge isn't reliable.** It produced a valid verdict every time (structured output, chapter 14.6, guarantees the shape), and the verdicts are mostly noise. That's the most common way LLM-as-judge goes wrong: a confident number from a judge nobody checked.
 
