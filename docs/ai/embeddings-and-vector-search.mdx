@@ -1,0 +1,318 @@
+---
+title: "14.7 Embeddings & vector search"
+sidebar_label: "14.7 Embeddings & vector search"
+description: "Search by meaning instead of words: what an embedding is, cosine similarity, chunking documents, brute-force search versus vector databases and pgvector, and measuring retrieval with labelled questions — by searching this handbook with a word-counting baseline and a real embedding model, and comparing them honestly."
+---
+
+# 14.7 Embeddings & vector search
+
+Type "how do I undo a bad release?" into a normal search box over this handbook and you'll get pages containing the words "undo", "bad" and "release". The chapter you actually need talks about **rolling back a deployment**, and doesn't contain your words at all. Keyword search finds words; people search for **meanings**.
+
+**Embeddings** are how AI systems search by meaning. They're also the foundation of the next chapter's RAG (chapter 14.8), where a model answers questions from *your* documents: first you have to find the right documents. In this chapter you'll build semantic search over this very handbook, compare it with a word-counting baseline on questions real readers might ask, and learn where the pitfalls are.
+
+## What you'll learn
+
+- What an **embedding** is, and **cosine similarity**.
+- Why and how to **chunk** documents.
+- **Brute-force** search, **approximate** search and **vector databases** (including **pgvector**).
+- **Measuring retrieval** with labelled questions: **hit@k**.
+- The practical pitfalls: changing models, stale indexes, and privacy.
+
+---
+
+## An embedding is a position on a map of meaning
+
+:::note[Everyday anchor]
+Imagine a huge library where books aren't shelved alphabetically but by topic, on a map: cookery in one corner, with baking right next to it and bread-making beside that; programming in another corner, with Go near Rust. To find books like one you're holding, you don't read titles. You walk to where it sits and look around. Similar things are close together.
+:::
+
+An **embedding model** turns a piece of text into a list of numbers, a **vector**: `all-minilm`, the small model used here, produces 384 numbers for any text, from one word to a few paragraphs. Those numbers are a position in a 384-dimensional "map", learned so that **texts with similar meaning land close together**. "Roll back the deployment" and "undo a bad release" end up near each other, although they share no words; "roll back the deployment" and "roll the dice" end up far apart, although they share one.
+
+How does a model learn that? Roughly like chapter 14.2's training, with a different goal. It's shown enormous numbers of text pairs that belong together (a question and its answer, a title and its article, two paraphrases) and pairs that don't, and gradient descent adjusts it until related texts get nearby vectors and unrelated ones get distant vectors. Nobody tells it what the 384 numbers mean; the meaning is spread across all of them.
+
+### Closeness: cosine similarity
+
+To compare two vectors we measure the **angle** between them, which is called **cosine similarity**: 1 means pointing the same way (same meaning), 0 means unrelated, and negative means opposite. If every vector is first scaled to length 1 (**normalised**), cosine similarity is just a **dot product**: multiply matching numbers and add them up. That's why snipai normalises everything:
+
+```python
+def normalise(v: Vectors) -> Vectors:
+    norms = np.linalg.norm(v, axis=1, keepdims=True)
+    out: Vectors = (v / np.maximum(norms, 1e-12)).astype(np.float32)
+    return out
+```
+
+And searching every chunk at once is a single matrix multiplication:
+
+```python
+def search(self, query: str, k: int = 5, *, exclude: tuple[str, ...] = ()) -> list[Hit]:
+    q = self.embedder.embed([query])[0]
+    scores = self.vectors @ q  # vectors are length 1, so this is cosine similarity
+    hits = []
+    for i in np.argsort(-scores):  # chunk numbers, best score first
+        if exclude and self.chunks[i].doc.startswith(exclude):
+            continue
+        hits.append(Hit(self.chunks[i], float(scores[i])))
+        if len(hits) == k:
+            break
+    return hits
+```
+
+(`exclude` skips some chapters; you'll see why when we measure.)
+
+---
+
+## The baseline: counting words
+
+To see what embeddings add, snipai also has a deliberately naive "embedder" (`HashEmbedder` in `ai/src/snipai/embed.py`). It turns text into a vector by **counting words**: each word is hashed into one of 1,024 slots, and common words like "the" are ignored. Two texts are similar if they share words. It's free, instant and offline, and it's the right thing to compare against, because it's roughly what simple keyword search does. Its failures are revealing:
+
+```text
+query: how do I undo a bad deploy?
+  0.180  11.1 How software ships > Measuring delivery: the DORA metrics
+  0.152  10.2 Core objects: Pods, Deployments and friends > Namespaces, kustomize and kubectl
+  0.142  13.5 Incidents & postmortems
+
+query: my program keeps restarting in kubernetes
+  0.188  1.2 Programs, processes & threads > Every process ends with an exit code
+  0.184  1.6 What a server is (and what "backend" means) > A server is a program that never exits
+  0.173  1.2 Programs, processes & threads > Seeing and stopping processes
+```
+
+"Deploy" matched a section about *counting* deployments, and "program" matched chapters about programs in general. Neither top result answers the question. The section that does, 11.3's "Rollback, roll forward, and the database", isn't in the top five at all. It uses "rollback", "deployment" and "deploys" far more than "undo" or "deploy", and to a word counter, "deploy" and "deployment" are as unrelated as "deploy" and "banana". Words match where meanings don't, and meanings match where words don't. The baseline has no idea.
+
+---
+
+## Chunking: what exactly do you store?
+
+You could embed each chapter as one vector. Don't. A chapter covers many topics, and a single vector for all of it is a blurry average of all of them. And when you retrieve it for a question (chapter 14.8), you'd have to hand the model 40,000 characters to find one relevant paragraph. So documents are split into **chunks**, and each chunk gets its own vector.
+
+snipai's `chunk_handbook()` splits each chapter at its `##` section headings (sections are written to be about one thing), splits long sections into pieces of at most 1,500 characters at paragraph boundaries, strips code, quizzes and markup, and skips the "What you'll learn" and "Self-check" sections, which only list topics. And it embeds each chunk **with its headings**:
+
+```python
+@property
+def embed_text(self) -> str:
+    # Headings carry a lot of meaning; embed them with the passage.
+    return f"{self.heading}\n{self.text}"
+```
+
+A heading like "10.5 Operating & debugging Kubernetes > CrashLoopBackOff" says more about a passage than most of its sentences do.
+
+Chunking is a trade-off, and there's no universally right size:
+
+| Chunks too small (a sentence) | Chunks too large (a chapter) |
+|---|---|
+| Lose context: "it restarts" (what does?) | Blur many topics into one vector |
+| Many vectors to store and search | Retrieved text is mostly irrelevant, and costs tokens |
+| Precise matches for specific facts | Better for broad questions |
+
+A few hundred to a couple of thousand characters, split at natural boundaries (sections, paragraphs), is a sensible start. Then measure, and adjust.
+
+---
+
+## Measure retrieval with questions you've labelled
+
+"The results look good" isn't a measurement (chapter 14.5). snipai keeps **14 questions a reader might ask**, phrased in everyday words rather than the handbook's own terms, each labelled with the chapters that actually answer it (`ai/data/search_eval.json`):
+
+```json
+{"q": "how do I undo a bad release?", "docs": ["shipping/delivery-and-deployment", "kubernetes/core-objects", "kubernetes/helm", "observability/incidents-and-postmortems"]},
+{"q": "the monthly bill from the cloud provider is too high", "docs": ["cloud/cost-control"]}
+```
+
+Two numbers summarise how well search works:
+
+- **hit@1**: the share of questions whose **top** result comes from a right chapter.
+- **hit@5**: the share where **any of the top five** results does. This is what matters for RAG, which passes several results to the model.
+
+### Our results
+
+The word-counting baseline, run on this handbook:
+
+```text
+retrieval on search_eval.json (without Part 14): hit@1 36%, hit@5 64%
+  missed: 'how much downtime is acceptable each month?' -> observability/debugging-playbook
+  missed: 'where should API keys and passwords live instead of the code?' -> security/authentication
+  missed: 'what happens between typing a web address and the page appearing?' -> distributed/queues-and-background-work
+  missed: 'let the program finish its current work before it exits' -> containers/what-a-container-is
+  missed: 'the monthly bill from the cloud provider is too high' -> distributed/rate-limiting-and-resilience
+```
+
+Every miss is a paraphrase: "downtime acceptable each month" is an SLO and an error budget (chapter 13.4), "finish its current work before it exits" is graceful shutdown (chapter 5.4), but the questions don't use those words.
+
+The same questions with `all-minilm`, a free 46 MB embedding model, on GitHub's CPU-only CI runner:
+
+```text
+embedder: all-minilm, 857 chunks, dimensions: 384
+indexed in 30.4s
+
+query: how do I undo a bad deploy?
+  0.424  3.1 Git's mental model > Undoing things, calmly
+  0.413  3.1 Git's mental model > Lab
+  0.333  9.2 Writing Dockerfiles > Lab
+  0.332  11.3 Delivery & deployment strategies > Rollback, roll forward, and the database
+  0.331  13.5 Incidents & postmortems
+
+query: my program keeps restarting in kubernetes
+  0.571  10.5 Operating & debugging Kubernetes > The routine
+  0.566  10.5 Operating & debugging Kubernetes > Lab: break snip four ways
+  0.539  10.5 Operating & debugging Kubernetes > A field guide to failure states
+
+retrieval on search_eval.json (without Part 14): hit@1 43%, hit@5 93%
+  missed: 'the monthly bill from the cloud provider is too high' -> cloud/cloud-from-zero
+```
+
+What to notice:
+
+- **hit@5 went from 64% to 93%.** The paraphrases are found. "Keeps restarting in kubernetes" now lands on the Kubernetes debugging chapter, which describes exactly that (`CrashLoopBackOff`) without using the word "restarting" much.
+- **hit@1 barely moved (36% to 43%).** The right chapter is usually *somewhere* in the top five, not first. "Undo a bad deploy" ranks Git's "Undoing things" first: a reasonable reading of "undo", just the wrong one. The rollback section is fourth. That's why RAG passes several results to the model, not one.
+- **The one miss is close.** The cloud-bill question retrieved 12.1, "The cloud from zero", which does talk about cloud costs; the label says only 12.7, "Cost control & free-tier safety", answers it. Is that a retrieval failure or a labelling choice? Looking at misses one by one, like this, is how you find out whether your *labels* need fixing too.
+- **It costs something.** The baseline indexes the handbook instantly; the model took 30 to 45 seconds on the CI machine (it varied between runs), for 857 chunks. That's once per change, thanks to the cache, and each question is one more embedding call.
+
+Those numbers come from 14 questions, so they're rough: one question is 7 percentage points. Chapter 14.10 shows how to put an honest error bar on a number like this.
+
+### Why "without Part 14"?
+
+The first time we measured, the embedding model scored hit@1 **36%**, and some of the "wrong" top results were in Part 14 itself. Of course they were: this chapter and the next ones *quote the test questions*, as examples. A search for "how do I undo a bad release?" finds the chapter that contains the sentence "how do I undo a bad release?".
+
+That's **leakage** (chapter 14.2) in a new form: the test questions leaked into the thing being searched. So `evaluate()` skips Part 14's chapters, the `exclude` in `search()`. Whenever your test questions could appear in your documents (a FAQ built from support tickets, say, tested on those same tickets), check for this, or your scores will be flattering and meaningless.
+
+---
+
+## Storing vectors: brute force, approximate search, databases
+
+snipai keeps all the vectors in one NumPy array and compares the question with every single one. For this handbook (under 1,000 chunks × 384 numbers), that takes well under a millisecond. **Brute force** is exact, simple, and fast enough for tens of thousands of chunks, so it's the right starting point.
+
+At millions of vectors, comparing against every one gets slow, and systems switch to **approximate nearest neighbour** (**ANN**) indexes. The most common, **HNSW**, builds a graph linking each vector to some of its neighbours and searches by hopping through it. It checks only a small fraction of the vectors and finds almost all of the true nearest ones. "Almost" is the trade-off: slightly lower recall, for much faster search.
+
+Where do the vectors live in production?
+
+- **In the database you already have.** **pgvector** is a Postgres extension that adds a `vector` column type, distance operators and HNSW indexes. For snip, that would mean one more column on the `links` table, and search is SQL: `SELECT slug FROM links ORDER BY embedding <=> $1 LIMIT 5` (`<=>` is cosine distance). Your data, your backups, your access control, and your transactions, all in one place. For most applications, this is the sensible default.
+- **A dedicated vector database** (there are several, open-source and hosted) when you have very large volumes, need advanced filtering and scaling, or want a managed service.
+
+:::info[Honesty label]
+**Exists today:** snipai's in-memory brute-force index over the handbook, with a cache, tests and the retrieval evaluation. **Not built:** a pgvector column on snip's `links` table. Adding one (an embedding computed in the background when a link is created, like chapter 14.4's descriptions) would enable "find links similar to this one", and it's a good exercise.
+:::
+
+---
+
+## Pitfalls you'll meet in practice
+
+- **Vectors from different models don't mix.** Each model has its own map. Change the embedding model (or even its version) and every stored vector must be recomputed; mixing them silently breaks search. Store the model name next to each vector. snipai's cache key includes the model name for exactly this reason.
+- **Stale indexes.** Documents change; their vectors don't update themselves. Re-embed on change (snipai's cache key includes the text, so any edit rebuilds the index), and delete vectors when documents are deleted.
+- **Embeddings are data about your data.** An embedding can reveal a lot about the text it came from. If the text is private, treat its vectors as private too, and remember that sending text to a hosted embedding API sends the text itself.
+- **Scores aren't probabilities.** A cosine similarity of 0.62 doesn't mean "62% relevant", and typical values differ between models. If you need a "no good match" cut-off, choose it by looking at scores on your labelled questions.
+- **Semantic search can miss exact terms.** Embeddings are great at paraphrases and weaker at exact identifiers: an error code like `ERR_CONN_RESET`, a slug, a version number. Many production systems combine both: keyword search plus vector search, merged. That's called **hybrid search**.
+
+---
+
+## Lab
+
+Free. Steps 1–3 use the offline word-hashing baseline; step 4 uses a free local embedding model through Ollama (46 MB).
+
+1. **Search the handbook with the baseline:**
+   ```bash
+   cd ~/code/zero-to-prod/ai
+   uv run python -m snipai.embed
+   ```
+   It prints the top five sections for three sample questions, then the retrieval scores on the 14 labelled questions, and which ones it missed. **What to notice:** every miss is a paraphrase.
+
+2. **Ask your own questions:** `uv run python -m snipai.embed "what is a goroutine?" "how do I see what a container is doing?"`. Questions using the handbook's own vocabulary do well even with the baseline. Rephrase one in everyday words, and watch it fail.
+
+3. **Look at similarity directly**, in `uv run python`:
+   ```python
+   from snipai.embed import HashEmbedder
+   e = HashEmbedder()
+   v = e.embed(["roll back the deployment", "undo a bad release", "roll the dice"])
+   print(v @ v.T)   # every pair's cosine similarity
+   ```
+   The baseline thinks "roll back the deployment" is closer to "roll the dice" than to "undo a bad release".
+
+4. **Use a real embedding model:**
+   ```bash
+   ollama pull all-minilm
+   SNIPAI_EMBEDDER=ollama uv run python -m snipai.embed
+   ```
+   Compare the results and the hit@1 and hit@5 scores with step 1. Repeat step 3 with `from snipai.embed import OllamaEmbedder; e = OllamaEmbedder()`. Which pair is closest now?
+
+5. **Change the chunk size.** In `chunk_handbook`, try `max_chars=400` and `max_chars=4000`, and rerun step 4. What happens to the number of chunks, and to hit@5? Then add two questions of your own to `ai/data/search_eval.json`, with the chapters that answer them.
+
+## Self-check
+
+<Quiz
+  id="ai-embeddings-and-vector-search"
+  questions={[
+    {
+      q: 'What does an embedding model do?',
+      options: [
+        'Compresses text to save space',
+        'Turns text into a vector of numbers such that texts with similar meaning get nearby vectors',
+        'Translates text into another language',
+        'Generates answers to questions',
+      ],
+      answer: 1,
+      explain: 'A position on a learned map of meaning. Search becomes "find the nearest vectors".',
+    },
+    {
+      q: 'Why does snipai normalise every vector to length 1?',
+      options: [
+        'To save memory',
+        'So cosine similarity becomes a plain dot product, and searching all chunks is one matrix multiplication',
+        'Because models require it',
+        'To make vectors private',
+      ],
+      answer: 1,
+      explain: 'With unit-length vectors, the dot product equals the cosine of the angle between them.',
+    },
+    {
+      q: 'Why split chapters into chunks instead of embedding each chapter whole?',
+      options: [
+        'Embedding models can’t read long text',
+        'A whole chapter blurs many topics into one vector, and retrieving it would hand the model mostly irrelevant text',
+        'Chunks are cheaper to store',
+        'Chapters have too many headings',
+      ],
+      answer: 1,
+      explain: 'Chunks let search find the specific passage, and keep what you pass to a model (chapter 14.8) small and relevant.',
+    },
+    {
+      q: 'You switch to a newer, better embedding model. What must you do?',
+      options: [
+        'Nothing; vectors are standard',
+        'Re-embed every stored document with the new model: vectors from different models live on different maps and can’t be compared',
+        'Only embed new documents with it',
+        'Rename the index',
+      ],
+      answer: 1,
+      explain: 'Store the model name with the vectors, and rebuild the index when it changes.',
+    },
+    {
+      q: 'Users search for exact error codes like ERR_CONN_RESET and vector search does poorly. What’s a common fix?',
+      options: [
+        'A bigger embedding model',
+        'Hybrid search: combine keyword search (good at exact terms) with vector search (good at meaning)',
+        'Lower the temperature',
+        'Remove the error codes from documents',
+      ],
+      answer: 1,
+      explain: 'Each kind of search covers the other’s weakness.',
+    },
+  ]}
+/>
+
+<details>
+<summary>Design "find similar links" for snip: when viewing a link, show the five most similar links the same user has created. What would you store, where, and when?</summary>
+
+- **What:** for each link, an embedding of the text that best describes it: its title, description and tags (chapters 14.4 and 14.6), rather than the raw page, which is long and noisy. Store the **embedding model name** with it.
+- **Where:** a `vector` column on the `links` table with **pgvector** (with an HNSW index once there are many links), so the query can also filter by owner: `SELECT slug FROM links WHERE owner_id = $1 AND slug <> $2 ORDER BY embedding <=> $3 LIMIT 5`. The filter matters: similarity must never leak other users' links (chapter 7.4).
+- **When:** in the **background** after the link is created and described, by snip's worker (chapter 8.2), never in the request path. Links without an embedding yet simply don't show suggestions: graceful degradation.
+- **Measure:** label a few dozen pairs of links as "similar" or "not" and check hit@5 before launching, and whenever the model changes.
+
+</details>
+
+<details>
+<summary>Your RAG system's hit@5 on your labelled questions is 95%, but users still complain that answers miss information. What could be wrong with the measurement?</summary>
+
+- **The questions don't look like real questions.** If you wrote them yourself, they probably use your documents' vocabulary. Collect real questions from logs, especially the ones users complained about, and label those.
+- **"Right chapter" isn't "right passage".** hit@k at the chapter level can pass while the retrieved chunk is a different section of that chapter. Label at the chunk level, or check the retrieved text contains the fact needed.
+- **Too few questions.** With 14 questions, one question is 7 percentage points. The number is a signal, not a certainty.
+- **Retrieval isn't the only step.** The model may receive the right passage and still answer badly (it ignores it, or the passage is cut off by a token limit). Measure retrieval *and* the final answers separately (chapter 14.10).
+
+</details>

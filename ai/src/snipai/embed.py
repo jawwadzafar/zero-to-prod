@@ -253,7 +253,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"indexed in {time.perf_counter() - start:.1f}s\n")
     for q in queries:
         print(f"query: {q}")
-        for hit in index.search(q, k=5):
+        # Part 14 quotes these questions, so leave it out, as evaluate() does.
+        for hit in index.search(q, k=5, exclude=EVAL_EXCLUDE):
             print(f"  {hit.score:.3f}  {hit.chunk.heading[:90]}")
         print()
     if not (argv if argv is not None else sys.argv[1:]):
