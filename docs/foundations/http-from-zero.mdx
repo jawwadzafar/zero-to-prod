@@ -6,7 +6,7 @@ description: The request–response language of the web — methods, paths, head
 
 # 1.5 HTTP from zero
 
-Every time you load a page, submit a form, or an app on your phone refreshes, your device sends a short, structured text message to a server and gets one back. That message format is **HTTP**, and it's the language almost every backend speaks — including snip. The surprising thing about HTTP is how *simple* it is: you can read it, and even type it by hand, as you'll do in this chapter's lab. Once you can read an HTTP conversation, you can debug most web problems by just looking.
+Every time you load a page, submit a form, or an app on your phone refreshes, your device sends a short, structured text message to a server and gets one back. That message format is **HTTP**, and it's the language almost every backend speaks. The surprising thing about HTTP is how *simple* it is: you can read it, and even type it by hand, as you'll do in this chapter's lab. Once you can read an HTTP conversation, you can debug most web problems by just looking.
 
 ## What you'll learn
 
@@ -25,9 +25,9 @@ HTTP (HyperText Transfer Protocol) is a conversation with a strict rule: **the c
 ```mermaid
 sequenceDiagram
     participant C as Client (browser, app, curl)
-    participant S as Server (snip)
-    C->>S: Request: "GET /k7Qz2a please"
-    S->>C: Response: "302 — it's over at https://go.dev/doc/"
+    participant S as Server
+    C->>S: Request: "GET /about please"
+    S->>C: Response: "200 OK — here's the page"
 ```
 
 The **client** is whatever sends the request: a browser, a phone app, another server, or `curl` in your terminal. The **server** is the program listening on a port ([chapter 1.4](./networks-from-zero.mdx)) that answers.
@@ -42,23 +42,23 @@ HTTP is ordering at a counter. You say one complete order — what you want, any
 
 ## Anatomy of a request
 
-Here's a real request — the one snip receives when you create a short link:
+Here's a typical request — an app posting a comment on a blog:
 
 ```text
-POST /api/links HTTP/1.1
-Host: localhost:8080
-Authorization: Bearer snip_9fQ2...
+POST /api/comments HTTP/1.1
+Host: blog.example
+Authorization: Bearer 9fQ2...
 Content-Type: application/json
-Content-Length: 43
+Content-Length: 35
 
-{"url":"https://go.dev/doc/","slug":"godoc"}
+{"post_id":42,"text":"Great post!"}
 ```
 
 Line by line:
 
-1. **The request line**: `POST /api/links HTTP/1.1`
+1. **The request line**: `POST /api/comments HTTP/1.1`
    - **Method** — `POST`: *what kind of action*.
-   - **Path** — `/api/links`: *which thing* on the server.
+   - **Path** — `/api/comments`: *which thing* on the server.
    - **Version** — `HTTP/1.1`.
 2. **Headers**: `Name: value` lines with extra information about the request — which site (`Host`), who's asking (`Authorization`), what format the body is in (`Content-Type`), how big it is (`Content-Length`).
 3. **A blank line**, meaning "headers are finished".
@@ -66,13 +66,13 @@ Line by line:
 
 ### Methods: the verbs
 
-| Method | Meaning | snip example |
+| Method | Meaning | Blog example |
 |---|---|---|
-| `GET` | Fetch something. Should never change anything. | `GET /api/links/godoc` — show a link |
-| `POST` | Create something, or perform an action. | `POST /api/links` — create a link |
-| `PUT` | Replace something entirely. | *(not used by snip)* |
-| `PATCH` | Change part of something. | *(could update a link's URL)* |
-| `DELETE` | Remove something. | `DELETE /api/links/godoc` |
+| `GET` | Fetch something. Should never change anything. | `GET /api/posts/42` — show a post |
+| `POST` | Create something, or perform an action. | `POST /api/comments` — add a comment |
+| `PUT` | Replace something entirely. | `PUT /api/posts/42` — replace the whole post |
+| `PATCH` | Change part of something. | `PATCH /api/posts/42` — fix the title only |
+| `DELETE` | Remove something. | `DELETE /api/comments/7` |
 
 The rule that `GET` must not change anything matters: browsers, search-engine crawlers and caches all feel free to repeat `GET` requests, preload them, or cache them. A "delete" link that uses `GET` can be triggered by a crawler just following links — and this has really happened to real sites.
 
@@ -81,7 +81,7 @@ The rule that `GET` must not change anything matters: browsers, search-engine cr
 A **URL** (Uniform Resource Locator) packs several pieces of the request into one line:
 
 ```text
-https://snip.example:443/api/links?limit=20#top
+https://blog.example:443/api/posts?limit=20#top
 └─┬──┘  └─────┬────┘└┬┘└───┬────┘└───┬────┘└┬─┘
 scheme      host   port  path     query  fragment
 ```
@@ -97,19 +97,21 @@ scheme      host   port  path     query  fragment
 
 ## Anatomy of a response
 
-Here's snip's answer when you follow a short link:
+Here's the blog's answer to `GET /api/posts/42`:
 
 ```text
-HTTP/1.1 302 Found
-Location: https://go.dev/doc/
-Cache-Control: private, max-age=0
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: max-age=60
 X-Request-Id: 3f9a2c71d0b4e815
-Content-Length: 0
+Content-Length: 44
+
+{"id":42,"title":"Hello, HTTP","comments":3}
 ```
 
-1. **Status line**: the version, a **status code** (`302`) and a short reason (`Found`).
-2. **Headers**: `Location` says where to go; `Cache-Control` says "don't cache this"; `X-Request-Id` is a tracking number for debugging ([chapter 13.1](../observability/logs.mdx)).
-3. **Body**: empty here. For a page, it would be HTML; for an API, usually JSON.
+1. **Status line**: the version, a **status code** (`200`) and a short reason (`OK`).
+2. **Headers**: `Content-Type` says the body is JSON; `Cache-Control` says "you may reuse this answer for 60 seconds"; `X-Request-Id` is a tracking number for debugging ([chapter 13.1](../observability/logs.mdx)).
+3. **A blank line**, then the **body**: here JSON, because this is an API; for a web page it would be HTML. Some responses have no body at all.
 
 ### Status codes: the first digit tells the story
 
@@ -125,7 +127,7 @@ The most useful distinction in all of web debugging: **4xx means the request was
 A few that trip people up:
 
 - **401 vs 403**: `401 Unauthorized` really means *unauthenticated* — "I don't know who you are" (missing or bad credentials). `403 Forbidden` means "I know who you are, and you're not allowed".
-- **301 vs 302**: both redirect. `301` says "moved **permanently**" — browsers remember it and may never ask again. `302` says "for now, go there". snip uses **302** on purpose: if browsers cached a 301, later clicks would skip snip entirely and never be counted.
+- **301 vs 302**: both redirect. `301` says "moved **permanently**" — browsers remember it and may never ask again. `302` says "for now, go there". Pick 301 only when you truly mean "forever", because you can't take it back from browsers that have remembered it.
 - **502 and 504** usually come from a **proxy** in front of your server ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)): it couldn't get a valid answer (`502`) or any answer in time (`504`) from the program behind it.
 
 ---
@@ -134,12 +136,12 @@ A few that trip people up:
 
 Each HTTP request is independent. The server doesn't inherently remember that the request you sent a second ago came from you. This is called being **stateless**.
 
-That sounds like a limitation, but it's one of the most important design choices of the web: because no request depends on the server remembering the last one, **any copy of a server can answer any request**. That's what lets snip run several copies behind a load balancer ([chapter 8.6](../distributed/scaling.mdx)) — the whole scaling story depends on it.
+That sounds like a limitation, but it's one of the most important design choices of the web: because no request depends on the server remembering the last one, **any copy of a server can answer any request**. That's what lets a busy site run several copies of its server behind a load balancer ([chapter 8.6](../distributed/scaling.mdx)) — the whole scaling story depends on it.
 
 But websites clearly *do* remember you: you stay logged in. How? The client **re-sends proof with every request**:
 
 - **Cookies** — the server's response includes `Set-Cookie: session=abc123`. The browser stores it and automatically sends `Cookie: session=abc123` on every later request to that site. The server looks up `abc123` to see who you are.
-- **Tokens** — apps and APIs usually send an `Authorization: Bearer …` header on each request instead. That's how snip's API keys work.
+- **Tokens** — apps and APIs usually send an `Authorization: Bearer …` header on each request instead.
 
 ```mermaid
 sequenceDiagram
@@ -190,6 +192,40 @@ The good news: as a backend engineer you write the same handlers regardless. Pro
 - **Using `GET` for actions.** Anything that changes data must not be a `GET`, or crawlers, prefetchers and caches will trigger it.
 - **Assuming a 5xx is "just a blip".** Retrying can help, but a server returning 5xx under load might be *overloaded* — and every retry makes it worse. [Chapter 8.4](../distributed/rate-limiting-and-resilience.mdx) covers retrying safely.
 :::
+
+---
+
+## Apply it to snip
+
+snip, the link shortener this handbook builds, is an HTTP server, and everything above shows up in it. Creating a short link is a `POST` with a JSON body and an API key as a bearer token:
+
+```text
+POST /api/links HTTP/1.1
+Host: localhost:8080
+Authorization: Bearer snip_9fQ2...
+Content-Type: application/json
+Content-Length: 44
+
+{"url":"https://go.dev/doc/","slug":"godoc"}
+```
+
+Following a short link gets this answer (trimmed to the headers that matter; they're set in `snip/internal/httpapi/server.go` and `middleware.go`):
+
+```text
+HTTP/1.1 302 Found
+Location: https://go.dev/doc/
+Cache-Control: private, max-age=0
+Content-Type: text/html; charset=utf-8
+X-Request-Id: 3f9a2c71d0b4e815
+
+<a href="https://go.dev/doc/">Found</a>.
+```
+
+The `Location` header is the real answer; the one-line HTML body is a courtesy Go adds for very old clients, and browsers never show it.
+
+Two choices in it are deliberate. snip answers **302**, not 301, and adds `Cache-Control: private, max-age=0` ("don't keep this"): if browsers remembered the redirect, later clicks would skip snip entirely and never be counted, and the link could never be changed or deleted. And because each request carries its own API key, any copy of snip can answer any request — statelessness, paying off.
+
+snip uses four methods: `GET` (follow a link, or show its stats at `/api/links/godoc`), `POST` (create), `DELETE` (remove), and nothing else. [Part 5](../apis/first-http-server.mdx) builds this API step by step.
 
 ---
 
