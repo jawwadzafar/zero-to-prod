@@ -6,7 +6,7 @@ description: "Most identities in a system aren't people: services, workers, CI j
 
 # 7.11 Machine identity & zero trust
 
-Count the identities in snip's production system. There are people: link owners with API keys, and your team. But most of the "who is calling?" questions are asked about **machines**: the API calling Postgres and Redis, the worker reading the click stream, the CI pipeline deploying new versions ([chapter 11.2](../shipping/ci-with-github-actions.mdx)), Prometheus scraping metrics, the Argo CD controller applying manifests ([chapter 11.4](../shipping/gitops.mdx)). In a larger company, machine identities outnumber people many times over.
+Count the identities in an ordinary production system — say a web API with a background worker, a database and a cache (this chapter's examples use snip, the URL shortener this handbook builds). There are people: customers with API keys, and your team. But most of the "who is calling?" questions are asked about **machines**: the API calling Postgres and Redis, the worker reading a queue, the CI pipeline deploying new versions ([chapter 11.2](../shipping/ci-with-github-actions.mdx)), Prometheus scraping metrics, the Argo CD controller applying manifests ([chapter 11.4](../shipping/gitops.mdx)). In a larger company, machine identities outnumber people many times over.
 
 For years, the default answer was a **shared secret** for each connection (a database password in an environment variable, an API key in a CI setting) plus **the network**: "it's inside our private network, so it must be one of ours". Both assumptions keep failing in breaches. This chapter covers the modern replacements: identities that machines are *given* by the platform, **mutual TLS**, authorizing by identity instead of IP address, and **zero trust**. It ends with the human side of infrastructure access: how people get, keep and lose it.
 
@@ -27,7 +27,7 @@ For years, the default answer was a **shared secret** for each connection (a dat
 A building where every door opens with the same key, and the key is copied for every new contractor. And once inside the front door, nobody checks anything, because "only staff get in". It works until one copy of the key goes missing, and then there's no way to know who's inside or to change the lock without disrupting everyone.
 :::
 
-A **long-lived shared secret** has predictable problems ([chapter 7.6](./secrets-management.mdx)): it gets copied into config files, CI settings, laptops and logs; it's hard to rotate because many things use it; and a stolen copy works until someone notices, from anywhere. snip's own Kubernetes manifests put the database password in a Secret and a connection string, marked "development only". Fine for a lab, and exactly the thing to replace in production.
+A **long-lived shared secret** has predictable problems ([chapter 7.6](./secrets-management.mdx)): it gets copied into config files, CI settings, laptops and logs; it's hard to rotate because many things use it; and a stolen copy works until someone notices, from anywhere. A typical Kubernetes setup (snip's own manifests included) puts the database password in a Secret inside a connection string, marked "development only". Fine for a lab, and exactly the thing to replace in production.
 
 **Network location as identity** is the other weak assumption: "requests from inside the cluster, or the VPN, are trusted". But networks get breached, and once an attacker is inside (through one vulnerable service, one phished laptop), everything that trusts "inside" trusts them. Moving from one compromised machine to others is called **lateral movement**, and flat, trusting networks make it easy.
 
@@ -62,7 +62,7 @@ A small change, and a principle: **don't hand out identities or credentials that
 
 In ordinary HTTPS ([chapter 7.1](./security-literacy.mdx)), only the **server** proves its identity, with a certificate signed by a certificate authority (CA) the client trusts. **Mutual TLS** (**mTLS**) adds the other direction: the **client** also presents a certificate, and the server checks it was signed by a CA *it* trusts. After the handshake, each side knows exactly who the other is, and the connection is encrypted.
 
-snip's `examples/mtls` builds the whole thing with Go's standard library: a small internal **CA**, certificates for each workload carrying a SPIFFE ID, and a server that only the worker may call:
+The standalone example `snip/examples/mtls` builds the whole thing with Go's standard library: a small internal **CA**, certificates for each workload carrying a SPIFFE ID, and a server that only the worker may call:
 
 ```go
 // ServerTLS makes a server that demands a client certificate signed by ca.
