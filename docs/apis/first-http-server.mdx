@@ -1,17 +1,17 @@
 ---
 title: "5.1 Your first HTTP server"
 sidebar_label: "5.1 Your first HTTP server"
-description: Build snip v0 — a working link shortener in one Go file — and learn handlers, routing, requests and responses in Go's net/http, then test it with curl and see exactly what it can't do yet.
+description: How a Go program becomes a web server — handlers, routing (method matching, path and query parameters, which pattern wins), requests and responses in net/http — then a working link shortener in one file, tested with curl.
 ---
 
 # 5.1 Your first HTTP server
 
-Everything in the handbook so far has been leading here. You know what a server is ([chapter 1.6](../foundations/what-a-server-is.mdx)), how HTTP requests and responses look ([chapter 1.5](../foundations/http-from-zero.mdx)), and enough Go to write real programs ([Part 4](../go/why-go-first-program.mdx)). In this chapter you'll put them together and build **snip v0**: a link shortener that actually works, in about sixty lines of Go, with nothing but the standard library. Then — just as importantly — you'll poke at it until you find everything it *can't* do yet. That list becomes the roadmap for the rest of the handbook.
+Every app on your phone talks to servers: you tap "like", and somewhere a program receives `POST /posts/123/likes`, works out which piece of code should handle it, runs that code and sends an answer back. That program is a web server, and in Go you can write a real one in five lines. This chapter builds on what a server is ([chapter 1.6](../foundations/what-a-server-is.mdx): a program that waits for requests and answers them) and what HTTP messages look like ([chapter 1.5](../foundations/http-from-zero.mdx): a method, a path, headers and a body). You'll write a server, learn how **routing** sends each request to the right code, and then build a working link shortener — **snip v0**, the first version of the project you grow through this handbook — in about sixty lines. Then you'll poke at it until you find everything it *can't* do yet.
 
 ## What you'll learn
 
 - How Go's **`net/http`** package turns a function into a web server: **handlers**, **`ResponseWriter`** and **`*Request`**.
-- **Routing**: matching methods and paths like `POST /links` and `GET /{code}` to handlers.
+- **Routing**: how a request finds its handler — **method matching**, **path parameters** like `/books/{id}`, **query parameters**, and which pattern wins when several match.
 - How to read a request (**path values**, **body**, **headers**) and write a response (**status code**, **headers**, **body**, **redirects**).
 - How to **test your server by hand** with `curl`, and read what comes back.
 - What snip v0 gets **wrong** — and which chapter fixes each problem.
@@ -57,9 +57,97 @@ The server is a switchboard operator. `ListenAndServe` is them sitting down at t
 
 ---
 
-## snip v0
+## Routing: how a request finds its handler
 
-Here's the whole of snip v0, from the repository at `snip/examples/v0/main.go`:
+A real API has many endpoints: list the books, show one book, create a book, delete a book. Every request arrives at the same port, so something has to look at it and decide **which handler runs**. That something is the **router** (Go calls its router a **`ServeMux`**, short for "serve multiplexer").
+
+:::note[Everyday anchor]
+A company's mail room. Every letter arrives at one address. The mail room reads two things — the department and the name on the envelope — and puts it in the right pigeonhole. A letter for a department that doesn't exist goes back as "no such recipient"; a letter for the right person but marked "invoice" when they only accept "orders" goes back too, with a note saying what they *do* accept.
+:::
+
+The router reads two parts of every request — the **method** (`GET`, `POST`, `DELETE`…) and the **path** (`/books/42`) — and compares them with the **patterns** you registered:
+
+```mermaid
+flowchart LR
+    R["GET /books/42"] --> M{"ServeMux:<br/>compare method + path<br/>with every pattern"}
+    M -->|"best match"| H["handler for<br/>GET /books/{id}"]
+    M -->|"path matches,<br/>method doesn't"| E1["405 Method Not Allowed"]
+    M -->|"nothing matches"| E2["404 Not Found"]
+```
+
+Here's a small book API that uses every kind of pattern. It runs on its own — save it as `main.go` in a new module and `go run .`:
+
+```go
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func main() {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { // exactly "/"
+		fmt.Fprintln(w, "home page")
+	})
+	mux.HandleFunc("GET /books", func(w http.ResponseWriter, r *http.Request) { // a literal path
+		limit := r.URL.Query().Get("limit") // query parameter: /books?limit=10
+		fmt.Fprintln(w, "list of books, limit:", limit)
+	})
+	mux.HandleFunc("GET /books/{id}", func(w http.ResponseWriter, r *http.Request) { // a path parameter
+		fmt.Fprintln(w, "one book, id:", r.PathValue("id"))
+	})
+	mux.HandleFunc("POST /books", func(w http.ResponseWriter, r *http.Request) { // same path, other method
+		fmt.Fprintln(w, "created a book")
+	})
+	mux.HandleFunc("GET /books/new", func(w http.ResponseWriter, r *http.Request) { // more specific than {id}
+		fmt.Fprintln(w, "the new-book form")
+	})
+	mux.HandleFunc("GET /files/{path...}", func(w http.ResponseWriter, r *http.Request) { // the rest of the path
+		fmt.Fprintln(w, "file:", r.PathValue("path"))
+	})
+
+	http.ListenAndServe(":8080", mux)
+}
+```
+
+And here's what each request gets — real output:
+
+| Request | Matched pattern | Answer |
+|---|---|---|
+| `GET /` | `GET /{$}` | `home page` |
+| `GET /books?limit=10` | `GET /books` | `list of books, limit: 10` |
+| `GET /books/42` | `GET /books/{id}` | `one book, id: 42` |
+| `GET /books/new` | `GET /books/new` | `the new-book form` |
+| `POST /books` | `POST /books` | `created a book` |
+| `GET /files/docs/a.txt` | `GET /files/{path...}` | `file: docs/a.txt` |
+| `GET /books/42/reviews` | none | `404 Not Found` |
+| `DELETE /books/42` | path matches, method doesn't | `405 Method Not Allowed`, header `Allow: GET, HEAD` |
+
+The rules behind that table:
+
+- **Method matching.** `POST /books` and `GET /books` are different routes on the same path. A pattern with no method matches every method. A `GET` pattern also answers `HEAD` (a GET without the body).
+- **Path parameters.** `{id}` matches exactly **one** path segment — anything between two slashes — and the handler reads it with `r.PathValue("id")`. That's why `/books/42/reviews` doesn't match: it has one segment too many. `{path...}` matches **everything** that's left.
+- **Query parameters** (`?limit=10`) aren't part of routing at all. The router ignores them; the handler reads them with `r.URL.Query().Get("limit")`. Use the path to say *which thing*, and the query for options like filters, sorting and page size.
+- **The most specific pattern wins.** `/books/new` and `/books/{id}` both match `/books/new`; the literal one matches fewer paths, so it wins. If two patterns overlap and neither is more specific, Go refuses to start — `http.HandleFunc` panics at registration, rather than guessing.
+- **404 vs 405.** No pattern matches the path → `404 Not Found`. A pattern matches the path but not the method → `405 Method Not Allowed`, with an `Allow` header listing the methods that would work. The router writes both for you.
+
+:::warning[What can go wrong]
+- **`/` matches everything.** In Go, a pattern ending in a slash matches the whole subtree, so a bare `GET /` pattern catches every path no other route claims — including typos that should be 404s. Use `/{$}` for "only the root".
+- **Wildcards are always strings.** `r.PathValue("id")` for `/books/abc` returns `"abc"`. Converting it to a number, and answering `400` if that fails, is the handler's job ([chapter 5.3](./validation-errors-status-codes.mdx)).
+- **Overlapping patterns.** Registering `GET /{name}` and `GET /books/{id}` is fine (one is more specific); registering `GET /{a}/x` and `GET /x/{b}` panics, because `/x/x` matches both equally.
+:::
+
+:::info[If you've written code]
+Before Go 1.22 (February 2024), Go's built-in router couldn't match methods or wildcards, so most projects used a library such as `gorilla/mux` or `chi`. Many still do, for extras like route groups. Express (`app.get('/books/:id')`), Flask (`@app.get('/books/<id>')`) and Rails routes are the same idea with different syntax.
+:::
+
+---
+
+## Apply it: snip v0, a link shortener in one file
+
+A **link shortener** takes a long URL and gives back a short one; visiting the short one redirects you to the long one. It needs two routes — one to create a short link, one to follow it — and a place to remember which code points where. Here's the whole of snip v0, from the repository at `snip/examples/v0/main.go`:
 
 ```go
 // snip v0 — the whole link shortener in one file (chapter 5.1).
@@ -134,7 +222,7 @@ http.HandleFunc("POST /links", shorten)
 http.HandleFunc("GET /{code}", follow)
 ```
 
-Since Go 1.22, route patterns include the **method** and can have **wildcards** in braces. `GET /{code}` matches `GET /abc123`, and the handler reads the matched part with `r.PathValue("code")`. If a request matches a path but not a method — say `DELETE /links` — Go answers `405 Method Not Allowed` automatically.
+Two routes, using the rules from the previous section. `GET /{code}` matches any one-segment path such as `/abc123`, and the handler reads it with `r.PathValue("code")`. `DELETE /links` matches a path but not a method, so the router answers `405 Method Not Allowed` without your code running.
 
 ### Reading the request
 
@@ -210,14 +298,14 @@ Now the honest part. snip v0 works in a demo and fails in real life in at least 
 
 | Problem with v0 | Why it matters | Fixed in |
 |---|---|---|
-| Links live in a map in memory | Restart the program and **every link is gone** ([chapter 1.1](../foundations/what-a-computer-does.mdx)) | 6.1, 6.6 — Postgres |
-| One program on one machine | If it crashes, snip is **down**; it can't handle more traffic than one machine | 8.3, 8.6, [Part 10](../kubernetes/why-orchestration.mdx) |
-| Anyone can create links | Spammers can flood it; nobody owns any link, so nobody can delete one | 7.2, 7.4 — API keys, ownership |
-| Requests and responses are plain text | Programs calling snip must parse ad-hoc text; errors have no structure | 5.2, 5.3 — a JSON API |
-| URL validation is a prefix check | `https://` alone passes; there's no length limit on stored URLs | 5.3 |
-| Codes are 6 random characters with no collision check | Two links could get the **same code**, and the second silently replaces the first | 6.3, 6.5 |
-| No logs, no metrics, no health check | When something goes wrong, you're blind | 5.4, [Part 13](../observability/logs.mdx) |
-| No limits on how fast anyone calls it | One client can overwhelm it | 8.4 — rate limiting |
+| Links live in a map in memory | Restart the program and **every link is gone** ([chapter 1.1](../foundations/what-a-computer-does.mdx)) | [6.1](../data/why-databases.mdx), [6.6](../data/postgres-from-go.mdx) — Postgres |
+| One program on one machine | If it crashes, snip is **down**; it can't handle more traffic than one machine | [8.3](../distributed/reverse-proxies-and-nginx.mdx), [8.6](../distributed/scaling.mdx), [Part 10](../kubernetes/why-orchestration.mdx) |
+| Anyone can create links | Spammers can flood it; nobody owns any link, so nobody can delete one | [7.2](../security/authentication.mdx), [7.4](../security/authorization-multi-tenancy.mdx) — API keys, ownership |
+| Requests and responses are plain text | Programs calling snip must parse ad-hoc text; errors have no structure | [5.2](./designing-rest-apis.mdx), [5.3](./validation-errors-status-codes.mdx) — a JSON API |
+| URL validation is a prefix check | `https://` alone passes; there's no length limit on stored URLs | [5.3](./validation-errors-status-codes.mdx) |
+| Codes are 6 random characters with no collision check | Two links could get the **same code**, and the second silently replaces the first | [6.3](../data/designing-schemas.mdx), [6.5](../data/transactions.mdx) |
+| No logs, no metrics, no health check | When something goes wrong, you're blind | [5.4](./structuring-a-real-service.mdx), [Part 13](../observability/logs.mdx) |
+| No limits on how fast anyone calls it | One client can overwhelm it | [8.4](../distributed/rate-limiting-and-resilience.mdx) — rate limiting |
 
 The reference snip in `cmd/snip` fixes every one of these. The next chapters build those fixes one at a time, and each chapter shows the real code that does it.
 
@@ -283,6 +371,17 @@ Free, on your own computer.
       ],
       answer: 1,
       explain: 'Braces mark a wildcard. The matched segment is available via r.PathValue with the wildcard’s name.',
+    },
+    {
+      q: 'A server registers only GET /books/{id}. What does DELETE /books/42 get, and what does GET /books/42/reviews get?',
+      options: [
+        'Both get 404 Not Found, because neither request matches exactly',
+        '405 Method Not Allowed (path matches, method doesn’t), then 404 (one segment too many)',
+        'Both reach the handler, which must check the method and path itself',
+        '400 Bad Request for both, because the client sent an invalid request',
+      ],
+      answer: 1,
+      explain: 'The router separates "this path exists but not for that method" (405, with an Allow header listing GET and HEAD) from "no such path" (404). {id} matches exactly one segment, so /books/42/reviews matches nothing. The handler never runs in either case.',
     },
     {
       q: 'Why does snip v0 wrap the request body with io.LimitReader(r.Body, 2048)?',
