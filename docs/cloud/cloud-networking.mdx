@@ -6,7 +6,7 @@ description: "Your own private network in the cloud: IP ranges and CIDR notation
 
 # 12.2 Cloud networking: VPCs, subnets & security groups
 
-When you rent machines in the cloud, they don't sit on the open internet by default. They live in your own **private network**, which you design: which address range it uses, which parts can be reached from the internet, which parts can only reach out, and which machines may talk to which. Get it right and a database is simply unreachable from the internet, whatever its password. Get it wrong and it's one misconfigured rule away from the whole world. This chapter builds snip's AWS network step by step: the address plan, the public and private subnets across two availability zones, the gateways, and the security groups that let the load balancer talk to snip and snip talk to its database, and nothing else. Other clouds use different names for the same ideas (Azure: VNet and NSG; Google Cloud: VPC and firewall rules), so the concepts transfer.
+When you rent machines in the cloud, they don't sit on the open internet by default. They live in your own **private network**, which you design: which address range it uses, which parts can be reached from the internet, which parts can only reach out, and which machines may talk to which. Get it right and a database is simply unreachable from the internet, whatever its password. Get it wrong and it's one misconfigured rule away from the whole world. This chapter builds the network a typical web application needs, step by step: the address plan, public and private subnets across two availability zones, the gateways, and the security groups that let the load balancer talk to the app and the app talk to its database, and nothing else. At the end you'll read the same network in real Terraform, in the AWS configuration of snip, the URL shortener this handbook builds. Other clouds use different names for the same ideas (Azure: VNet and NSG; Google Cloud: VPC and firewall rules), so the concepts transfer.
 
 ## What you'll learn
 
@@ -14,13 +14,13 @@ When you rent machines in the cloud, they don't sit on the open internet by defa
 - **VPCs** and **subnets**, and what makes a subnet public or private.
 - **Route tables**, **internet gateways** and **NAT gateways**.
 - **Security groups** vs **network ACLs**, and least privilege for the network.
-- **Load balancers** and **private endpoints**, and how traffic flows through snip's network.
+- **Load balancers** and **private endpoints**, and how a request flows through all of it.
 
 ---
 
 ## Addresses and CIDR
 
-[Chapter 1.4](../foundations/networks-from-zero.mdx) introduced IP addresses: four numbers from 0 to 255, like `10.20.10.37`. Each is 8 bits, so an IPv4 address is 32 bits. Networks are described as **ranges** of addresses, written in **CIDR notation**: an address, a slash, and the number of leading bits that are **fixed**.
+An IP address ([chapter 1.4](../foundations/networks-from-zero.mdx)) is a machine's address on a network: four numbers from 0 to 255, like `10.20.10.37`. Each is 8 bits, so an IPv4 address is 32 bits. Networks are described as **ranges** of addresses, written in **CIDR notation**: an address, a slash, and the number of leading bits that are **fixed**.
 
 ```text
 10.20.0.0/16   first 16 bits fixed (10.20),     last 16 free → 2^16 = 65,536 addresses: 10.20.0.0 – 10.20.255.255
@@ -41,9 +41,106 @@ CIDR is like postcodes. "SW1A" covers a whole district, "SW1A 1" a smaller area 
 
 ## VPCs and subnets
 
-A **VPC** (virtual private cloud) is your isolated network in one region, with an address range: snip's is `10.20.0.0/16`. Inside it you create **subnets**: smaller ranges, each living in **one availability zone**.
+A **VPC** (virtual private cloud) is your isolated network in one region, with an address range, say `10.20.0.0/16`. Inside it you create **subnets**: smaller ranges, each living in **one availability zone** (a separate data centre within the region, [chapter 12.1](./cloud-from-zero.mdx)).
 
-snip's network module (`snip/infra/aws/modules/network/main.tf`) creates four:
+Think of a typical web application: a load balancer that receives traffic from the internet, a few app servers behind it, and a database. The standard layout gives it four subnets, two kinds in two zones:
+
+```mermaid
+flowchart TB
+  subgraph VPC["VPC 10.20.0.0/16 (region eu-west-1)"]
+    subgraph AZA["Zone a"]
+      PA["public 10.20.0.0/24<br/>load balancer, NAT"]
+      RA["private 10.20.10.0/24<br/>app servers, database"]
+    end
+    subgraph AZB["Zone b"]
+      PB["public 10.20.1.0/24<br/>load balancer"]
+      RB["private 10.20.11.0/24<br/>app servers, standby DB"]
+    end
+  end
+  I(("Internet")) <--> PA
+  I <--> PB
+```
+
+Every tier exists in **both zones**, so losing one zone leaves a working copy of everything. The public `/24`s are numbered from 0 and the private ones from 10, which leaves room to add more of each later without overlapping.
+
+### What makes a subnet public or private
+
+Not a setting on the subnet: its **route table**, the rules deciding where packets for each destination go.
+
+| Route table | Rule for `0.0.0.0/0` (anywhere else) | Effect |
+|---|---|---|
+| **Public** | → **internet gateway** | Resources with a public IP can be reached from, and reach, the internet |
+| **Private** | → **NAT gateway** (in a public subnet) | Resources can reach **out** (to pull images, call APIs), but nothing on the internet can connect **in** |
+
+Every route table also has an implicit rule that the VPC's own range (`10.20.0.0/16`) is local, so anything in the VPC can route to anything else in it. Whether it's *allowed* to connect is the security groups' job.
+
+- An **internet gateway** is the VPC's door to the internet, in both directions.
+- A **NAT gateway** (network address translation) lets private resources make outgoing connections, which appear to come from the NAT's public IP, while blocking incoming ones. It's the same trick your home router does for your laptop.
+
+A well-designed network puts only the load balancer and the NAT gateway in public subnets. App servers, databases and caches live in private subnets with **no public IP at all**. They can't be reached from the internet even if every other setting were wrong. That's **defence in depth** ([chapter 7.4](../security/authorization-multi-tenancy.mdx)).
+
+:::warning[What can go wrong]
+- **NAT gateway costs**: they bill per hour *and* per GB processed, and a busy private subnet pulling large images or talking to cloud APIs through NAT can run up a surprising bill. **VPC endpoints** (below) send traffic to cloud services privately and more cheaply.
+- **One NAT gateway**: a single one is cheaper, but if its zone fails, private subnets in the other zone lose outbound access. Production often runs one per zone.
+- **Overlapping ranges**: two VPCs both using `10.0.0.0/16` can never be peered. Plan an address scheme across accounts early.
+- **Too-small subnets**: every container task, database and load balancer node takes an IP. A `/28` (16 addresses, some reserved) runs out fast.
+:::
+
+---
+
+## Security groups: the firewall around each resource
+
+A **security group** is a stateful firewall attached to individual resources: a task, a database, a load balancer. It lists **allowed** traffic; everything else is denied. **Stateful** means replies to an allowed connection are allowed back automatically.
+
+The powerful part: rules can reference **other security groups** instead of IP ranges. "Allow port 5432 from anything in the `app` group" stays correct however many app servers run and whatever IPs they get. The typical web application needs three groups:
+
+| Group | Allows in | From |
+|---|---|---|
+| `alb` (load balancer) | TCP 80 and 443 | `0.0.0.0/0`: the internet |
+| `app` (app servers) | the app's port, e.g. TCP 8080 | the `alb` group only |
+| `data` (database, cache) | TCP 5432 (Postgres), 6379 (Redis) | the `app` group only |
+
+In Terraform, one of those rules is one small resource:
+
+```hcl
+resource "aws_vpc_security_group_ingress_rule" "db_from_app" {
+  security_group_id            = aws_security_group.data.id
+  referenced_security_group_id = aws_security_group.app.id   # a group, not an IP range
+  ip_protocol                  = "tcp"
+  from_port                    = 5432
+  to_port                      = 5432
+}
+```
+
+The result is a chain: internet → load balancer → app → database, with each hop allowed only from the one before it. It's the same shape as [chapter 10.3](../kubernetes/networking-and-ingress.mdx)'s NetworkPolicies, and [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)'s "only nginx is exposed".
+
+**Network ACLs** (NACLs) are a second, coarser layer: stateless allow/deny rules on whole subnets. Most teams leave them at the default (allow all) and do the real work in security groups, using NACLs only for broad blocks.
+
+:::danger
+The two classic network mistakes behind real breaches: a database security group allowing `0.0.0.0/0` on its port "just to test from home", and an SSH port (22) open to the world. Automated scanners find open databases and SSH servers on the internet within minutes. Keep databases in private subnets, reference security groups instead of `0.0.0.0/0`, and reach private resources through a bastion, a VPN, or the provider's session manager, never by opening ports.
+:::
+
+---
+
+## Getting traffic in: load balancers
+
+Users reach the app through a **load balancer**: on AWS, an **Application Load Balancer** (ALB), a managed version of the reverse proxy in [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx) (one public front door that forwards each request to a backend). It lives in the public subnets of both zones, receives HTTP(S) from the internet, and forwards requests to healthy app servers in the private subnets. It checks each server's health endpoint every few seconds and stops sending traffic to any that fail, exactly like a Kubernetes readiness probe ([chapter 10.2](../kubernetes/core-objects.mdx)). Cloud load balancers come in two main kinds: **layer 7** (HTTP-aware: routing by host and path, TLS termination, like ALB) and **layer 4** (TCP/UDP, very fast, like AWS's NLB). In Kubernetes on a cloud, a Gateway or a `LoadBalancer` Service creates one of these for you ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)).
+
+## Reaching cloud services privately
+
+Apps in private subnets still talk to the cloud provider's own services: reading a database password from Secrets Manager, sending logs to CloudWatch. Those are AWS APIs on the public internet. From a private subnet, that traffic goes out through the NAT gateway. **VPC endpoints** (AWS PrivateLink; Private Service Connect on Google Cloud; Private Endpoints on Azure) give those services an address **inside your VPC**, so the traffic never leaves the provider's network and doesn't pay NAT charges. Large setups add endpoints for storage, container registries, secrets and logs as a matter of course.
+
+To connect networks together: **VPC peering** (two VPCs, directly), **transit gateways** (a hub for many VPCs and on-premises networks), and **VPN** or **dedicated links** (Direct Connect, ExpressRoute) to an office or data centre.
+
+:::info[In the real world]
+Companies plan IP address space across all their accounts and regions centrally, like a city plans postcodes, so any two networks can be connected later. A typical production VPC has three tiers of subnets (public, private application, private data) in three zones, NAT per zone, VPC endpoints for the main cloud services, and flow logs recording connection metadata for security investigations. And it's all defined in Terraform modules ([chapter 12.6](./terraform-in-real-life.mdx)), because nobody can review a network built by clicking.
+:::
+
+---
+
+## Apply it to snip: the same network in Terraform
+
+snip's AWS configuration (`snip/infra/aws/`) builds exactly the network above, for a VPC of `10.20.0.0/16` in two zones. The subnets come from its network module, `snip/infra/aws/modules/network/main.tf`:
 
 ```hcl
 # Public subnets: 10.20.0.0/24, 10.20.1.0/24 — for the load balancer and NAT.
@@ -63,96 +160,11 @@ resource "aws_subnet" "private" {
 }
 ```
 
-`cidrsubnet("10.20.0.0/16", 8, 10)` means "add 8 bits to the prefix (making a `/24`) and take the 10th one": `10.20.10.0/24`. The layout:
+`count` makes one subnet per zone ([chapter 12.5](./terraform-from-zero.mdx)). `cidrsubnet("10.20.0.0/16", 8, 10)` means "add 8 bits to the prefix (making a `/24`) and take number 10": `10.20.10.0/24`. That function is how the "public from 0, private from 10" plan becomes code.
 
-```mermaid
-flowchart TB
-  subgraph VPC["VPC 10.20.0.0/16 (region eu-west-1)"]
-    subgraph AZA["Zone a"]
-      PA["public 10.20.0.0/24<br/>load balancer, NAT"]
-      RA["private 10.20.10.0/24<br/>snip tasks, database"]
-    end
-    subgraph AZB["Zone b"]
-      PB["public 10.20.1.0/24<br/>load balancer"]
-      RB["private 10.20.11.0/24<br/>snip tasks, standby DB"]
-    end
-  end
-  I(("Internet")) <--> PA
-  I <--> PB
-```
+The three security groups live in `snip/infra/aws/main.tf`, named as in the table: `alb` admits port 80 from the internet, `app` (snip's API and worker containers, running as ECS tasks) admits 8080 from `alb` only, and `data` admits 5432 and 6379 from `app` only. The `db_from_app` rule shown above is the real one. The load balancer health-checks snip's `/readyz` endpoint.
 
-Every tier exists in **both zones**, so losing one zone ([chapter 12.1](./cloud-from-zero.mdx)) leaves a working copy of everything.
-
-### What makes a subnet public or private
-
-Not a setting on the subnet: its **route table**, the rules deciding where packets for each destination go.
-
-| Route table | Rule for `0.0.0.0/0` (anywhere else) | Effect |
-|---|---|---|
-| **Public** | → **internet gateway** | Resources with a public IP can be reached from, and reach, the internet |
-| **Private** | → **NAT gateway** (in a public subnet) | Resources can reach **out** (to pull images, call APIs), but nothing on the internet can connect **in** |
-
-Every route table also has an implicit rule that the VPC's own range (`10.20.0.0/16`) is local, so anything in the VPC can route to anything else in it. Whether it's *allowed* to connect is the security groups' job.
-
-- An **internet gateway** is the VPC's door to the internet, in both directions.
-- A **NAT gateway** (network address translation) lets private resources make outgoing connections, which appear to come from the NAT's public IP, while blocking incoming ones. It's the same trick your home router does for your laptop.
-
-snip puts only the load balancer and the NAT gateway in public subnets. snip's tasks, Postgres and Redis live in private subnets with **no public IP at all**. They can't be reached from the internet even if every other setting were wrong. That's **defence in depth** ([chapter 7.4](../security/authorization-multi-tenancy.mdx)).
-
-:::warning[What can go wrong]
-- **NAT gateway costs**: they bill per hour *and* per GB processed, and a busy private subnet pulling large images or talking to cloud APIs through NAT can run up a surprising bill. **VPC endpoints** (below) send traffic to cloud services privately and more cheaply.
-- **One NAT gateway**: snip's module uses one, which is cheaper, but if its zone fails, private subnets in the other zone lose outbound access. Production often runs one per zone.
-- **Overlapping ranges**: two VPCs both using `10.0.0.0/16` can never be peered. Plan an address scheme across accounts early.
-- **Too-small subnets**: every container task, database and load balancer node takes an IP. A `/28` (16 addresses, some reserved) runs out fast.
-:::
-
----
-
-## Security groups: the firewall around each resource
-
-A **security group** is a stateful firewall attached to individual resources: a task, a database, a load balancer. It lists **allowed** traffic; everything else is denied. **Stateful** means replies to an allowed connection are allowed back automatically.
-
-The powerful part: rules can reference **other security groups** instead of IP ranges. "Allow port 5432 from anything in the `app` group" stays correct however many tasks run and whatever IPs they get. snip's rules (`snip/infra/aws/main.tf`):
-
-| Group | Allows in | From |
-|---|---|---|
-| `alb` (load balancer) | TCP 80 | `0.0.0.0/0`: the internet |
-| `app` (snip's tasks) | TCP 8080 | the `alb` group only |
-| `data` (Postgres, Redis) | TCP 5432 and 6379 | the `app` group only |
-
-```hcl
-resource "aws_vpc_security_group_ingress_rule" "db_from_app" {
-  security_group_id            = aws_security_group.data.id
-  referenced_security_group_id = aws_security_group.app.id   # a group, not an IP range
-  ip_protocol                  = "tcp"
-  from_port                    = 5432
-  to_port                      = 5432
-}
-```
-
-The result is a chain: internet → load balancer → snip → database, with each hop allowed only from the one before it. It's the same shape as [chapter 10.3](../kubernetes/networking-and-ingress.mdx)'s NetworkPolicies, and [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)'s "only nginx is exposed".
-
-**Network ACLs** (NACLs) are a second, coarser layer: stateless allow/deny rules on whole subnets. Most teams leave them at the default (allow all) and do the real work in security groups, using NACLs only for broad blocks.
-
-:::danger
-The two classic network mistakes behind real breaches: a database security group allowing `0.0.0.0/0` on its port "just to test from home", and an SSH port (22) open to the world. Automated scanners find open databases and SSH servers on the internet within minutes. Keep databases in private subnets, reference security groups instead of `0.0.0.0/0`, and reach private resources through a bastion, a VPN, or the provider's session manager, never by opening ports.
-:::
-
----
-
-## Getting traffic in: load balancers
-
-snip's users reach it through an **Application Load Balancer** (ALB), a managed version of [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)'s nginx. It lives in the public subnets of both zones, receives HTTP(S) from the internet, and forwards requests to healthy snip tasks in the private subnets. It checks each task's `/readyz`, exactly like a readiness probe ([chapter 10.2](../kubernetes/core-objects.mdx)). Cloud load balancers come in two main kinds: **layer 7** (HTTP-aware: routing by host and path, TLS termination, like ALB) and **layer 4** (TCP/UDP, very fast, like AWS's NLB). In Kubernetes on a cloud, a Gateway or a `LoadBalancer` Service creates one of these for you ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)).
-
-## Reaching cloud services privately
-
-snip's tasks read their database URL from Secrets Manager and send logs to CloudWatch: AWS APIs on the public internet. From a private subnet, that traffic goes out through the NAT gateway. **VPC endpoints** (AWS PrivateLink; Private Service Connect on Google Cloud; Private Endpoints on Azure) give those services an address **inside your VPC**, so the traffic never leaves the provider's network and doesn't pay NAT charges. Large setups add endpoints for storage, container registries, secrets and logs as a matter of course.
-
-To connect networks together: **VPC peering** (two VPCs, directly), **transit gateways** (a hub for many VPCs and on-premises networks), and **VPN** or **dedicated links** (Direct Connect, ExpressRoute) to an office or data centre.
-
-:::info[In the real world]
-Companies plan IP address space across all their accounts and regions centrally, like a city plans postcodes, so any two networks can be connected later. A typical production VPC has three tiers of subnets (public, private application, private data) in three zones, NAT per zone, VPC endpoints for the main cloud services, and flow logs recording connection metadata for security investigations. And it's all defined in Terraform modules ([chapter 12.6](./terraform-in-real-life.mdx)), because nobody can review a network built by clicking.
-:::
+Two honest compromises, both written down in the code: snip's module creates **one** NAT gateway (cheap, at the cost of the single-zone risk above), and it has no VPC endpoints, so the `app` group needs an HTTPS egress rule to reach AWS APIs through the NAT. [Chapter 12.6](./terraform-in-real-life.mdx) shows how a security scanner flagged that rule and how the team recorded the decision.
 
 ---
 
