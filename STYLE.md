@@ -185,8 +185,8 @@ nothing about snip. The chapter must still teach them the topic.
 
 Every teaching chapter follows this skeleton. Chapters are **MDX** files at
 `docs/<partId>/<chapterId>.mdx` (see `CLAUDE.md` §4). Components `Quiz`,
-`SqlPlayground`, `Tabs`/`TabItem` and `Roadmap` are available everywhere
-without an import.
+`SqlPlayground`, `Terminal`, `Tabs`/`TabItem` and `Roadmap` are available
+everywhere without an import.
 
 ````mdx
 ---

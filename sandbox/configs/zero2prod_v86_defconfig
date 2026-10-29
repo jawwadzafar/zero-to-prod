@@ -1,0 +1,38 @@
+# Zero to Prod sandbox: a tiny Linux for the in-browser terminal (v86, a
+# 32-bit x86 PC emulated in WebAssembly). Build: sandbox/build.sh
+BR2_x86_i686=y
+
+# A prebuilt toolchain from Bootlin, so the build doesn't compile a compiler.
+BR2_TOOLCHAIN_EXTERNAL=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_X86_I686_MUSL_STABLE=y
+
+BR2_TARGET_GENERIC_HOSTNAME="sandbox"
+BR2_TARGET_GENERIC_ISSUE="Zero to Prod sandbox"
+BR2_TARGET_GENERIC_ROOT_PASSWD="sandbox"
+BR2_SYSTEM_DHCP=""
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_ZERO2PROD_PATH)/board/v86/rootfs_overlay"
+BR2_ROOTFS_USERS_TABLES="$(BR2_EXTERNAL_ZERO2PROD_PATH)/board/v86/users.txt"
+BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_ZERO2PROD_PATH)/board/v86/post-build.sh"
+
+# Linux, long-term support series, with the standard i386 config plus our
+# fragment (console, keyboard, no modules, fewer drivers).
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.12.114"
+BR2_LINUX_KERNEL_USE_ARCH_DEFAULT_CONFIG=y
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_ZERO2PROD_PATH)/board/v86/linux.fragment"
+BR2_LINUX_KERNEL_BZIMAGE=y
+BR2_LINUX_KERNEL_NEEDS_HOST_OPENSSL=y
+
+# What Part 2 uses beyond BusyBox's commands.
+BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y
+BR2_PACKAGE_BASH=y
+BR2_PACKAGE_JQ=y
+BR2_PACKAGE_NANO=y
+BR2_PACKAGE_SUDO=y
+
+# The root filesystem lives inside the kernel image: one file to download.
+BR2_TARGET_ROOTFS_CPIO=y
+BR2_TARGET_ROOTFS_INITRAMFS=y
+# BR2_TARGET_ROOTFS_TAR is not set

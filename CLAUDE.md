@@ -63,6 +63,7 @@ chapter.** The owner should never have to repeat what is written here.
 │   ├── lib/semantic.ts       ← Ask's search by meaning (in-browser embeddings, fused with keyword search)
 │   ├── lib/curriculum.ts     ← helpers over curriculum.json
 │   ├── components/
+│   │   ├── Terminal/         ← <Terminal> a real Linux in the page (v86 + the sandbox/ image)
 │   │   ├── Roadmap/          ← roadmap graph + track picker + progress summary
 │   │   ├── Quiz/             ← <Quiz> multiple choice with explanations
 │   │   ├── SqlPlayground/    ← <SqlPlayground> real Postgres in the browser (PGlite)
@@ -70,7 +71,7 @@ chapter.** The owner should never have to repeat what is written here.
 │   │   └── ChapterComplete/  ← "Mark complete" + next-in-track, under every chapter
 │   ├── theme/                ← Root (mounts AskPanel), MDXComponents (global components),
 │   │                           DocItem/Footer (mounts ChapterComplete)
-│   └── pages/                ← home (index.tsx), /roadmap, /progress, /review
+│   └── pages/                ← home (index.tsx), /roadmap, /progress, /review, /sandbox
 ├── plugins/curriculum.js     ← exposes which chapters exist (for "coming soon")
 ├── scripts/
 │   ├── build-ask-index.mjs   ← builds static/ask-index.json (runs before start/build)
@@ -80,6 +81,7 @@ chapter.** The owner should never have to repeat what is written here.
 │   └── make-social-card.py   ← regenerates static/img/social-card.png
 ├── docs/                     ← the handbook: docs/<partId>/<chapterId>.mdx
 ├── snip/                     ← the Go project readers build (reference implementation)
+├── sandbox/                  ← Buildroot config for the in-browser Linux (built by sandbox.yml, released as sandbox-<sha>)
 ├── ai/                       ← Python code for the AI Engineering track
 └── .github/workflows/        ← deploy.yml (Pages), ci.yml (site + snip)
 ```
@@ -148,7 +150,6 @@ that introduces it.
 
 - An optional fully in-browser model (WebLLM) so Ask's AI answers work with no
   key at all (search by meaning already runs in the browser: src/lib/semantic.ts).
-- In-browser terminal/Linux sandbox for Part 2 labs (e.g. WebVM/v86).
 - Interactive diagrams (step-through request lifecycle), Go playground embeds.
 - Printable/PDF edition; i18n (translations) via Docusaurus i18n.
 - More tracks: Frontend, Data Engineering, Security, Mobile.

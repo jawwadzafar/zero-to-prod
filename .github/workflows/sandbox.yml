@@ -1,0 +1,49 @@
+name: Sandbox image
+
+# Builds the Linux image behind the in-browser terminal (<Terminal />) and
+# publishes it as a release, together with the source and license bundle the
+# GPL requires. The site deploy copies the newest image into the site.
+on:
+  push:
+    branches: [main]
+    paths: ["sandbox/**", ".github/workflows/sandbox.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the sandbox Linux image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write   # to publish the release
+      actions: write    # to redeploy the site with the new image
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/cache@v6
+        with:
+          path: sandbox/.work/dl   # downloaded sources: toolchain, kernel, packages
+          key: sandbox-dl-${{ hashFiles('sandbox/configs/*', 'sandbox/build.sh') }}
+          restore-keys: sandbox-dl-
+      - run: sandbox/build.sh
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          tag="sandbox-${SHA::7}"
+          gh release create "$tag" sandbox/out/zero-to-prod-linux.bin sandbox/out/legal-info.tar.gz \
+            --repo "$GITHUB_REPOSITORY" --target "$SHA" --title "Sandbox image ${SHA::7}" \
+            --notes "Linux image for the in-browser terminal, built from sandbox/ at ${SHA::7}. legal-info.tar.gz holds the source code and licenses of every package in it."
+      - name: Redeploy the site with the new image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main

@@ -5,6 +5,7 @@ import Quiz from '@site/src/components/Quiz';
 import SqlPlayground from '@site/src/components/SqlPlayground';
 import Roadmap from '@site/src/components/Roadmap';
 import Glossary from '@site/src/components/Glossary';
+import Terminal from '@site/src/components/Terminal';
 
 // Components usable in any .mdx chapter without an import line.
 export default {
@@ -15,4 +16,5 @@ export default {
   SqlPlayground,
   Roadmap,
   Glossary,
+  Terminal,
 };

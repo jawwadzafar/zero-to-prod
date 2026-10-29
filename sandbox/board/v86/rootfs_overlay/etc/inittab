@@ -1,0 +1,15 @@
+# BusyBox init for the Zero to Prod sandbox. Adapted from Buildroot's default
+# inittab (Copyright (C) 2001 Erik Andersen) and humphd/browser-vm (MIT).
+::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mount -o remount,rw /
+::sysinit:/bin/mkdir -p /dev/pts /dev/shm
+::sysinit:/bin/mount -a
+::sysinit:/bin/hostname -F /etc/hostname
+::sysinit:/etc/init.d/rcS
+
+# The screen in the web page is tty1: log straight in as learner, and log in
+# again whenever the shell exits.
+tty1::respawn:/sbin/getty -n -l /usr/bin/autologin 0 tty1 linux
+
+::shutdown:/etc/init.d/rcK
+::shutdown:/bin/umount -a -r

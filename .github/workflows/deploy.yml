@@ -36,6 +36,18 @@ jobs:
       # (scripts/build-ask-vectors.mjs); the library's native runtime is too big
       # to make every install download it.
       - run: npm i --no-save --no-audit --no-fund @huggingface/transformers@4.3.1
+      # The in-browser terminal's Linux image, from the newest sandbox release
+      # (.github/workflows/sandbox.yml). Without one, <Terminal /> says so.
+      - name: Fetch the sandbox image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 50 --json tagName --jq '[.[].tagName | select(startswith("sandbox-"))][0] // empty')
+          if [ -n "$tag" ]; then
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern zero-to-prod-linux.bin --dir static/sandbox
+          else
+            echo "No sandbox release yet; the terminal will show as unavailable."
+          fi
       - run: npm run build
       # Requires the one-time repo setting: Settings → Pages → Source: GitHub Actions.
       - uses: actions/configure-pages@v6
