@@ -31,8 +31,8 @@ Behind every chat app is an HTTP API ([chapter 1.5](../foundations/http-from-zer
 
 ```bash
 curl https://api.anthropic.com/v1/messages \
-  -H "x-api-key: $ANTHROPIC_API_KEY" \
-  -H "anthropic-version: 2023-06-01" \
+  -H "Authorization: Bearer $ANTHROPIC_API_KEY" \
+  -H "anthropic-version: 2026-10-21" \
   -H "content-type: application/json" \
   -d '{
     "model": "claude-haiku-5-5",
@@ -75,7 +75,7 @@ Every provider's API has this same shape. OpenAI, Google and open-model servers 
 
 ## API keys: a password that spends money
 
-The `x-api-key` header carries your **API key**: a long secret that identifies your account and lets anyone holding it **spend your money**. Everything from [chapter 7.6](../security/secrets-management.mdx) (secrets live outside code, in the environment or a secret manager) applies, with extra urgency:
+The `Authorization` header carries your **API key** (older code sends it in an `x-api-key` header, which the API still accepts; `anthropic-version` picks which version of the API's rules the request follows): a long secret that identifies your account and lets anyone holding it **spend your money**. Everything from [chapter 7.6](../security/secrets-management.mdx) (secrets live outside code, in the environment or a secret manager) applies, with extra urgency:
 
 - Keep it in an **environment variable** (`ANTHROPIC_API_KEY`) or a secret manager, **never in code**. Automated bots scan public GitHub for leaked keys within minutes of a push.
 - Use **separate keys** per environment and per application, so one leak can be revoked without breaking everything.

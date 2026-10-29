@@ -43,7 +43,7 @@ def test_anthropic_request_and_response() -> None:
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         seen["path"] = request.url.path
-        seen["key"] = request.headers.get("x-api-key")
+        seen["key"] = request.headers.get("authorization")  # SDK 2.x: the key is a bearer token
         seen["body"] = json.loads(request.content)
         return httpx2.Response(
             200,
@@ -64,7 +64,7 @@ def test_anthropic_request_and_response() -> None:
 
     llm = AnthropicLLM("claude-haiku-5-5", client=fake_anthropic(handler))
     c = llm.complete("Describe go.dev", system="Be brief.", max_tokens=50)
-    assert seen["path"] == "/v1/messages" and seen["key"] == "test-key"
+    assert seen["path"] == "/v1/messages" and seen["key"] == "Bearer test-key"
     body = seen["body"]
     assert isinstance(body, dict)
     assert body["model"] == "claude-haiku-5-5" and body["max_tokens"] == 50
