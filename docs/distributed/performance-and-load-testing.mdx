@@ -24,7 +24,7 @@ description: "How fast is fast enough, and how much can one server take? Latency
 A coffee shop. **Latency** is how long *you* wait from ordering to getting your coffee. **Throughput** is how many coffees the shop serves per hour. **Errors** are the wrong orders and the people who gave up and walked out. A shop can have great throughput and terrible latency (a huge, slow-moving queue), so you need all three to know how it's doing.
 :::
 
-| Number | Question it answers | Unit | snip example |
+| Number | Question it answers | Unit | Example (a URL shortener) |
 |---|---|---|---|
 | **Latency** | How long does one request take? | milliseconds (ms), microseconds (µs) | A redirect takes 0.3 ms |
 | **Throughput** | How many requests are handled per second? | requests per second (req/s, RPS) | 5,000 redirects/s |
@@ -153,7 +153,7 @@ export default function () { http.get('https://staging.example.com/healthz'); }
 ### Rules for honest load tests
 
 - **Test something production-like.** A laptop, an empty database, or a tiny staging box gives numbers that don't transfer. Data volume matters: a query that's instant on 100 rows may crawl on 10 million ([chapter 6.4](../data/indexes-and-performance.mdx)).
-- **Test realistic traffic.** For snip, that's mostly redirects (reads), some creations (writes), a mix of popular and rare slugs (so caches behave realistically), and a few bad requests.
+- **Test realistic traffic.** For a URL shortener like snip, that's mostly redirects (reads), some creations (writes), a mix of popular and rare slugs (so caches behave realistically), and a few bad requests.
 - **Warm up first**, then measure. Cold caches, fresh connection pools and a just-started runtime make the first seconds unrepresentative.
 - **Watch the load generator too.** If *it* runs out of CPU, connections or ports, you're measuring the tool, not the server. Run it on a separate machine for serious tests.
 - **Record the load alongside every result**: "p99 = 12 ms **at 350 req/s**, 2 copies, 1 vCPU each".

@@ -6,7 +6,7 @@ description: "How systems grow: vertical vs horizontal scaling, why services mus
 
 # 8.6 Scaling from one box to many
 
-snip goes viral. Traffic is ten times yesterday's and rising. [Chapter 8.5](./performance-and-load-testing.mdx) taught you to measure how much one server can take. This chapter is about what to do when that isn't enough. The good news: the stateless API servers you've been building are the easy part. You can run as many copies as you like. The hard part is always the **state**: the database, and anything else that remembers. You'll add copies behind a load balancer and watch capacity multiply. Then you'll watch the same setup quietly break when state lives in the wrong place. Along the way you'll learn the tools for scaling databases, and when *not* to use them.
+Your app goes viral. Traffic is ten times yesterday's and rising. [Chapter 8.5](./performance-and-load-testing.mdx) showed how to measure how much one server can take. This chapter is about what to do when that isn't enough. The good news: stateless app servers are the easy part. You can run as many copies as you like. The hard part is always the **state**: the database, and anything else that remembers. You'll add copies behind a load balancer and watch capacity multiply. Then you'll watch the same setup quietly break when state lives in the wrong place. Along the way you'll learn the tools for scaling databases, and when *not* to use them.
 
 ## What you'll learn
 
@@ -40,7 +40,7 @@ In practice you do both: app servers scale **out** (it's cheap and easy once the
 
 A service is **stateless** when any copy can handle any request, because nothing a request depends on lives *inside* one copy. Everything that must be remembered goes to a shared place (the database, Redis, object storage), and every copy reads from there.
 
-snip already works this way. Links and keys live in Postgres, the cache and click stream in Redis, so two copies behind nginx behave like one bigger snip. snip's **in-memory mode** is the opposite: each copy has its own private map, so two copies behave like two *different* snips. You'll see it in the lab: a link created on one copy is a 404 on the other, and a load balancer alternating between them gives users **302, 404, 302, 404**.
+Picture a to-do app that keeps its lists in a variable in memory. One copy works perfectly. Run two copies behind a load balancer and they behave like two *different* apps: you add an item through copy A, your next request lands on copy B, and the item is gone. Move the lists into a database both copies use, and the same two copies behave like one bigger app. Same code, same load balancer; only where the state lives changed. You'll watch exactly this happen in the lab.
 
 Where state likes to hide:
 
@@ -65,9 +65,9 @@ Once the app tier is stateless, adding copies is easy, and every copy talks to t
 
 ### Scaling reads
 
-Most applications read far more than they write. snip's redirects (reads) vastly outnumber link creations (writes).
+Most applications read far more than they write: a shop's product pages are viewed thousands of times for every change to them, and a URL shortener's redirects (reads) vastly outnumber link creations (writes).
 
-- **Cache** hot data ([chapter 6.7](../data/redis-and-caching.mdx)). snip's cache-aside for redirects means a popular link hits Postgres once per TTL instead of millions of times. Usually the biggest win of all.
+- **Cache** hot data ([chapter 6.7](../data/redis-and-caching.mdx)). With cache-aside (check the cache, and only on a miss read the database and store the answer), a popular item hits the database once per TTL (time to live) instead of millions of times. Usually the biggest win of all.
 - **Read replicas**: copies of the database that continuously receive the primary's changes and serve read-only queries. Add replicas to add read capacity.
 - **CDNs** (content delivery networks) cache static files (images, JavaScript, this handbook's pages) on servers around the world, close to users, so those requests never reach you at all.
 
@@ -80,12 +80,12 @@ Replicas are slightly **behind** the primary, usually by milliseconds and someti
 Every write must go to the one **primary**, so write capacity is harder to add.
 
 1. **Make each write cheaper**: fewer indexes on hot tables, smaller rows, shorter transactions.
-2. **Batch**: one statement inserting 1,000 rows is far cheaper than 1,000 separate statements. snip's worker does this for clicks: instead of `UPDATE ... clicks = clicks + 1` per click, it adds up many clicks and writes once.
+2. **Batch**: one statement inserting 1,000 rows is far cheaper than 1,000 separate statements. A view counter can add up many views in memory and write `views = views + 230` once, instead of `views = views + 1` 230 times ([chapter 8.2](./queues-and-background-work.mdx)).
 3. **Queue** ([chapter 8.2](./queues-and-background-work.mdx)): absorb bursts, and let workers write at a steady, sustainable rate.
 4. **Scale up the primary.** Unglamorous, and often the right answer.
 5. **Partition / shard**: split the data across several independent databases, each owning part of it.
 
-**Sharding** splits data by a **shard key**. For snip, the slug is a natural choice: `shard = hash(slug) mod 4` decides which of 4 databases holds a link. Each shard handles a quarter of the writes, and a redirect only needs one shard. The costs are real:
+**Sharding** splits data by a **shard key**. For a URL shortener, the short code (the **slug**) is a natural choice: `shard = hash(slug) mod 4` decides which of 4 databases holds a link. Each shard handles a quarter of the writes, and a redirect only needs one shard. The costs are real:
 
 - **Queries across shards** are hard: "all links for owner 42" now means asking every shard and merging the answers.
 - **Transactions across shards** lose the simple guarantees of [chapter 6.5](../data/transactions.mdx).
@@ -96,7 +96,7 @@ Some databases shard for you (distributed SQL databases like CockroachDB, or man
 
 ### Connections run out before CPU does
 
-Each copy of snip keeps a **pool** of database connections ([chapter 6.6](../data/postgres-from-go.mdx)). pgx's default pool size is the larger of 4 and the machine's CPU count (you can set it with `pool_max_conns` in the connection URL). Postgres allows 100 connections by default (`max_connections`), and each connection costs the server memory. Now scale out:
+Each copy of an app keeps a **pool** of open database connections to reuse ([chapter 6.6](../data/postgres-from-go.mdx)). In Go, the pgx driver's default pool size is the larger of 4 and the machine's CPU count (you can set it with `pool_max_conns` in the connection URL). Postgres allows 100 connections by default (`max_connections`), and each connection costs the server memory. Now scale out:
 
 ```text
 40 api copies × 10 connections each = 400 connections  →  Postgres refuses the rest
@@ -119,7 +119,7 @@ Adding app copies can **take the database down**, even at modest traffic. Fixes:
 - **It isn't instant.** Starting a machine, pulling an image and warming up takes from seconds to minutes. A sudden spike arrives faster than new copies. So keep headroom, and scale on signals that rise *early*.
 - **It scales the easy tier.** Autoscaling the API from 4 to 40 copies can push all the load onto the database, which doesn't autoscale, and connections run out first.
 - **Scaling on the wrong signal**: scaling on CPU when the real bottleneck is a slow dependency just adds more copies waiting on the same dependency.
-- **Scale-down kills in-flight work** unless copies shut down gracefully (snip does: [chapter 5.4](../apis/structuring-a-real-service.mdx)).
+- **Scale-down kills in-flight work** unless copies shut down gracefully: flip readiness, drain, finish in-flight requests ([chapter 8.4](./rate-limiting-and-resilience.mdx)).
 :::
 
 Kubernetes' Horizontal Pod Autoscaler ([chapter 10.2](../kubernetes/core-objects.mdx)) and cloud autoscaling groups ([chapter 12.3](../cloud/compute-storage-databases.mdx)) are the usual tools.
@@ -128,7 +128,7 @@ Kubernetes' Horizontal Pod Autoscaler ([chapter 10.2](../kubernetes/core-objects
 
 ## Capacity planning
 
-Scaling decisions should come from arithmetic, not panic. A worked example for snip:
+Scaling decisions should come from arithmetic, not panic. A worked example for a URL shortener's redirects:
 
 ```text
 Measured (chapter 8.5 load test): one api copy handles ~2,000 redirects/s at p99 < 50 ms
@@ -147,9 +147,21 @@ Most systems never need sharding or dozens of microservices. A stateless app tie
 
 ---
 
+## Apply it to snip
+
+snip, the URL shortener built through this handbook, was designed to scale out from the start:
+
+- **Stateless API copies.** Links and API keys live in Postgres; the redirect cache, rate-limit counters and click stream live in Redis. So the two `api` copies in its Compose stack behind nginx ([chapter 9.3](../containers/docker-compose.mdx)) behave like one bigger snip, and `--scale api=4` makes four.
+- **Except in memory mode.** Run snip without `SNIP_DATABASE_URL` and it keeps everything in a Go map, private to each process: the to-do app from the start of this chapter. Two such copies behave like two *different* snips, as lab step 2 shows.
+- **Reads are cached.** Redirects use cache-aside in Redis, so a viral link costs Postgres one query per TTL.
+- **Writes are queued and batched.** Clicks go through a Redis stream, and `snip-worker` turns 500 clicks into one `UPDATE … clicks = clicks + 500` ([chapter 8.2](./queues-and-background-work.mdx)).
+- **Scale-down is graceful.** On SIGTERM each copy finishes in-flight requests within 10 seconds ([chapter 8.4](./rate-limiting-and-resilience.mdx)).
+
+---
+
 ## Lab
 
-Free, on your own computer, using the small examples in `snip/examples` (no Docker needed until step 3).
+Free, on your own computer. Step 1 uses small standalone programs that live in `snip/examples`; steps 2–3 use snip (Docker needed for step 3).
 
 1. **Watch horizontal scaling.** `examples/slowserver` has a fixed capacity of about 375 req/s ([chapter 8.5](./performance-and-load-testing.mdx)), and `examples/lb` is a round-robin load balancer in about 40 lines. Read its `main.go`. Build the three tools into `bin/`, then start three slowservers and a balancer with one backend:
    ```bash
@@ -200,7 +212,11 @@ Free, on your own computer, using the small examples in `snip/examples` (no Dock
    docker compose up -d --scale api=4 --wait
    docker compose restart nginx            # nginx looks up "api" only at startup
    ```
-   Send 40 requests through `localhost:8080` and count requests per copy as in [chapter 8.3](./reverse-proxies-and-nginx.mdx)'s lab. Why did nginx need a restart? (It resolved the name `api` to addresses once, when it started. Knowing which copies currently exist is **service discovery**, and [chapter 10.3](../kubernetes/networking-and-ingress.mdx) shows how Kubernetes handles it for you.)
+   Send 40 requests through `localhost:8080` (for example `for i in $(seq 40); do curl -s -o /dev/null localhost:8080/readyz; done`), then count requests per copy from the logs, which Compose prefixes with the container name:
+   ```bash
+   docker compose logs api | grep 'GET /readyz' | cut -d'|' -f1 | sort | uniq -c
+   ```
+   Why did nginx need a restart? (It resolved the name `api` to addresses once, when it started. Knowing which copies currently exist is **service discovery**, and [chapter 10.3](../kubernetes/networking-and-ingress.mdx) shows how Kubernetes handles it for you.)
 
 4. **Design exercise.** snip must handle 100,000 redirects per second worldwide. Using your [chapter 8.5](./performance-and-load-testing.mdx) numbers, sketch the plan: how many api copies, what cache hit rate you need, what reaches Postgres, how many connections, and what you'd do about a single link that gets 20,000 hits per second.
 
