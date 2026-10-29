@@ -1,29 +1,29 @@
 ---
 title: "14.1 Python for AI engineers"
 sidebar_label: "14.1 Python for AI engineers"
-description: "Enough Python to build real AI features, taught by comparison with the Go you already know: the interpreter and REPL, dynamic typing with type hints checked by mypy, pydantic for validating data at the edges, exceptions, virtual environments and uv, pytest, ruff — with snipai, a typed client for snip's API that you'll extend all through Part 14."
+description: "Enough Python to build real AI features: the interpreter and REPL, dynamic typing with type hints checked by mypy, pydantic for validating data at the edges, exceptions and context managers, virtual environments and uv, pytest and ruff, taught on small standalone programs and then applied to a typed client for snip's API."
 ---
 
 # 14.1 Python for AI engineers
 
-Welcome to Part 14. Everything so far has been built in Go, and Go is a great language for services like snip. But nearly the whole AI world runs on **Python**: every model provider's official library, the numerical tools (NumPy), the machine learning frameworks (PyTorch), the notebooks researchers share their work in, and most examples you'll find online. So AI engineers read and write Python every day, and most teams end up with both: services in Go (or Java, or TypeScript) and AI work in Python. That's exactly what we'll do. Part 14's code lives in a new folder, **`ai/`**, a Python project called **snipai** that adds AI features to snip, starting in this chapter with a typed client for snip's API.
+Open any model provider's documentation, any AI tutorial, any research paper's code, and you'll find the same language: **Python**. Every provider's official library, the numerical tools (NumPy), the machine learning frameworks (PyTorch), and the notebooks researchers share are Python first. So AI engineers read and write Python every day, even on teams whose services are written in Go, Java or TypeScript. This chapter gives you enough Python, and enough of the tools around it, to build real AI features without the classic "works on my machine" mess.
 
-You already know how to program from [Part 4](../go/why-go-first-program.mdx). So this chapter doesn't start from zero. It teaches Python by **comparison with Go**, and spends its time on the things that are genuinely different, and the tools that keep a Python project healthy.
+It assumes you've written a little code in some language: variables, functions, loops. If you worked through [Part 4](../go/why-go-first-program.mdx), you'll see Go side by side with Python, because comparing two languages is the fastest way to learn the second one. If you haven't, skip the Go column; the Python stands on its own.
 
 ## What you'll learn
 
-- How Python runs your code, and the **REPL**.
-- Python next to Go: the same ideas, different spelling.
-- **Type hints** checked by **mypy**, and **pydantic** for validating data at runtime.
-- **Virtual environments**, `pyproject.toml`, lock files, and **uv**.
-- Testing with **pytest**, linting and formatting with **ruff**.
+- How Python runs your file **line by line**, and the **REPL** for trying things instantly.
+- Python's spelling of familiar ideas: indentation for blocks, **exceptions** for errors, **context managers** for cleanup.
+- **Type hints** checked by **mypy**, and **pydantic** for validating data you don't control.
+- **Virtual environments**, `pyproject.toml`, lock files, and **uv**: a separate, reproducible toolbox per project.
+- Testing with **pytest** (including fake HTTP servers), and linting and formatting with **ruff**.
 
 ---
 
 ## Python runs your file, line by line
 
 :::note[Everyday anchor]
-Go is like a translated book: the whole thing is translated before anyone reads it, and translation errors are caught up front. Python is like a live interpreter at a conference: they translate each sentence as it's spoken. You can start immediately and change your mind mid-speech, but a mistake in sentence 40 isn't noticed until sentence 40 is reached.
+A compiled language is like a translated book: the whole thing is translated before anyone reads it, and translation errors are caught up front. Python is like a live interpreter at a conference: they translate each sentence as it's spoken. You can start immediately and change your mind mid-speech, but a mistake in sentence 40 isn't noticed until sentence 40 is reached.
 :::
 
 Go is **compiled**: `go build` turns your whole program into a machine-code binary first, and refuses if anything doesn't type-check. Python is **interpreted**: the `python` program (the **interpreter**) reads your `.py` file and executes it statement by statement. There's no separate build step, which makes Python fast to experiment with. The price is that many mistakes are found only when the faulty line actually runs.
@@ -34,10 +34,10 @@ The interpreter also has an interactive mode, the **REPL** (read–evaluate–pr
 $ python3
 >>> 7 * 6
 42
->>> "snip".upper()
-'SNIP'
->>> len("https://go.dev")
-14
+>>> "hello".upper()
+'HELLO'
+>>> len("https://python.org")
+18
 >>> exit()
 ```
 
@@ -49,9 +49,327 @@ Researchers and data scientists often work in **Jupyter notebooks**: documents t
 
 ---
 
-## Python next to Go: same ideas, different spelling
+## The same ideas, different spelling
 
-Here's snip's slug rule, in Go (`snip/internal/links/link.go`) and in Python (`ai/src/snipai/slugs.py`):
+Here's a small, complete Python file: the username rules for a sign-up form. A username is 3 to 20 lowercase letters, digits or underscores, and a few names are taken.
+
+```python title="usernames.py"
+"""Username rules for a sign-up form."""
+
+import re
+
+USERNAME = re.compile(r"^[a-z0-9_]{3,20}$")
+TAKEN = {"admin", "root", "support"}
+
+
+class InvalidUsernameError(ValueError):
+    """The username breaks the rules."""
+
+
+def validate_username(name: str) -> None:
+    """Raise InvalidUsernameError unless name is an acceptable username."""
+    if not USERNAME.match(name) or name.lower() in TAKEN:
+        raise InvalidUsernameError(f"invalid username: {name!r}")
+
+
+def is_valid_username(name: str) -> bool:
+    try:
+        validate_username(name)
+    except InvalidUsernameError:  # only the failure we expect
+        return False
+    return True
+```
+
+Reading it top to bottom, here is what each piece of syntax means, and how Go spells the same idea:
+
+| Idea | Python | Go |
+|---|---|---|
+| Blocks | **Indentation** (4 spaces). It's part of the syntax, not style | `{ }` |
+| Variables | `x = 1`; the variable can later hold anything | `x := 1`, fixed type |
+| Naming | `validate_username` (snake_case); a leading `_` means "private, by convention" | `ValidateUsername` (capital = exported) |
+| No value | `None` | `nil` |
+| Lists, maps, sets | `["a", "b"]` (list), `{"a": 1}` (dict), `{"a", "b"}` (set) | `[]string{...}`, `map[string]int{...}` |
+| Records | `class Link:`, usually a `@dataclass` or pydantic `BaseModel` | `type Link struct {...}` |
+| Errors | **exceptions**: `raise`, and `try` / `except` | returned values: `if err != nil` |
+| Cleanup | `with open(...) as f:` (a **context manager**) | `defer f.Close()` |
+| String formatting | f-strings: `f"invalid username: {name!r}"` (`!r` adds quotes) | `fmt.Sprintf("%q", name)` |
+| Docs | a **docstring**: a string as the first line of the function | a comment above the function |
+
+Two of these deserve a closer look, because they change how you structure code.
+
+**Exceptions instead of returned errors.** In Go, a function that can fail returns an `error`, and the caller checks it on the next line. In Python, a failing function **raises an exception**, which travels up the call stack until some caller **catches** it with `try`/`except`, or the program crashes with a **traceback** (Python's stack trace, [chapter 13.6](../observability/debugging-playbook.mdx)). Less typing, but you can't see from a function's signature whether it can fail. So read docstrings, and catch *specific* exceptions, as `is_valid_username` does, rather than everything: a bare `except:` would also swallow a typo in your own code.
+
+**Context managers instead of defer.** `with` guarantees cleanup when the block ends, even if an exception is raised inside it. You'll use it for files, network clients and database connections:
+
+```python
+with open("notes.txt") as f:      # opens the file
+    first = f.readline()
+# here the file is closed, whatever happened inside the block
+```
+
+:::warning[What can go wrong]
+The most famous Python trap: **default arguments are created once**, when the function is defined, not each time it's called. So a mutable default (a list or dict) is *shared between calls*:
+
+```python
+def add_tag(tag, tags=[]):
+    tags.append(tag)
+    return tags
+
+add_tag("go")       # ['go']
+add_tag("python")   # ['go', 'python']  ← the list from the first call!
+```
+
+Use `tags: list[str] | None = None`, and create the list inside the function. Linters catch this for you (ruff's `B006` rule, below).
+:::
+
+---
+
+## Type hints: a compiler's safety net, if you ask for it
+
+Python is **dynamically typed**: a variable's type is whatever it currently holds, and nothing checks types before the program runs. Since Python 3.5 you can add **type hints**: `name: str`, `-> bool`, `list[Link]`. On their own, they do **nothing** at runtime. They're documentation that a separate tool, a **type checker**, can verify. The standard one is **mypy**.
+
+Here's a file with two type mistakes:
+
+```python title="typo.py"
+from usernames import is_valid_username
+
+label: str = is_valid_username("ada")
+is_valid_username(42)
+```
+
+Python itself runs line 3 without complaint (`label` quietly becomes `True`) and only crashes on line 4, deep inside the function:
+
+```text
+TypeError: expected string or bytes-like object, got 'int'
+```
+
+mypy finds both before anything runs:
+
+```text
+$ uv run mypy --strict typo.py
+typo.py:3: error: Incompatible types in assignment (expression has type "bool", variable has type "str")  [assignment]
+typo.py:4: error: Argument 1 to "is_valid_username" has incompatible type "int"; expected "str"  [arg-type]
+Found 2 errors in 1 file (checked 1 source file)
+```
+
+That's a compiler's job, done by a separate tool that you run yourself, and that CI runs on every push. For code that will live longer than an afternoon, write the hints and run the checker. Your editor uses them for autocomplete too.
+
+### pydantic: checking data you don't control
+
+Type hints check *your code*. They can't check *data arriving from outside* (an API response, a file, a model's output), because that data only exists at runtime. For that, AI engineers lean heavily on **pydantic**: you describe the shape of the data as a class, and pydantic **validates** and **converts** incoming data to match, or raises a clear error.
+
+Here's a model for three fields of a public GitHub repository, as GitHub's API returns it:
+
+```python
+from datetime import datetime
+
+from pydantic import BaseModel
+
+
+class Repo(BaseModel):
+    full_name: str
+    stargazers_count: int
+    created_at: datetime
+```
+
+Give it bad data and you get every problem at once, with the field names:
+
+```text
+>>> Repo.model_validate({"full_name": "octo/demo", "stargazers_count": "lots", "created_at": "yesterday"})
+pydantic_core._pydantic_core.ValidationError: 2 validation errors for Repo
+stargazers_count
+  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='lots', input_type=str]
+created_at
+  Input should be a valid datetime or date, input is too short [type=datetime_from_date_parsing, input_value='yesterday', input_type=str]
+```
+
+Good data comes out as real Python types: `created_at` becomes a `datetime` you can do date arithmetic on, not a string. Fields you didn't declare (GitHub sends about eighty) are ignored. This will matter a lot in [chapter 14.6](./structured-output-and-tools.mdx), where the data you're validating is a language model's output, which is *often* not quite what you asked for.
+
+---
+
+## Environments: a separate toolbox for every project
+
+:::note[Everyday anchor]
+Imagine every carpenter in a workshop sharing one toolbox. One of them swaps the drill bits for a different size, and everyone else's jobs break. The fix: each job gets its own toolbox, with a list of exactly what's in it, so anyone can rebuild it identically.
+:::
+
+Python's traditional default is the shared toolbox: `pip install` puts packages into one place for the whole Python installation, so project A's upgrade can break project B, and "works on my machine" is the norm. (Go avoids this: each project's `go.mod` and `go.sum` pin exactly which versions *that project* uses.) The Python fix has three parts:
+
+- A **virtual environment** (a `.venv` folder inside the project): a private copy of the Python setup with its own installed packages. Each project gets its own toolbox.
+- **`pyproject.toml`**: the project's description and the dependencies it needs, with minimum versions (like `go.mod`, or `package.json` in JavaScript).
+- A **lock file** (`uv.lock`): the *exact* version of every package, including dependencies of dependencies, with hashes (like `go.sum` or `package-lock.json`). Committed to Git, so everyone and CI install the identical set.
+
+The tool that manages all three is **uv**. It's newer than the classic `pip` + `venv` combination, much faster, and it can install Python itself. Starting a project looks like this:
+
+```bash
+uv init demo && cd demo          # creates pyproject.toml, main.py, .python-version
+uv add httpx pydantic            # runtime dependencies: pyproject.toml + uv.lock + .venv
+uv add --dev pytest ruff mypy    # tools only developers and CI need
+```
+
+After those commands, `pyproject.toml` lists what you asked for:
+
+```toml
+[project]
+name = "demo"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic>=2.14.1",
+]
+
+[dependency-groups]
+dev = ["mypy>=2.4.1", "pytest>=9.2.0", "ruff>=0.17.3"]
+```
+
+The day-to-day commands:
+
+| You want to | Run | Go equivalent |
+|---|---|---|
+| Create `.venv` and install exactly what `uv.lock` says | `uv sync` | `go mod download` |
+| Add a dependency (updates `pyproject.toml` and `uv.lock`) | `uv add httpx` | `go get` |
+| Run something inside the project's environment | `uv run pytest`, `uv run python` | `go run`, `go test` |
+| Fail if the lock file doesn't match `pyproject.toml` (CI) | `uv sync --locked` | `go mod tidy -diff` |
+
+You don't need to "activate" the environment: `uv run` always uses the project's `.venv`.
+
+:::warning[What can go wrong]
+- **`pip install` with the system Python**, often with `sudo`, mixes your packages into the operating system's own Python, which system tools depend on. Recent Linux distributions refuse (`externally-managed-environment`) for exactly this reason. Always work inside a project environment.
+- **Committing `.venv/`**. It's big, and specific to your machine. Commit `pyproject.toml` and `uv.lock`, and put `.venv/` in `.gitignore`.
+- **Forgetting the lock file.** Without it, `uv sync` next month may install newer versions, and your working code breaks without a single change of your own.
+:::
+
+---
+
+## Calling an API: httpx plus pydantic
+
+Most AI features start by fetching something over HTTP: a model's answer, a web page, your own service's data. **httpx** is a modern HTTP library for Python. Combined with pydantic, a few lines give you a typed, validated result. This program prints a GitHub repository's star count:
+
+```python title="repo.py"
+"""Fetch a GitHub repository's public details, validated."""
+
+import sys
+from datetime import datetime
+
+import httpx
+from pydantic import BaseModel
+
+
+class Repo(BaseModel):
+    full_name: str
+    stargazers_count: int
+    created_at: datetime
+
+
+def fetch_repo(name: str, *, client: httpx.Client) -> Repo:
+    res = client.get(f"/repos/{name}")
+    res.raise_for_status()  # a 4xx or 5xx answer becomes an exception
+    return Repo.model_validate(res.json())
+
+
+if __name__ == "__main__":
+    with httpx.Client(base_url="https://api.github.com", timeout=5.0) as client:
+        repo = fetch_repo(sys.argv[1], client=client)
+    print(
+        f"{repo.full_name}: {repo.stargazers_count} stars, created {repo.created_at:%Y-%m-%d}"
+    )
+```
+
+```text
+$ uv run python repo.py astral-sh/uv
+astral-sh/uv: 91339 stars, created 2023-10-02
+$ uv run python repo.py astral-sh/nope
+httpx.HTTPStatusError: Client error '404 Not Found' for url 'https://api.github.com/repos/astral-sh/nope'
+```
+
+Habits worth copying, all visible in those lines:
+
+- **`*` in the parameter list** means everything after it must be passed **by name**: `fetch_repo("x/y", client=c)`, never `fetch_repo("x/y", c)`. Call sites stay readable.
+- **The client is passed in**, not created inside `fetch_repo`. That one choice is what makes the function testable without the internet (next section).
+- **A timeout, always.** A program waiting on a network call with no timeout can hang forever ([chapter 8.1](../distributed/distributed-survival-kit.mdx) explains why networks do that).
+- **`with` closes the connection pool** when the block ends.
+- **`if __name__ == "__main__":`** runs only when you execute the file directly, not when a test imports it.
+
+---
+
+## Tests and tidiness: pytest and ruff
+
+**pytest** is Python's standard test runner. Tests are plain functions whose names start with `test_`, using the ordinary `assert` statement. One feature you'll use constantly is **parametrize**: one test, many inputs. It's the Python version of Go's table-driven tests ([chapter 4.4](../go/testing.mdx)):
+
+```python title="test_demo.py (part 1)"
+import pytest
+
+from usernames import is_valid_username
+
+
+@pytest.mark.parametrize(
+    ("name", "ok"),
+    [
+        ("ada", True),
+        ("grace_hopper", True),
+        ("ab", False),  # too short
+        ("Ada", False),  # capitals not allowed
+        ("admin", False),  # taken
+    ],
+)
+def test_is_valid_username(name: str, ok: bool) -> None:
+    assert is_valid_username(name) is ok
+```
+
+To test `fetch_repo` **without the internet**, hand httpx a **mock transport**: a plain function that receives each request and returns a made-up response. A fake server, in five lines:
+
+```python title="test_demo.py (part 2)"
+import httpx
+
+from repo import fetch_repo
+
+
+def fake_github(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/repos/octo/demo":
+        return httpx.Response(
+            200,
+            json={
+                "full_name": "octo/demo",
+                "stargazers_count": 42,
+                "created_at": "2024-03-01T09:30:00Z",
+            },
+        )
+    return httpx.Response(404, json={"message": "Not Found"})
+
+
+def fake_client() -> httpx.Client:
+    return httpx.Client(
+        base_url="https://api.github.com", transport=httpx.MockTransport(fake_github)
+    )
+
+
+def test_fetch_repo_turns_json_into_a_repo() -> None:
+    repo = fetch_repo("octo/demo", client=fake_client())
+    assert repo.stargazers_count == 42
+    assert repo.created_at.year == 2024  # a real datetime, not a string
+
+
+def test_missing_repo_raises() -> None:
+    with pytest.raises(httpx.HTTPStatusError):
+        fetch_repo("octo/nothing", client=fake_client())
+```
+
+The tests are fast, free, and pass on a plane. You'll use the same trick for model APIs in [chapter 14.4](./calling-models-from-code.mdx): a fake model server, so tests never spend money.
+
+**ruff** is the linter and formatter, in one very fast tool: `ruff format` rewrites your code into one standard layout (Go's `gofmt`), and `ruff check` finds likely bugs (unused imports, the mutable-default trap, outdated syntax). Together with mypy and pytest, that's the full check a healthy Python project runs locally and in CI:
+
+```bash
+uv run ruff check . && uv run ruff format --check . && uv run mypy --strict . && uv run pytest
+```
+
+---
+
+## Apply it to snip
+
+Every idea above is used in **snipai** (`ai/` in this repository), the Python project that adds AI features to snip, the URL shortener you build through this handbook. It's a uv project like `demo`, with `pyproject.toml`, a committed `uv.lock`, and the same four checks in CI (`uv sync --locked` first, so a stale lock file fails the build).
+
+**The same rule in two languages.** snip's Go code checks custom slugs (the `go` in `snip.example/go`) in `snip/internal/links/link.go`; `ai/src/snipai/slugs.py` is a line-for-line Python twin, so you can compare the languages on real code:
 
 ```go
 var slugPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
@@ -77,92 +395,9 @@ def validate_slug(slug: str) -> None:
         raise InvalidSlugError(f"invalid slug: {slug!r}")
 ```
 
-Same logic, line for line. The differences you can see:
+Its test, `ai/tests/test_slugs.py`, uses `parametrize` with the same cases as snip's Go table test.
 
-| Idea | Go | Python |
-|---|---|---|
-| Blocks | `{ }` | **Indentation** (4 spaces). It's part of the syntax, not style |
-| Variables | `x := 1`, fixed type | `x = 1`; the variable can later hold anything |
-| Naming | `ValidateSlug` (capital = exported) | `validate_slug` (snake_case); a leading `_` means "private, by convention" |
-| No value | `nil` | `None` |
-| Slices, maps | `[]string{...}`, `map[string]int{...}` | `["a", "b"]` (list), `{"a": 1}` (dict), `{"a", "b"}` (set) |
-| Structs | `type Link struct {...}` | `class Link:`, usually a `@dataclass` or pydantic `BaseModel` |
-| Errors | returned values: `if err != nil` | **exceptions**: `raise`, and `try` / `except` |
-| Cleanup | `defer f.Close()` | `with open(...) as f:` (a **context manager**) |
-| String formatting | `fmt.Sprintf("%q", s)` | f-strings: `f"invalid slug: {slug!r}"` |
-| Docs | a comment above the function | a **docstring**: a string as the first line of the function |
-
-Two of these deserve a closer look.
-
-**Exceptions instead of returned errors.** In Go, a function that can fail returns an `error`, and the caller checks it on the next line. In Python, a failing function **raises an exception**, which travels up the call stack until some caller **catches** it with `try`/`except`, or the program crashes with a **traceback** (Python's stack trace, [chapter 13.6](../observability/debugging-playbook.mdx)). Less typing, but you can't see from a function's signature whether it can fail, so read docstrings, and catch specific exceptions rather than everything:
-
-```python
-def is_valid_slug(slug: str) -> bool:
-    try:
-        validate_slug(slug)
-    except InvalidSlugError:      # only the failure we expect
-        return False
-    return True
-```
-
-**Context managers instead of defer.** `with` guarantees cleanup when the block ends, even if an exception is raised inside it. You'll use it for files, network clients, and database connections:
-
-```python
-with SnipClient("http://localhost:8080", key) as snip:
-    link = snip.create("https://go.dev", slug="go")
-# here, snip's connections are closed, whatever happened inside
-```
-
-:::warning[What can go wrong]
-The most famous Python trap: **default arguments are created once**, when the function is defined, not each time it's called. So a mutable default (a list or dict) is *shared between calls*:
-
-```python
-def add_tag(tag, tags=[]):
-    tags.append(tag)
-    return tags
-
-add_tag("go")       # ['go']
-add_tag("python")   # ['go', 'python']  ← the list from the first call!
-```
-
-Use `tags: list[str] | None = None`, and create the list inside the function. Linters (ruff's `B006` rule, which snipai enables) catch this for you.
-:::
-
----
-
-## Type hints: Go's safety net, if you ask for it
-
-Python is **dynamically typed**: a variable's type is whatever it currently holds, and nothing checks types before the program runs. Since Python 3.5 you can add **type hints**: `slug: str`, `-> bool`, `list[Link]`. On their own, they do **nothing** at runtime. They're documentation that a separate tool, a **type checker**, can verify. snipai uses **mypy** in its strictest mode.
-
-Here's a file with two type mistakes:
-
-```python
-from snipai.slugs import is_valid_slug
-
-label: str = is_valid_slug("abc")
-is_valid_slug(42)
-```
-
-Python itself runs line 3 without complaint (`label` quietly becomes `True`) and only crashes on line 4, deep inside the function:
-
-```text
-TypeError: expected string or bytes-like object, got 'int'
-```
-
-mypy finds both before anything runs:
-
-```text
-$ uv run mypy --strict typo.py
-typo.py:3: error: Incompatible types in assignment (expression has type "bool", variable has type "str")  [assignment]
-typo.py:4: error: Argument 1 to "is_valid_slug" has incompatible type "int"; expected "str"  [arg-type]
-Found 2 errors in 1 file (checked 1 source file)
-```
-
-That's the Go compiler's job, done by a separate tool that you run yourself (snip's CI runs it on every push). For code that will live longer than an afternoon, write the hints and run the checker. Your editor uses them for autocomplete too.
-
-### pydantic: checking data you don't control
-
-Type hints check *your code*. They can't check *data arriving from outside* (an API response, a file, a model's output), because that only exists at runtime. For that, AI engineers lean heavily on **pydantic**: you describe the shape of the data as a class, and pydantic **validates** and **converts** incoming data to match, or raises a clear error. Here's snipai's `Link`, matching the JSON snip returns:
+**A typed client for snip's API.** `ai/src/snipai/client.py` is `repo.py` grown up: a pydantic `Link` matching the JSON snip returns, and a `SnipClient` wrapping httpx for the endpoints you built in [Part 5](../apis/first-http-server.mdx) (`POST /api/links` to create, `GET /api/links` to list, `DELETE /api/links/{slug}`):
 
 ```python
 class Link(BaseModel):
@@ -173,76 +408,8 @@ class Link(BaseModel):
     clicks: int
     created_at: datetime
     short_url: str
-```
 
-Give it bad data and you get every problem at once, with the field names:
 
-```text
->>> Link.model_validate({"slug": "go", "url": "https://go.dev", "clicks": "lots", "created_at": "yesterday"})
-3 validation errors for Link
-clicks
-  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='lots', input_type=str]
-created_at
-  Input should be a valid datetime or date, input is too short [type=datetime_from_date_parsing, input_value='yesterday', input_type=str]
-short_url
-  Field required [type=missing, ...]
-```
-
-And good data comes out as real Python types: `created_at` becomes a `datetime`, not a string. This will matter a lot in [chapter 14.6](./structured-output-and-tools.mdx), where the data you're validating is a language model's output, which is *often* not quite what you asked for.
-
----
-
-## Environments: a separate toolbox for every project
-
-:::note[Everyday anchor]
-Imagine every carpenter in a workshop sharing one toolbox. One of them swaps the drill bits for a different size, and everyone else's jobs break. The fix is obvious: each job gets its own toolbox, with a list of exactly what's in it, so anyone can rebuild it identically.
-:::
-
-Go downloads dependencies into a shared cache, but each project's `go.mod` and `go.sum` pin exactly which versions *that project* uses. Python's traditional default is worse: `pip install` puts packages into one place for the whole Python installation, so project A's upgrade can break project B, and "works on my machine" is the norm. The fix has three parts:
-
-- A **virtual environment** (a `.venv` folder inside the project): a private copy of the Python setup with its own installed packages. Each project gets its own toolbox.
-- **`pyproject.toml`**: the project's description and the dependencies it needs, with minimum versions (like `go.mod`).
-- A **lock file** (`uv.lock`): the *exact* version of every package, including dependencies of dependencies, with hashes (like `go.sum`, and like Terraform's lock file in [chapter 12.5](../cloud/terraform-from-zero.mdx)). Committed to Git, so everyone and CI install the identical set.
-
-The tool that manages all three is **uv**. It's newer than the classic `pip` + `venv` combination, much faster, and it can install Python itself. snipai's `pyproject.toml`:
-
-```toml
-[project]
-name = "snipai"
-requires-python = ">=3.11"
-dependencies = [
-    "httpx>=0.28",      # HTTP client: talks to snip's API (chapter 14.1)
-    "pydantic>=2.11",   # data validation and typed models (chapters 14.1, 14.6)
-]
-
-[dependency-groups]
-dev = ["pytest>=8.4", "ruff>=0.13", "mypy>=1.18"]
-```
-
-The day-to-day commands:
-
-| You want to | Run | Go equivalent |
-|---|---|---|
-| Create `.venv` and install exactly what `uv.lock` says | `uv sync` | `go mod download` |
-| Add a dependency (updates `pyproject.toml` and `uv.lock`) | `uv add httpx` | `go get` |
-| Run something inside the project's environment | `uv run pytest`, `uv run python` | `go run`, `go test` |
-| Fail if the lock file doesn't match `pyproject.toml` (CI) | `uv sync --locked` | `go mod tidy -diff` |
-
-You don't need to "activate" the environment: `uv run` always uses the project's `.venv`.
-
-:::warning[What can go wrong]
-- **`pip install` with the system Python**, often with `sudo`, mixes your packages into the operating system's own Python, which system tools depend on. Recent Linux distributions refuse (`externally-managed-environment`) for exactly this reason. Always work inside a project environment.
-- **Committing `.venv/`**. It's big, and specific to your machine. Commit `pyproject.toml` and `uv.lock`, and put `.venv/` in `.gitignore` (snipai does).
-- **Forgetting the lock file.** Without it, `uv sync` next month may install newer versions, and your working code breaks without a single change of your own.
-:::
-
----
-
-## A real client for snip's API
-
-snipai's first module, `ai/src/snipai/client.py`, is a Python client for the API you built in [Part 5](../apis/first-http-server.mdx). It uses **httpx**, a modern HTTP library. Here's the core of it:
-
-```python
 class SnipClient:
     def __init__(self, base_url: str, api_key: str, *, timeout: float = 5.0,
                  transport: httpx.BaseTransport | None = None) -> None:
@@ -273,12 +440,11 @@ class SnipClient:
         return res.json()
 ```
 
-Things to notice, all of them Python habits worth copying:
+(Trimmed: the real file adds `get`, `list`, `delete`, and `__enter__`/`__exit__` so it works with `with`.) Three things it does beyond `repo.py`:
 
-- **`*` in the parameter list** means everything after it must be passed **by name**: `SnipClient(url, key, timeout=2)`, never `SnipClient(url, key, 2)`. Call sites stay readable.
-- **One place turns HTTP errors into exceptions** (`_request`), carrying snip's own error `code` from [chapter 5.3](../apis/validation-errors-status-codes.mdx), so callers can write `except SnipError as e: if e.code == "slug_taken": ...`.
-- **Never trust the error body's shape.** If something between you and snip (nginx, a load balancer) answers with an HTML page, `res.json()` fails. The code catches that and still raises a useful `SnipError`.
-- **A timeout by default.** httpx's default is 5 seconds; we make it explicit, and configurable. You learned why in [chapter 13.5](../observability/incidents-and-postmortems.mdx).
+- **One place turns HTTP errors into exceptions** (`_request`), carrying snip's own error `code` (snip answers errors as `{"error": {"code": "slug_taken", ...}}`, [chapter 5.3](../apis/validation-errors-status-codes.mdx)), so callers can write `except SnipError as e: if e.code == "slug_taken": ...`.
+- **It never trusts the error body's shape.** If something between you and snip (nginx, a load balancer) answers with an HTML page, `res.json()` fails. The code catches that and still raises a useful `SnipError`.
+- **`transport` is a parameter**, so `ai/tests/test_client.py` tests it with a mock transport, exactly like `fake_github`. A separate test, `ai/tests/test_live.py`, runs the same round trip against a **real** snip when you set `SNIP_URL` and `SNIP_API_KEY`, and skips itself otherwise.
 
 Using it feels like this, against a running snip:
 
@@ -292,91 +458,50 @@ Link(slug='python', url='https://www.python.org', clicks=0, created_at=datetime.
 snipai.client.SnipError: 400 invalid_slug: slug must be 3-32 letters, digits, '-' or '_', and not a reserved word
 ```
 
----
-
-## Tests and tidiness: pytest and ruff
-
-**pytest** is Python's standard test runner. Tests are plain functions whose names start with `test_`, using the ordinary `assert` statement. One feature you'll use constantly is **parametrize**: one test, many inputs. It's the Python version of Go's table-driven tests ([chapter 4.4](../go/testing.mdx)), and snipai's slug test uses exactly the same cases as snip's Go test:
-
-```python
-@pytest.mark.parametrize(
-    ("slug", "ok"),
-    [
-        ("abc", True),
-        ("my-launch_2026", True),
-        ("ab", False),       # too short
-        ("api", False),      # reserved
-        ("Healthz", False),  # reserved, whatever the case
-        ...
-    ],
-)
-def test_is_valid_slug(slug: str, ok: bool) -> None:
-    assert is_valid_slug(slug) is ok
-```
-
-To test the client **without a running snip**, the tests hand httpx a **mock transport**: a plain function that receives each request and returns a made-up response. It's the same trick as Go's `httptest` ([chapter 4.4](../go/testing.mdx)), from the other side: a fake server, not a real one:
-
-```python
-def fake_snip(request: httpx.Request) -> httpx.Response:
-    if request.headers.get("Authorization") != "Bearer good-key":
-        return httpx.Response(401, json={"error": {"code": "unauthorized", "message": "bad key"}})
-    ...
-
-SnipClient("http://snip.test", "good-key", transport=httpx.MockTransport(fake_snip))
-```
-
-A separate test (`tests/test_live.py`) runs the same round trip against a **real** snip when you set `SNIP_URL` and `SNIP_API_KEY`, and skips itself otherwise. CI starts snip and runs it on every push.
-
-**ruff** is the linter and formatter, in one very fast tool: `ruff format` is Python's `gofmt`, and `ruff check` is `go vet` plus much more (unused imports, the mutable-default trap, outdated syntax). Together with mypy, that's snipai's full check, the same trio CI runs:
-
-```bash
-uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
-```
+You'll extend snipai in every chapter of Part 14.
 
 ---
 
 ## Lab
 
-Free, on your own computer. You'll install Python's tools, run snipai's checks, use the client against a real snip, and watch the type checker and pydantic catch mistakes.
+Free, on your own computer. Steps 1–4 need nothing but uv and an internet connection; step 5 uses this repository.
 
 1. **Install uv** (it can install Python for you too). On macOS or Linux (and WSL on Windows):
    ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
+   curl -LsSf https://astral.sh/uv/install.sh | sh   # downloads and runs uv's installer
+   uv --version                                      # in a new terminal: prints the version
    ```
-   (Or `brew install uv` on macOS.) Piping a script from the internet into `sh` runs it with your permissions. It's a common way to install developer tools ([chapter 0.2](../start/set-up-your-machine.mdx) installed Docker the same way), but it's worth opening the URL in your browser first to see what it does. Open a new terminal, then check: `uv --version`.
+   (Or `brew install uv` on macOS.) Piping a script from the internet into `sh` runs it with your permissions. It's a common way to install developer tools, but it's worth opening the URL in your browser first to see what it does.
 
-2. **Set up snipai and run every check:**
+2. **Make a project and run the API program.**
+   ```bash
+   uv init demo && cd demo            # a new project
+   uv add httpx pydantic              # creates .venv and uv.lock
+   uv add --dev pytest ruff mypy
+   rm main.py                         # uv's hello-world; we don't need it
+   ```
+   Create `repo.py` from "Calling an API" above, then run `uv run python repo.py astral-sh/uv` and `uv run python repo.py astral-sh/nope`. **What to notice:** the second one ends in an `HTTPStatusError` traceback. Read it bottom-up: the last line says what went wrong, the lines above say where.
+
+3. **Let mypy catch what Python misses.** Create `usernames.py` and `typo.py` from the chapter. Run `uv run python typo.py` (it crashes on line 4, and only on line 4), then `uv run mypy --strict typo.py` (both mistakes, before running anything). Delete `typo.py` afterwards.
+
+4. **Test without the internet, then break a test on purpose.** Create `test_demo.py` from the two parts above (imports at the top), then:
+   ```bash
+   uv run pytest -v                                         # 7 tests, all pass
+   uv run ruff check . && uv run ruff format --check . && uv run mypy --strict .
+   ```
+   Now change `("ab", False)` to `("ab", True)` and run `uv run pytest` again. Read the failure: pytest shows the exact input and what `assert` compared. Put it back.
+
+5. **Apply it to snip.** Run snipai's checks, then the live test against a real snip:
    ```bash
    cd ~/code/zero-to-prod/ai
-   uv sync
+   uv sync                                                  # exactly what uv.lock lists
    uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
    ```
-   `uv sync` downloads a suitable Python if you don't have one, creates `.venv`, and installs exactly what `uv.lock` lists. **What to notice:** one test is `skipped`. That's the live test, waiting for a real snip.
-
-3. **Run the live test against a real snip.** In a second terminal, start snip in memory mode ([chapter 5.1](../apis/first-http-server.mdx)); it prints a development API key:
+   One test is `skipped`: the live test, waiting for a real snip. In a second terminal, start snip in memory mode ([chapter 5.1](../apis/first-http-server.mdx)); it prints a development API key:
    ```bash
    cd ~/code/zero-to-prod/snip && go run ./cmd/snip serve
    ```
-   Then, back in the `ai` terminal (paste the key):
-   ```bash
-   SNIP_URL=http://localhost:8080 SNIP_API_KEY=snip_... uv run pytest -v
-   ```
-   Now all tests pass, none skipped.
-
-4. **Use the client from the REPL.** `uv run python`, then:
-   ```python
-   from snipai.client import SnipClient, SnipError
-   snip = SnipClient("http://localhost:8080", "snip_...")
-   link = snip.create("https://www.python.org", slug="python")
-   link.created_at.year           # a real datetime, not a string
-   [l.slug for l in snip.list()]  # a list comprehension
-   snip.create("https://example.com", slug="api")
-   ```
-   The last line raises `SnipError` with snip's own error code. Try catching it: `try: ... except SnipError as e: print(e.code)`.
-
-5. **Let mypy catch a bug.** Create `typo.py` in the `ai` folder with the four lines from "Type hints" above. Run `uv run python typo.py` (it crashes on line 4, but only on line 4), then `uv run mypy --strict typo.py` (both mistakes, before running anything). Delete the file afterwards.
-
-6. **Break a test on purpose.** In `tests/test_slugs.py`, change `("ab", False)` to `("ab", True)` and run `uv run pytest`. Read the failure: pytest shows the exact input and what `assert` compared. Put it back.
+   Back in the `ai` terminal: `SNIP_URL=http://localhost:8080 SNIP_API_KEY=snip_... uv run pytest -v` (paste the key). Now nothing is skipped. Then try the client from `uv run python`: create a link, read `link.created_at.year`, list slugs with `[l.slug for l in snip.list()]`, and catch the error from `snip.create("https://example.com", slug="api")` with `try: ... except SnipError as e: print(e.code)`.
 
 ## Self-check
 
@@ -392,7 +517,7 @@ Free, on your own computer. You'll install Python's tools, run snipai's checks, 
         'It prints a warning to stderr and carries on as normal',
       ],
       answer: 1,
-      explain: 'Nothing special: hints aren’t checked at runtime. A separate type checker like mypy has to be run to catch it. Hints are documentation that tools can verify. At runtime, Python only fails if the wrong value actually causes an error somewhere.',
+      explain: 'Hints aren’t checked at runtime; a separate type checker like mypy has to be run to catch the mistake. At runtime, Python only fails if the wrong value actually causes an error somewhere, as is_valid_username(42) does deep inside re.match. Python never converts values to match hints; that is what pydantic adds, for data from outside.',
     },
     {
       q: 'What problem does a virtual environment solve?',
@@ -403,7 +528,7 @@ Free, on your own computer. You'll install Python's tools, run snipai's checks, 
         'It stops other users on the machine from reading your code',
       ],
       answer: 1,
-      explain: 'Each project gets its own installed packages, so one project’s upgrades can’t break another. A separate toolbox per project. Together with a lock file, anyone can rebuild the exact same environment.',
+      explain: 'Each project gets its own installed packages, so one project’s upgrades can’t break another: a separate toolbox per project. It is not a container: the program still shares the machine’s files, network and processes. Together with a lock file, anyone can rebuild the exact same environment.',
     },
     {
       q: 'Why is uv.lock committed to Git, but .venv/ isn’t?',
@@ -414,7 +539,7 @@ Free, on your own computer. You'll install Python's tools, run snipai's checks, 
         'uv.lock is needed by CI, while .venv is only used by editors',
       ],
       answer: 1,
-      explain: 'The lock file is a small, exact list of versions everyone should install; .venv is the big, machine-specific result of installing them. Commit the recipe, not the cooked meal. `uv sync` rebuilds .venv from the lock file anywhere.',
+      explain: 'The lock file is a small, exact list of versions everyone should install; .venv is the big, machine-specific result of installing them (it can contain compiled files for your operating system). Commit the recipe, not the cooked meal. `uv sync` rebuilds .venv from the lock file anywhere.',
     },
     {
       q: 'What does pydantic do that type hints alone don’t?',
@@ -425,7 +550,7 @@ Free, on your own computer. You'll install Python's tools, run snipai's checks, 
         'Generates type hints automatically from the data it receives',
       ],
       answer: 1,
-      explain: 'Validates and converts data at runtime (from an API, a file or a model’s output), raising clear errors when it doesn’t match. Type hints check your code; pydantic checks data from outside, which only exists at runtime.',
+      explain: 'pydantic validates and converts data at runtime (from an API, a file or a model’s output), raising clear errors when it doesn’t match: "2024-03-01T09:30:00Z" becomes a datetime, "lots" for an int is an error. Type hints check your code; pydantic checks data from outside, which only exists at runtime. You use both.',
     },
     {
       q: 'Why does add_tag("python") return [\'go\', \'python\'] in the chapter’s example?',
@@ -436,13 +561,13 @@ Free, on your own computer. You'll install Python's tools, run snipai's checks, 
         'Because "go" was left in memory from a previous run of the program',
       ],
       answer: 1,
-      explain: 'The default list is created once, when the function is defined, and shared by every call that uses the default. Use None as the default and create the list inside the function. ruff’s B006 rule flags the mistake.',
+      explain: 'The default list is created once, when the function is defined, and shared by every call that uses the default. It is documented behavior, not a bug, and no version changes it. Use None as the default and create the list inside the function; ruff’s B006 rule flags the mistake.',
     },
   ]}
 />
 
 <details>
-<summary>Translate this Go snippet from snip into idiomatic Python.</summary>
+<summary>Translate this Go snippet into idiomatic Python.</summary>
 
 ```go
 links, err := store.List(ctx, ownerID, 50)
@@ -465,12 +590,12 @@ slugs = [link.slug for link in links if link.clicks > 0]
 - **No error check**: in Python, a failure raises an exception, which carries on up to whoever can handle it. If *this* function should handle it, wrap the call in `try`/`except` with the specific exception.
 - **The loop becomes a list comprehension**: `[expression for item in iterable if condition]`. It's idiomatic for "build a list by filtering and transforming". For anything more complicated than one condition and one expression, a plain `for` loop is clearer.
 - **Naming**: `owner_id`, `limit=50` as a keyword argument, so the call says what 50 means.
-- **No `ctx`**: Python has no standard equivalent of Go's `context` for cancellation in ordinary code. Timeouts are usually set on the client (like `SnipClient(timeout=...)`). Async code ([chapter 14.4](./calling-models-from-code.mdx)) has its own cancellation.
+- **No `ctx`**: Python has no standard equivalent of Go's `context` for cancellation in ordinary code. Timeouts are usually set on the client (like `httpx.Client(timeout=5.0)`). Async code has its own cancellation.
 
 </details>
 
 <details>
-<summary>A teammate's script works on their laptop but fails in CI with "ModuleNotFoundError: No module named 'pydantic'". What are the likely causes, and how does snipai's setup avoid them?</summary>
+<summary>A teammate's script works on their laptop but fails in CI with "ModuleNotFoundError: No module named 'pydantic'". What are the likely causes, and how does a uv project avoid them?</summary>
 
 The code ran in a Python environment where `pydantic` wasn't installed. Likely causes:
 
@@ -478,6 +603,6 @@ The code ran in a Python environment where `pydantic` wasn't installed. Likely c
 - CI ran `python script.py` with the system Python instead of the project's environment.
 - The dependency was added to `pyproject.toml` but the **lock file wasn't updated or committed**, so CI installed from an old lock.
 
-snipai avoids all three: dependencies are only added with `uv add` (which updates both `pyproject.toml` and `uv.lock`), everything runs through `uv run` (always the project's `.venv`), and CI runs `uv sync --locked`, which **fails** if the lock file doesn't match `pyproject.toml` instead of quietly installing something different.
+A uv project avoids all three: dependencies are only added with `uv add` (which updates both `pyproject.toml` and `uv.lock`), everything runs through `uv run` (always the project's `.venv`), and CI runs `uv sync --locked`, which **fails** if the lock file doesn't match `pyproject.toml` instead of quietly installing something different. snipai's CI does exactly this.
 
 </details>
