@@ -20,9 +20,9 @@ type Turn = {role: 'user' | 'assistant'; text: string; sources?: Hit[]; cites?: 
 const KEY_STORE = 'z2p:ask:key';
 const MODEL_STORE = 'z2p:ask:model';
 const MODELS = [
-  {id: 'claude-opus-5', label: 'Claude Opus 5 (best answers)'},
-  {id: 'claude-sonnet-5', label: 'Claude Sonnet 5 (balanced)'},
-  {id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (fastest, cheapest)'},
+  {id: 'claude-opus-5-5', label: 'Claude Opus 5.5 (best answers)'},
+  {id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (balanced)'},
+  {id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5 (fastest, cheapest)'},
 ];
 
 const SYSTEM = `You are the tutor inside "Zero to Prod", a free handbook that takes semi-technical people from basic tech literacy to working backend, DevOps and AI engineer.
@@ -99,7 +99,9 @@ function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
 
   useEffect(() => {
     setApiKey(safeGet(KEY_STORE));
-    setModel(safeGet(MODEL_STORE) || MODELS[0].id);
+    // A model saved by an older version of this panel may no longer be offered.
+    const saved = safeGet(MODEL_STORE);
+    setModel(MODELS.some((m) => m.id === saved) ? saved : MODELS[0].id);
     inputRef.current?.focus();
   }, []);
 
@@ -184,7 +186,7 @@ function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
           },
         ],
       };
-      if (model === 'claude-opus-5') {
+      if (model === 'claude-opus-5-5' || model === 'claude-sonnet-5-5') {
         // If a safety classifier declines, let the API retry on a suitable model.
         params.betas = ['server-side-fallback-2026-07-01'];
         params.fallbacks = 'default';
