@@ -1,18 +1,18 @@
 ---
 title: "2.5 Running a Linux server"
 sidebar_label: "2.5 Running a Linux server"
-description: What it takes to keep a program running on a Linux server — packages, systemd services that restart themselves, logs with journalctl, disk and memory housekeeping, scheduled jobs, updates and a basic firewall — using snip as the service.
+description: What it takes to keep a program running on a Linux server — packages, systemd services that restart themselves, logs with journalctl, disk and memory housekeeping, scheduled jobs, updates and a basic firewall — first on a tiny demo service, then on snip.
 ---
 
 # 2.5 Running a Linux server
 
-So far you've started programs by typing a command and watching them run. That's fine on your laptop. On a server it's hopeless: close the terminal and the program dies; reboot the machine and nothing comes back; crash at 3 a.m. and it stays down until someone notices. Real servers need programs that **start by themselves, restart when they fail, write logs somewhere you can find them, and don't fill the disk.** This chapter shows how Linux does all of that, using snip as the service. Later, containers and Kubernetes will automate much of it — but they're built on exactly these ideas, and every one of them still runs on a Linux machine underneath.
+So far you've started programs by typing a command and watching them run. That's fine on your laptop. On a server it's hopeless: close the terminal and the program dies; reboot the machine and nothing comes back; crash at 3 a.m. and it stays down until someone notices. Real servers need programs that **start by themselves, restart when they fail, write logs somewhere you can find them, and don't fill the disk.** This chapter shows how Linux does all of that, first with a one-line demo web server you turn into a real service, then with snip, the link shortener this handbook builds. Later, containers and Kubernetes will automate much of it — but they're built on exactly these ideas, and every one of them still runs on a Linux machine underneath.
 
 ## What you'll learn
 
 - How to install and update software with a **package manager** (`apt`), and what "keeping a server patched" means.
-- **systemd**: the program that starts services at boot, restarts them when they crash, and stops them gracefully — and how to write a service file for snip.
-- Reading logs with **`journalctl`** and in **`/var/log`**.
+- **systemd**: the program that starts services at boot, restarts them when they crash, and stops them gracefully — and how to write your own service file.
+- Reading logs with **`journalctl`** (the journal that systemd's **journald** keeps for every service) and in **`/var/log`**.
 - **Housekeeping**: finding what's filling the disk, rotating logs, checking memory and spotting the out-of-memory killer.
 - **Scheduled jobs** (cron and timers), a basic **firewall**, and a checklist for a new server.
 
@@ -42,23 +42,25 @@ In modern setups you rarely install your *own* application with `apt`. Your app 
 
 ## Services: programs that run themselves
 
-A **service** (also called a **daemon**) is a program that runs in the background, without a terminal, usually from boot until shutdown: a web server, a database, snip.
+A **service** (also called a **daemon**) is a program that runs in the background, without a terminal, usually from boot until shutdown: a web server, a database, an SSH server, the app you wrote.
 
 On almost every modern Linux system, services are managed by **systemd**. It's the first program the kernel starts at boot (it has process ID 1 — [chapter 1.2](../foundations/programs-processes-threads.mdx)), and its job is to start everything else, in the right order, and keep it running.
+
+:::note[Everyday anchor]
+systemd is a building's facilities manager. At opening time, it switches on the lights, the lifts and the heating, in the right order. If a lift breaks down during the day, it restarts it. At closing time, it shuts everything down politely, one by one. You tell it *what* should be running; it makes sure it is.
+:::
 
 ```mermaid
 flowchart LR
     K["Kernel boots"] --> S["systemd<br/>(PID 1)"]
     S --> N["network"]
     S --> P["postgresql"]
-    S --> SN["snip"]
-    SN -->|"crashes"| S
-    S -->|"restarts after 2s"| SN
+    S --> A["your app"]
+    A -->|"crashes"| S
+    S -->|"restarts after 2s"| A
 ```
 
-:::note[Everyday anchor]
-systemd is a building's facilities manager. At opening time, it switches on the lights, the lifts and the heating, in the right order. If a lift breaks down during the day, it restarts it. At closing time, it shuts everything down politely, one by one. You tell it *what* should be running; it makes sure it is.
-:::
+The arrow back from "your app" is the important one: when a service dies, systemd — its parent process — is told immediately, and can start it again without a human.
 
 ### Controlling services with systemctl
 
@@ -73,37 +75,27 @@ sudo systemctl disable nginx    # don't start at boot
 systemctl list-units --type=service --state=running   # everything currently running
 ```
 
-A common confusion: **`start`** runs it *now*; **`enable`** makes it start *at boot*. You usually want both: `sudo systemctl enable --now snip`.
+A common confusion: **`start`** runs it *now*; **`enable`** makes it start *at boot*. You usually want both: `sudo systemctl enable --now nginx`.
 
-### A service file for snip
+### Writing your own service: a tiny web server
 
-systemd learns about a service from a **unit file**, a small text file in `/etc/systemd/system/`. Here is snip's, from the repository (`snip/deploy/systemd/snip.service`, trimmed):
+systemd learns about a service from a **unit file**, a small text file in `/etc/systemd/system/`. To see one end to end, take the smallest web server there is — Python's built-in one, which serves a folder's files with one command (`python3 -m http.server`) — and turn it into a proper service. Save this as `/etc/systemd/system/hello-web.service`:
 
 ```ini
 [Unit]
-Description=snip link shortener API
-# Start after the network (and Postgres, if it runs on this machine).
-After=network-online.target postgresql.service
+Description=Tiny demo web server
+# Start once the network is up.
+After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Run as an unprivileged user (chapter 2.2).
-User=snip
-Group=snip
-# Settings like SNIP_DATABASE_URL.
-EnvironmentFile=/etc/snip/snip.env
-# The command to run.
-ExecStart=/usr/local/bin/snip serve
+# Run as a throwaway unprivileged user that systemd creates for this service.
+DynamicUser=yes
+# The command to run: serve /srv/hello on port 8000.
+ExecStart=/usr/bin/python3 -m http.server 8000 --directory /srv/hello
 # Crashed? Start it again after 2 seconds.
 Restart=on-failure
 RestartSec=2
-# On stop: SIGTERM, wait up to 15 s, then SIGKILL.
-TimeoutStopSec=15
-# Raise the open-files limit (chapter 2.2).
-LimitNOFILE=65536
-# Hardening: never gain privileges; most of the filesystem is read-only.
-NoNewPrivileges=true
-ProtectSystem=strict
 
 [Install]
 # "Start this during normal boot."
@@ -114,20 +106,23 @@ WantedBy=multi-user.target
 In systemd unit files, comments must be on **their own line**, starting with `#`. A `#` at the end of a setting is *not* a comment — it becomes part of the value and breaks it.
 :::
 
-Every line maps to something you've already learned:
+The file has three parts:
 
-- **`User=snip`** — least privilege. If snip had a security bug, the attacker would get only what the `snip` user can touch.
-- **`EnvironmentFile=`** — configuration through environment variables ([chapter 2.2](./users-permissions-processes.mdx)), kept in a file readable only by root and the `snip` group, so the database password isn't visible to other users.
-- **`Restart=on-failure`** — a crash at 3 a.m. becomes a two-second blip instead of an outage.
-- **`TimeoutStopSec=15`** — graceful shutdown: systemd sends **SIGTERM** ([chapter 1.2](../foundations/programs-processes-threads.mdx)), snip finishes in-flight requests, and only if it hangs does systemd send SIGKILL.
+- **`[Unit]`** — what this is, and what must be ready before it starts (`After=`).
+- **`[Service]`** — how to run it. `ExecStart=` is the exact command, with a full path because services don't get your terminal's `$PATH`. **`DynamicUser=yes`** applies *least privilege* ([chapter 2.2](./users-permissions-processes.mdx)): the server runs as a user with no rights to anything else, so a bug in it can't touch your files. **`Restart=on-failure`** turns a crash at 3 a.m. into a two-second blip instead of an outage.
+- **`[Install]`** — when it should start if *enabled*. `multi-user.target` means "during a normal boot".
 
-After adding or changing a unit file:
+After adding or changing a unit file, tell systemd and start it:
 
 ```bash
-sudo systemctl daemon-reload        # make systemd re-read unit files
-sudo systemctl enable --now snip    # start now and at every boot
-systemctl status snip               # check it
+sudo mkdir -p /srv/hello && echo "<h1>Hello from a service</h1>" | sudo tee /srv/hello/index.html   # a page to serve
+sudo systemctl daemon-reload            # make systemd re-read unit files
+sudo systemctl enable --now hello-web   # start now and at every boot
+systemctl status hello-web              # running? which PID? last log lines
+curl -s localhost:8000                  # → <h1>Hello from a service</h1>
 ```
+
+No terminal is attached to it. Close your terminal, log out, reboot: the server comes back on its own. You'll run exactly this in the Lab.
 
 :::info[If you've written code]
 If you've used `pm2`, `nodemon` or `forever` to keep a Node app alive, systemd is the operating system's built-in version of that — and in Kubernetes ([Part 10](../kubernetes/why-orchestration.mdx)), the same responsibilities (start, restart on failure, graceful stop, resource limits) move into the Pod spec.
@@ -141,18 +136,18 @@ Services don't have a terminal to print to, so their output goes to logs. On a s
 
 ### The journal (journalctl)
 
-systemd captures everything a service writes to stdout and stderr ([chapter 2.3](./pipes-and-text-tools.mdx)) in the **journal**:
+systemd captures everything a service writes to stdout and stderr ([chapter 2.3](./pipes-and-text-tools.mdx)) — its two output streams — in the **journal**, a log store managed by systemd's logging part, **journald**. Python's web server prints a line for every request it answers, so your new service already has logs:
 
 ```bash
-journalctl -u snip                  # all logs for the snip service
-journalctl -u snip -f               # follow new lines live (like tail -f)
-journalctl -u snip --since "1 hour ago"
-journalctl -u snip -p err           # only errors and worse
-journalctl -b -p warning            # warnings or worse since this boot
-journalctl -u snip -o cat | jq .    # just the messages; snip logs JSON, so jq works (chapter 2.3)
+journalctl -u hello-web                  # all logs for the hello-web service (-u = unit)
+journalctl -u hello-web -f               # follow new lines live (like tail -f); Ctrl+C to stop
+journalctl -u hello-web --since "1 hour ago"
+journalctl -u hello-web -p err           # only errors and worse
+journalctl -b -p warning                 # warnings or worse, any service, since this boot
+journalctl -u hello-web -n 50 --no-pager # the last 50 lines, printed straight out
 ```
 
-This is one reason snip simply writes JSON logs to stdout rather than managing its own log files: the platform — systemd here, Docker or Kubernetes later — collects them. (It's one of the "Twelve-Factor App" principles you'll meet in [chapter 5.4](../apis/structuring-a-real-service.mdx).)
+This is why modern services write their logs to stdout instead of managing their own log files: the platform — systemd here, Docker or Kubernetes later — collects, stores and rotates them for you. (It's one of the "Twelve-Factor App" principles you'll meet in [chapter 5.4](../apis/structuring-a-real-service.mdx).)
 
 ### /var/log
 
@@ -233,7 +228,7 @@ Each line is five time fields and a command:
 # │ │ │ ┌─ month (1–12)
 # │ │ │ │ ┌─ day of week (0–6, Sunday = 0)
 # │ │ │ │ │
-  30 2 * * * /usr/local/bin/backup-snip.sh >> /var/log/backup.log 2>&1   # every day at 02:30
+  30 2 * * * /usr/local/bin/backup-db.sh >> /var/log/backup.log 2>&1     # every day at 02:30
   */5 * * * * /usr/local/bin/check-disk.sh                              # every 5 minutes
 ```
 
@@ -245,7 +240,7 @@ Two classic cron traps: jobs run with an almost **empty environment** (so comman
 
 ## A basic firewall
 
-A **firewall** decides which network traffic is allowed to reach the machine. The principle: **deny everything by default, allow only what's needed.** A server running snip behind nginx needs SSH (to manage it) and HTTP/HTTPS — nothing else should be reachable from the internet. The database, Redis, and snip's own port 8080 should only be reachable from the machine itself or the private network.
+A **firewall** decides which network traffic is allowed to reach the machine. The principle: **deny everything by default, allow only what's needed.** A web server with nginx in front of an app needs SSH (to manage it) and HTTP/HTTPS — nothing else should be reachable from the internet. The database, the cache, and the app's own port (say `8080`) should only be reachable from the machine itself or the private network.
 
 On Ubuntu, **ufw** ("uncomplicated firewall") makes this simple:
 
@@ -279,6 +274,56 @@ When you get a fresh Linux server, the basics look like this. Each item is cover
 
 ---
 
+## Apply it to snip: a production-grade unit file
+
+snip, the link shortener this handbook builds, can run on a plain Linux server exactly like `hello-web`. Its unit file is in the repository at `snip/deploy/systemd/snip.service` — here it is, trimmed:
+
+```ini
+[Unit]
+Description=snip link shortener API
+# Start after the network (and Postgres, if it runs on this machine).
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+# A dedicated system user, created once with useradd (chapter 2.2).
+User=snip
+Group=snip
+# Settings like SNIP_DATABASE_URL.
+EnvironmentFile=/etc/snip/snip.env
+ExecStart=/usr/local/bin/snip serve
+Restart=on-failure
+RestartSec=2
+# On stop: SIGTERM, wait up to 15 s, then SIGKILL.
+TimeoutStopSec=15
+# Raise the open-files limit (chapter 2.2).
+LimitNOFILE=65536
+# Hardening: never gain privileges; most of the filesystem is read-only.
+NoNewPrivileges=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target
+```
+
+The skeleton is the same as `hello-web`. What a real service adds:
+
+- **`User=snip`** instead of `DynamicUser` — a permanent, dedicated user, because snip's config file must be readable by a known group.
+- **`EnvironmentFile=`** — configuration through environment variables ([chapter 2.2](./users-permissions-processes.mdx)), kept in a file readable only by root and the `snip` group, so the database password isn't visible to other users.
+- **`After=postgresql.service`** — don't start before the database it depends on.
+- **`TimeoutStopSec=15`** — graceful shutdown: systemd sends **SIGTERM** ([chapter 1.2](../foundations/programs-processes-threads.mdx)), snip finishes in-flight requests, and only if it hangs does systemd send SIGKILL.
+- **`LimitNOFILE`, `NoNewPrivileges`, `ProtectSystem`** — room for many simultaneous connections, and a smaller blast radius if snip is ever compromised.
+
+snip writes one JSON object per log line to stdout, so the journal and `jq` ([chapter 2.3](./pipes-and-text-tools.mdx)) work together:
+
+```bash
+journalctl -u snip -o cat | jq 'select(.level == "ERROR")'   # -o cat = message only; keep error lines
+```
+
+And the firewall rule from above applies directly: nginx in front answers on 80 and 443, while snip's own port, `8080`, stays closed to the internet.
+
+---
+
 ## Lab
 
 Free, on your own computer. You'll practise in a throwaway Linux container, so nothing on your machine changes.
@@ -306,13 +351,22 @@ Free, on your own computer. You'll practise in a throwaway Linux container, so n
    exit                                     # the container — and your fake log — disappear
    ```
 
-4. **Read a real service's status** (on Linux or WSL with systemd; skip on macOS):
+4. **Run your own service, then crash it** (on Linux, or WSL with systemd — the default on current WSL; skip on macOS, where `systemctl` doesn't exist). Create `hello-web` exactly as in the section above — the unit file in `/etc/systemd/system/hello-web.service`, the page in `/srv/hello`, then `daemon-reload` and `enable --now`. Now:
    ```bash
-   systemctl list-units --type=service --state=running | head   # what's running on your machine
-   systemctl status ssh 2>/dev/null || systemctl status cron     # a real service's status
-   journalctl -n 20 --no-pager                                   # the last 20 log lines of the whole system
+   curl -s localhost:8000                     # the page is served
+   systemctl show -p MainPID hello-web        # note the process ID
+   sudo systemctl kill -s KILL hello-web      # simulate a crash: kill it with no warning
+   sleep 3; systemctl show -p MainPID hello-web   # a different PID: systemd restarted it
+   journalctl -u hello-web -n 15 --no-pager   # find "killed", then "Scheduled restart job"
    ```
-   Then open `snip/deploy/systemd/snip.service` in the repository and match each line to the explanations above. You'll deploy snip exactly this way if you ever run it on a plain server.
+   Notice that you never restarted anything — `Restart=on-failure` did. The journal kept the evidence, which is what you'd read the morning after. Clean up:
+   ```bash
+   sudo systemctl disable --now hello-web     # stop it and remove it from boot
+   sudo rm /etc/systemd/system/hello-web.service && sudo rm -r /srv/hello
+   sudo systemctl daemon-reload
+   ```
+
+5. **Apply it to snip.** Open `snip/deploy/systemd/snip.service` in the repository and match each line to the "Apply it to snip" section above: which lines are the same as `hello-web`, and which ones only a real service needs. You'll deploy snip exactly this way if you ever run it on a plain server.
 
 ## Self-check
 
@@ -320,11 +374,11 @@ Free, on your own computer. You'll practise in a throwaway Linux container, so n
   id="linux-running-a-linux-server"
   questions={[
     {
-      q: 'You ran sudo systemctl start snip and it works, but after a reboot snip is not running. What did you forget?',
+      q: 'You ran sudo systemctl start hello-web and it works, but after a reboot it is not running. What did you forget?',
       options: [
-        'sudo systemctl restart snip, so the new unit file is loaded',
-        'sudo systemctl enable snip — start runs it now; enable runs it at boot',
-        'To install snip with apt, so it is registered as a system package',
+        'sudo systemctl restart hello-web, so the new unit file is loaded',
+        'sudo systemctl enable hello-web — start runs it now; enable runs it at boot',
+        'To install it with apt, so it is registered as a system package',
         'sudo systemctl daemon-reload, so systemd remembers the unit',
       ],
       answer: 1,
@@ -367,7 +421,7 @@ Free, on your own computer. You'll practise in a throwaway Linux container, so n
 />
 
 <details>
-<summary>Walk through what systemd does, step by step, when snip crashes at 3 a.m. with the unit file above.</summary>
+<summary>Walk through what systemd does, step by step, when snip crashes at 3 a.m. with its unit file from the "Apply it to snip" section.</summary>
 
 1. snip's process exits with a non-zero exit code (a crash).
 2. systemd, as its parent, notices immediately and records the exit in the journal.
@@ -382,6 +436,6 @@ Nobody woke up — but the crash is still in `journalctl -u snip`, and the *caus
 <details>
 <summary>Why should the database port (5432) not be open to the internet, even if the database has a strong password?</summary>
 
-Because **defence in depth**: every exposed port is a door attackers can knock on — trying passwords, exploiting bugs in the database software itself, or overwhelming it. Only the programs that need the database (snip, on the same machine or private network) should be able to reach it. A firewall that allows only SSH and HTTPS from the internet means that even a weak password or an unpatched bug in Postgres isn't directly reachable. You'll apply the same principle with cloud security groups in [chapter 12.2](../cloud/cloud-networking.mdx).
+Because **defence in depth**: every exposed port is a door attackers can knock on — trying passwords, exploiting bugs in the database software itself, or overwhelming it. Only the programs that need the database (your app, on the same machine or private network) should be able to reach it. A firewall that allows only SSH and HTTPS from the internet means that even a weak password or an unpatched bug in Postgres isn't directly reachable. You'll apply the same principle with cloud security groups in [chapter 12.2](../cloud/cloud-networking.mdx).
 
 </details>
