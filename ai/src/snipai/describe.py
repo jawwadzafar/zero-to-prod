@@ -104,7 +104,8 @@ def render(page: Page, version: str = DEFAULT_PROMPT) -> tuple[str, str]:
 
 def describe(page: Page, llm: LLM, version: str = DEFAULT_PROMPT) -> Description:
     system, prompt = render(page, version)
-    completion = llm.complete(prompt, system=system, max_tokens=100)
+    # Room for the ~35-token sentence, plus any thinking a hosted model does first.
+    completion = llm.complete(prompt, system=system, max_tokens=300)
     text = completion.text.strip()
     if text == "UNKNOWN" or completion.truncated:
         text = ""  # better no description than a wrong or half-finished one
@@ -132,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.stream:
             print("  ", end="")
             system, prompt = render(page)
-            for piece in llm.stream(prompt, system=system, max_tokens=100):
+            for piece in llm.stream(prompt, system=system, max_tokens=300):
                 print(piece, end="", flush=True)
             print("\n")
             continue

@@ -88,9 +88,11 @@ class LLM(Protocol):
 # US dollars per million tokens (input, output), as published at the time of
 # writing. Prices change: check the provider's pricing page before relying on them.
 PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
-    "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-5": (2.00, 10.00),
-    "claude-opus-5": (5.00, 25.00),
+    "claude-haiku-5-5": (0.10, 0.50),  # prompts up to 100K tokens; longer ones cost 5x
+    "claude-sonnet-5-5": (2.00, 10.00),
+    "claude-opus-5-5": (4.00, 20.00),
+    "claude-fable-5-1": (10.00, 50.00),
+    "claude-haiku-4-5": (1.00, 5.00),  # the previous Haiku, for comparison
 }
 
 
@@ -177,14 +179,24 @@ class FakeLLM:
 class AnthropicLLM:
     """Claude via the `anthropic` package. The SDK reads ANTHROPIC_API_KEY from
     the environment, retries rate limits and server errors with backoff, and
-    raises typed exceptions (anthropic.RateLimitError, ...)."""
+    raises typed exceptions (anthropic.RateLimitError, ...).
+
+    Current Claude models think before they answer, and thinking tokens are
+    output tokens: they count toward max_tokens and the bill. `effort` sets how
+    much: "low" suits short, simple jobs like ours. None sends no effort setting
+    (for older models, such as claude-haiku-4-5, that reject it)."""
 
     name = "anthropic"
 
     def __init__(
-        self, model: str = "claude-haiku-4-5", *, client: anthropic.Anthropic | None = None
+        self,
+        model: str = "claude-haiku-5-5",
+        *,
+        effort: str | None = "low",
+        client: anthropic.Anthropic | None = None,
     ) -> None:
         self.model = model
+        self.effort = effort
         self._client = client or anthropic.Anthropic(
             timeout=60.0,  # the SDK default is 10 minutes: far too long for a web request
             max_retries=2,  # retries 429s, 5xx and connection errors, with backoff
@@ -204,10 +216,7 @@ class AnthropicLLM:
             max_tokens=max_tokens,
             system=system or anthropic.omit,
             messages=[{"role": "user", "content": prompt}],
-            # Structured output: the API constrains the answer to this JSON schema.
-            output_config=(
-                {"format": {"type": "json_schema", "schema": schema}} if schema else anthropic.omit
-            ),
+            output_config=self._output_config(schema),
         )
         # The answer is a list of content blocks; we want the text ones.
         text = "".join(block.text for block in response.content if block.type == "text")
@@ -220,6 +229,15 @@ class AnthropicLLM:
             seconds=time.perf_counter() - start,
         )
 
+    def _output_config(self, schema: dict[str, Any] | None = None) -> Any:
+        config: dict[str, Any] = {}
+        if self.effort:
+            config["effort"] = self.effort  # how hard to think: low, medium, high, ...
+        if schema:
+            # Structured output: the API constrains the answer to this JSON schema.
+            config["format"] = {"type": "json_schema", "schema": schema}
+        return config or anthropic.omit
+
     def chat(
         self,
         messages: list[Message],
@@ -228,7 +246,9 @@ class AnthropicLLM:
         system: str | None = None,
         max_tokens: int = 1000,
     ) -> Turn:
-        return anthropic_chat(self._client, self.model, messages, tools, system, max_tokens)
+        return anthropic_chat(
+            self._client, self.model, messages, tools, system, max_tokens, self._output_config()
+        )
 
     def stream(
         self, prompt: str, *, system: str | None = None, max_tokens: int = 500
@@ -238,6 +258,7 @@ class AnthropicLLM:
             max_tokens=max_tokens,
             system=system or anthropic.omit,
             messages=[{"role": "user", "content": prompt}],
+            output_config=self._output_config(),
         ) as stream:
             yield from stream.text_stream
 
@@ -341,7 +362,7 @@ def get_llm() -> LLM:
     if provider == "fake":
         return FakeLLM()
     if provider == "anthropic":
-        return AnthropicLLM(model or "claude-haiku-4-5")
+        return AnthropicLLM(model or "claude-haiku-5-5")
     if provider == "ollama":
         url = os.environ.get("OLLAMA_URL", "http://localhost:11434")
         temp = os.environ.get("SNIPAI_TEMPERATURE")
@@ -401,6 +422,7 @@ class Message:
     tool_calls: list[ToolCall] | None = None  # assistant: calls it wants made
     call_id: str = ""  # tool: which call this is the result of
     name: str = ""  # tool: which tool produced it
+    raw: Any = None  # assistant: the provider's own content blocks, sent back unchanged
 
 
 @dataclass
@@ -410,6 +432,9 @@ class Turn:
     text: str
     tool_calls: list[ToolCall]
     completion: Completion
+    # The provider's content blocks, including any thinking blocks. Claude needs
+    # them back, unchanged, in the next request of a tool-use conversation.
+    raw: Any = None
 
 
 def _to_anthropic(messages: list[Message]) -> list[dict[str, Any]]:
@@ -417,6 +442,8 @@ def _to_anthropic(messages: list[Message]) -> list[dict[str, Any]]:
     for m in messages:
         if m.role == "user":
             out.append({"role": "user", "content": m.text})
+        elif m.role == "assistant" and m.raw is not None:
+            out.append({"role": "assistant", "content": m.raw})  # exactly as Claude sent it
         elif m.role == "assistant":
             blocks: list[dict[str, Any]] = [{"type": "text", "text": m.text}] if m.text else []
             blocks += [
@@ -440,6 +467,7 @@ def anthropic_chat(
     tools: list[ToolSpec],
     system: str | None,
     max_tokens: int,
+    output_config: Any = anthropic.omit,
 ) -> Turn:
     start = time.perf_counter()
     response = client.messages.create(
@@ -451,6 +479,7 @@ def anthropic_chat(
             {"name": t.name, "description": t.description, "input_schema": t.input_schema}
             for t in tools
         ],
+        output_config=output_config,
     )
     text = "".join(b.text for b in response.content if b.type == "text")
     calls = [
@@ -467,6 +496,7 @@ def anthropic_chat(
             response.stop_reason or "",
             time.perf_counter() - start,
         ),
+        raw=[b.model_dump(exclude_none=True) for b in response.content],
     )
 
 

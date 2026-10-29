@@ -8,7 +8,7 @@ description: "What an agent really is (a model in a loop choosing its own next s
 
 "Agent" is the most hyped word in AI. Strip the hype and the idea is small: **an agent is a model in a loop, choosing its own next step with tools, until it decides the goal is met.** You already built the loop in [chapter 14.6](./structured-output-and-tools.mdx). What changes with an agent is that the task is open-ended: the model doesn't make one lookup and answer; it plans, acts, looks at the result, and decides what to do next, possibly for dozens of steps. That's genuinely powerful, and it's also where AI systems do their most expensive and most embarrassing damage, because a model that chooses its own steps can choose wrong ones, repeatedly, with your permissions.
 
-In this chapter you'll build a small agent for snip that **finds links whose destination is broken and deletes them**, with the guardrails that make that safe: budgets, least privilege, human approval for the dangerous step, and a full trace. Then you'll watch a small open model attempt it, and see which guardrails it needed.
+This chapter's example is a chore everyone with a bookmark list knows: **find the links whose destination is broken, and delete them**. You'll run it as an agent over the links in snip (the URL shortener you build through this handbook), with the guardrails that make that safe: budgets, least privilege, human approval for the dangerous step, and a full trace. Then you'll watch a small open model attempt it, see which guardrails it needed, and find out why this task shouldn't have been an agent at all.
 
 ## What you'll learn
 
@@ -28,7 +28,7 @@ A recipe and a chef. A recipe is a fixed sequence of steps: anyone can follow it
 
 There are two ways to build a multi-step AI feature:
 
-- A **workflow**: *your code* decides the steps, and the model does specific jobs inside them. snip's link pipeline is a workflow: fetch the page (code), describe it (model, [chapter 14.4](./calling-models-from-code.mdx)), tag it (model, [chapter 14.6](./structured-output-and-tools.mdx)), store both (code). Always the same steps, in the same order.
+- A **workflow**: *your code* decides the steps, and the model does specific jobs inside them. A support inbox is a typical one: classify the email (model, [chapter 14.6](./structured-output-and-tools.mdx)), look up the order (code), draft a reply (model), and a person approves and sends it (code). snip's link pipeline is another: fetch the page (code), describe it (model, [chapter 14.4](./calling-models-from-code.mdx)), tag it (model), store both (code). Always the same steps, in the same order.
 - An **agent**: *the model* decides the steps. You give it a goal and tools, and it chooses which tool to call, with what arguments, and when it's done.
 
 Workflows come in useful shapes: **chaining** (one call's output feeds the next), **routing** (a cheap call classifies the request, then code sends it to the right handler), **parallel** calls (describe 100 links at once) and **evaluator loops** (one call drafts, another checks). All with code in charge.
@@ -52,7 +52,7 @@ def run_agent(goal, llm, tools, *, system, confirm, max_steps=12, max_tokens=20_
             break
         turn = llm.chat(messages, specs, system=system)
         run.tokens += turn.completion.input_tokens + turn.completion.output_tokens
-        messages.append(Message("assistant", turn.text, tool_calls=turn.tool_calls))
+        messages.append(Message("assistant", turn.text, tool_calls=turn.tool_calls, raw=turn.raw))
         if not turn.tool_calls:
             run.answer = turn.text.strip() or "(the agent gave no final answer)"
             run.log("answer", run.answer)
@@ -65,7 +65,7 @@ def run_agent(goal, llm, tools, *, system, confirm, max_steps=12, max_tokens=20_
     ...
 ```
 
-Notice that the whole conversation is sent on **every** turn (the API is stateless, [chapter 14.4](./calling-models-from-code.mdx)). So the cost of an agent grows faster than its number of steps: turn 10 pays again for everything in turns 1 to 9. Budgets are not optional.
+(`raw=turn.raw` keeps the model's turn exactly as the provider sent it, thinking blocks included, which Claude needs back on the next turn, [chapter 14.6](./structured-output-and-tools.mdx).) Notice that the whole conversation is sent on **every** turn (the API is stateless, [chapter 14.4](./calling-models-from-code.mdx)). So the cost of an agent grows faster than its number of steps: turn 10 pays again for everything in turns 1 to 9. Budgets are not optional.
 
 ### Errors compound
 
@@ -135,7 +135,7 @@ Two separate CI runs, each on a fresh machine, produced this identical trace. Wh
 
 Would a bigger model do better? Very likely: following a plan across several tool calls is exactly what larger models are trained for. But we haven't run that in CI (it needs a paid key), so it's not a result, and you can try it in the lab.
 
-The more important lesson is that **this task shouldn't be an agent.** Look at the steps: list the links, check each destination, delete the broken ones. They're known in advance, the same every time. That's a workflow, and it doesn't even need a model: `tidy_tools()` already has the checker, so ten lines of plain Python could list, check, and ask a person before each delete (you'll write them in lab step 5). A model is useful at the edges (explaining *why* a page looks broken, say), not in charge of the loop. We built the agent to see agents fail somewhere harmless, and it did.
+The more important lesson is that **this task shouldn't be an agent.** Look at the steps: list the links, check each destination, delete the broken ones. They're known in advance, the same every time. That's a workflow, and it doesn't even need a model: `tidy_tools()` already has the checker, so ten lines of plain Python could list, check, and ask a person before each delete (you'll write them in lab step 6). A model is useful at the edges (explaining *why* a page looks broken, say), not in charge of the loop. We built the agent to see agents fail somewhere harmless, and it did.
 
 ---
 
@@ -161,31 +161,33 @@ You don't have to write agent loops by hand. Model providers offer SDK helpers t
 
 ## Lab
 
-Free. Steps 1–3 use the fake model; step 4 uses a free local model through Ollama. You need snip running in memory mode ([chapter 14.1](./python-for-ai-engineers.mdx)).
+Free, except the optional step 1. Steps 2–4 use the fake model; step 5 uses a free local model through Ollama. From step 3 on you need snip running in memory mode (`go run ./cmd/snip serve` in `snip/`, [chapter 5.1](../apis/first-http-server.mdx)).
 
-1. **Run the tests**, which script an agent through the tidy-up and prove the guardrails hold:
+1. **Optional, with your own key: turn a tool loop into a guarded agent.** Take `orders.py` from [chapter 14.6](./structured-output-and-tools.mdx) and add a second tool, `cancel_order(order_id, reason)`. Before running it, ask a person with `input(f"Cancel {order_id}? ({reason}) [y/N] ")`, and if the answer isn't `y`, return `"not done: the user declined"` as the tool result. Add a token budget: sum `response.usage.input_tokens + output_tokens` each turn and stop above 20,000. Ask it "cancel order 1043, I ordered by mistake" and refuse once. **What to notice:** what the model says after a refusal, and that nothing in the prompt was needed to make the refusal stick.
+
+2. **Run the tests**, which script an agent through the tidy-up and prove the guardrails hold:
    ```bash
    cd ~/code/zero-to-prod/ai
    uv run pytest tests/test_agent.py -v
    ```
    **What to notice:** `test_declined_action_is_not_run_and_the_model_is_told` and `test_step_and_token_budgets_stop_a_runaway_agent`.
 
-2. **Set the scene.** With snip running (paste its key), create a healthy link and a broken one:
+3. **Set the scene.** With snip running (paste its key), create a healthy link and a broken one:
    ```bash
    export SNIP_URL=http://localhost:8080 SNIP_API_KEY=snip_...
    curl -s -X POST $SNIP_URL/api/links -H "Authorization: Bearer $SNIP_API_KEY" -d '{"url":"https://go.dev","slug":"golang"}'
    curl -s -X POST $SNIP_URL/api/links -H "Authorization: Bearer $SNIP_API_KEY" -d '{"url":"https://gone.invalid/","slug":"deadsite"}'
    ```
 
-3. **Run the agent with the fake model:** `uv run python -m snipai.agent`. The fake only lists the links and stops, but the trace, the budget and the loop are all real.
+4. **Run the agent with the fake model:** `uv run python -m snipai.agent`. The fake only lists the links and stops, but the trace, the budget and the loop are all real.
 
-4. **Run it with a real model, and approve or refuse each deletion yourself:**
+5. **Run it with a real model, and approve or refuse each deletion yourself:**
    ```bash
    SNIPAI_PROVIDER=ollama SNIPAI_MODEL=qwen2.5:1.5b SNIPAI_TEMPERATURE=0 uv run python -m snipai.agent
    ```
    If it asks to delete, read the reason. Refuse once and see what it does next. (It may never ask: in CI, this model didn't.) Then list your links (`curl -s $SNIP_URL/api/links -H "Authorization: Bearer $SNIP_API_KEY"`) and compare the **end state** with what the agent *said* it did. Try `SNIPAI_MODEL=qwen2.5:7b` (about 4.7 GB) if your machine can run it, and compare.
 
-5. **Turn it into a workflow.** The task's steps are actually fixed: list, check each, delete the broken ones. Write `tidy_workflow(snip)` in Python that does exactly that with no model at all, asking for confirmation before each delete. How many model calls did the agent need, and how many does your workflow need? When *would* this task need an agent?
+6. **Turn it into a workflow.** The task's steps are actually fixed: list, check each, delete the broken ones. Write `tidy_workflow(snip)` in Python that does exactly that with no model at all, asking for confirmation before each delete. How many model calls did the agent need, and how many does your workflow need? When *would* this task need an agent?
 
 ## Self-check
 
@@ -207,7 +209,7 @@ Free. Steps 1–3 use the fake model; step 4 uses a free local model through Oll
       q: 'Each step of an agent is right 90% of the time. Roughly how often does a 10-step task succeed?',
       options: ['90%', 'About 65%', 'About 35%', '10%'],
       answer: 2,
-      explain: '0.9 to the power 10 ≈ 0.35. Reliability compounds across steps, which is why fewer steps and checkpoints matter.',
+      explain: 'Every step has to go right: 0.9 multiplied by itself 10 times ≈ 0.35. The tempting 90% assumes errors don’t add up, but each step is another chance to fail. Reliability compounds across steps, which is why fewer steps (a workflow for the predictable parts) and checkpoints in code matter.',
     },
     {
       q: 'Why does the delete tool need a human’s approval in code, rather than a system prompt saying "be careful with deletions"?',
@@ -229,7 +231,7 @@ Free. Steps 1–3 use the fake model; step 4 uses a free local model through Oll
         'Read the agent’s reasoning, which explains each step it took',
       ],
       answer: 2,
-      explain: 'Check the end state in code: list the links and compare with what should have been deleted. Evaluate outcomes, not an agent’s own summary of them.',
+      explain: 'Check the end state in code: list the links and compare with what should have been deleted. The agent’s summary, its reasoning and a second conversation are all more model output, and this chapter’s small model claimed success after checking nothing. Evaluate outcomes, not an agent’s own account of them.',
     },
     {
       q: 'Why do agent runs get more expensive faster than their number of steps?',
@@ -240,7 +242,7 @@ Free. Steps 1–3 use the fake model; step 4 uses a free local model through Oll
         'The model writes longer answers as it gets closer to the goal',
       ],
       answer: 1,
-      explain: 'The API is stateless. Budgets on steps and tokens keep costs bounded.',
+      explain: 'The API is stateless, so every turn resends the whole conversation: turn 10 pays again for the question, every tool call and every tool result from turns 1 to 9. Tool calls aren’t billed separately and tools don’t change the rate; it is the growing input that costs. Budgets on steps and tokens keep it bounded.',
     },
   ]}
 />

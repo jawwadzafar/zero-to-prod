@@ -1,23 +1,23 @@
 ---
 title: "15.2 Decisions: ADRs, trade-offs & C4 diagrams"
 sidebar_label: "15.2 Decisions: ADRs, trade-offs & C4"
-description: "How engineers make and record design decisions: thinking in trade-offs, one-way and two-way doors, architecture decision records (with snip's real ADRs, including the one a game day forced), design documents for bigger changes, and the C4 model for diagrams that stay useful, kept as code next to the system."
+description: "How engineers make and record design decisions: thinking in trade-offs, one-way and two-way doors, architecture decision records, design documents for bigger changes, and the C4 model for diagrams that stay useful, kept as code next to the system; then snip's real ADRs, including the one a game day forced, and its container diagram."
 ---
 
 # 15.2 Decisions: ADRs, trade-offs & C4 diagrams
 
-Six months from now, someone new joins the team behind snip. They open the readiness check, notice that it doesn't fail when Redis is down, and think: "that's a bug, a dependency is down and we still say we're ready." They fix it, the tests pass, the review is quick. And the next time Redis freezes, every copy of snip is taken out of service at once, exactly the outage [chapter 13.5](../observability/incidents-and-postmortems.mdx)'s game day found and fixed.
+Imagine you've just joined a team. Reading the code, you find a health check that reports the service as ready even when its cache is down. That looks like a bug: a dependency is down, and we still say we're ready? You fix it, the tests pass, the review is quick. The next time the cache freezes, the load balancer sees every copy of the service report "not ready" at once and takes them all out of rotation. A slow cache has become a total outage.
 
-Nothing in the code says *why* it's that way. The reasoning lived in a chapter, a commit message and a few people's heads. This chapter is about keeping it somewhere better: how to think about decisions as trade-offs, how to record them so they survive, and how to draw a system so people understand it.
+This isn't far-fetched. It's the exact outage that the game day in [chapter 13.5](../observability/incidents-and-postmortems.mdx) (a planned exercise where a team breaks its own system on purpose) found in snip, the project this handbook builds. And nothing in the code said *why* the check was written that way: the reasoning lived in a commit message and a few people's heads. This chapter is about keeping it somewhere better: how to think about decisions as trade-offs, how to record them so they survive, and how to draw a system so people understand it.
 
 ## What you'll learn
 
 - Why every design decision is a **trade-off**, and how to name what you're giving up.
 - **One-way** and **two-way doors**: how much care a decision deserves.
-- **Architecture decision records** (**ADRs**): what they are, with snip's real ones.
+- **Architecture decision records** (**ADRs**): a page per decision, kept next to the code.
 - **Design documents** for bigger changes, and how they're reviewed.
 - The **C4 model**: four zoom levels for diagrams, and why two are usually enough.
-- **Diagrams as code**, kept next to the system so they don't go stale.
+- **Diagrams as code**, kept next to the system so they don't go stale; then all of it in snip.
 
 ---
 
@@ -27,31 +27,31 @@ Nothing in the code says *why* it's that way. The reasoning lived in a chapter, 
 Choosing a car. A small car is cheap to run and easy to park; a van carries the whole family and the dog. Neither is "the best car"; each is best for someone. A salesperson who says one car has no downsides is either not thinking or selling something.
 :::
 
-There are almost no best solutions in system design, only choices that fit particular requirements better, at a cost. snip's decisions, each with its price named:
+There are almost no best solutions in system design, only choices that fit particular requirements better, at a cost. Take an ordinary online shop:
 
 | Decision | Gains | Gives up |
 |---|---|---|
-| 302 redirects | Accurate counts; links can be disabled instantly | One request to snip per click, forever |
-| Counting clicks through a stream | Fast redirects; batched writes | Counts lag; clicks can be lost if Redis is down |
-| Random slugs | No coordination; unguessable | Occasional retry; slugs aren't sequential or meaningful |
+| Cache product pages for 5 minutes | Fast pages; far fewer database reads | A price change takes up to 5 minutes to show |
+| Send order emails through a queue | Checkout doesn't wait on the email provider | Emails can arrive late; a worker and retries to run |
+| Random order IDs (UUIDs) | No coordination between servers; unguessable | Long, unordered IDs; larger indexes |
 | One Postgres primary | Simplicity, consistency, SQL | A ceiling on writes; one region |
 
-A useful habit: **never describe a choice without its cost.** "We'll use a queue" is half a sentence. "We'll use a queue, so redirects stay fast, and counts will lag by seconds" is a decision someone can agree or disagree with. If you can't name what an option gives up, you haven't understood it yet, and in an interview, naming the cost unprompted is one of the clearest signals of seniority.
+A useful habit: **never describe a choice without its cost.** "We'll use a queue" is half a sentence. "We'll use a queue, so checkout stays fast, and confirmation emails may arrive a minute late" is a decision someone can agree or disagree with. If you can't name what an option gives up, you haven't understood it yet, and in an interview, naming the cost unprompted is one of the clearest signals of seniority.
 
 ### One-way and two-way doors
 
 Not every decision deserves the same care. A widely used way to sort them:
 
-- **Two-way doors** are easy to reverse: a library for parsing JSON, the name of an internal function, the cache TTL (snip's is one hour, a config value). Decide quickly, and change your mind later if needed. Deliberating over them is the waste.
-- **One-way doors** are hard or expensive to reverse: the primary database, the public API's URL format, the slug format (every link ever shared depends on it), 302 versus 301 (browsers cache 301s, so a mistake is out of your hands). Slow down, write it down, get it reviewed.
+- **Two-way doors** are easy to reverse: a library for parsing JSON, the name of an internal function, a cache's TTL (time to live) in a config file. Decide quickly, and change your mind later if needed. Deliberating over them is the waste.
+- **One-way doors** are hard or expensive to reverse: the primary database, the URL format of a public API, the format of IDs that customers have bookmarked or printed, a **301 permanent redirect** (browsers cache it, so a mistake is out of your hands). Slow down, write it down, get it reviewed.
 
-Much of the skill is noticing which kind you're facing. The slug format looks like a detail, and it's a promise to everyone who ever shares a link.
+Much of the skill is noticing which kind you're facing. An ID format looks like a detail, and it's a promise to everyone who ever saved one.
 
 ---
 
 ## Architecture decision records
 
-An **architecture decision record** (**ADR**) is a short document recording one significant decision: the situation, what was decided, and what it costs. The common format, introduced by Michael Nygard, has five parts:
+An **architecture decision record** (**ADR**) is a short document recording one significant decision: the situation, what was decided, and what it costs. The common format, introduced by Michael Nygard in 2011, has five parts:
 
 - **Title**, as a short statement of the decision.
 - **Status**: proposed, accepted, deprecated, or **superseded** by a later record.
@@ -59,9 +59,134 @@ An **architecture decision record** (**ADR**) is a short document recording one 
 - **Decision**: what we'll do, stated plainly.
 - **Consequences**: what becomes easier and harder, good and bad.
 
-ADRs are numbered and kept in the repository, next to the code (snip's live in `snip/docs/adr/`), so they're versioned, reviewed in pull requests, and found by anyone reading the code. They're **never rewritten**: when a decision changes, a new ADR supersedes the old one, and the old one stays, so the history of *why* is preserved too.
+Here's what one looks like for the shop's email decision (an illustration, not a real company's record):
 
-Here's snip's ADR 6, the one the game day forced, in full:
+```markdown
+# 3. Send order emails through a queue
+
+- **Status:** Accepted
+- **Date:** 2026-03-02
+
+## Context
+
+Checkout calls the email provider directly. When the provider is slow (p99 of
+4 s last month), checkout is slow; when it is down, orders fail. Options: keep
+the direct call with a short timeout; send through a queue and a worker; let
+the provider's batch API send emails hourly.
+
+## Decision
+
+Checkout writes an "order placed" job to the queue and returns. A worker sends
+the email, retrying with backoff for up to 24 hours.
+
+## Consequences
+
+- Checkout no longer depends on the email provider.
+- Emails can arrive minutes late, and a few may be sent twice after a worker
+  crash, so the email says "your order" rather than "your first order".
+- We now run and monitor a worker, and alert on queue depth.
+```
+
+ADRs are numbered and kept in the repository, next to the code (often in `docs/adr/`), so they're versioned, reviewed in pull requests, and found by anyone reading the code. They're **never rewritten**: when a decision changes, a new ADR supersedes the old one, and the old one stays, so the history of *why* is preserved too.
+
+What makes a good one:
+
+- The **context tells the story**, including the failure or pressure that forced the decision. That's what stops the newcomer in this chapter's opening from "fixing" a deliberate choice: a comment in the code linking to the ADR would take them straight to it.
+- The **consequences include the bad ones**, honestly. A record that lists only benefits is a sales pitch.
+- It's **short**. An ADR is read in two minutes; under 40 lines is typical.
+
+### When to write one
+
+Write an ADR when a decision is **hard to reverse**, **affects more than one component or team**, or is something people will ask "why?" about. Don't write one for two-way doors: an ADR about which logging library to use is noise that buries the important ones. A team making a handful a year is about right; one a month is fine for a young system. If a decision isn't worth a paragraph, it isn't significant enough for a record.
+
+:::warning[What can go wrong]
+ADRs fail in predictable ways. **Nobody reads them**: fix that by linking to them from the code they explain (`// Readiness ignores the cache on purpose: see docs/adr/0006`) and from onboarding docs. **They're written after the argument is over**, to justify what was already done, with the alternatives made to look silly: write them while deciding, and give the rejected options their best case. **They're rewritten** when minds change, losing the history: supersede instead.
+:::
+
+---
+
+## Design documents: for decisions that need discussion
+
+An ADR records a decision. For bigger changes (a new service, a migration, a feature touching several teams), the thinking happens first in a **design document** (some organisations call it an **RFC**, "request for comments"). A typical structure:
+
+1. **Problem and context**: what's wrong or missing, and why now. With numbers.
+2. **Goals and non-goals**: what success means, and what this deliberately won't do ([chapter 15.1](./system-design-method.mdx)'s "out of scope").
+3. **Proposal**: the design, at the level of [chapter 15.1](./system-design-method.mdx)'s steps 3 to 5: API, data, components, the hard parts.
+4. **Alternatives considered**, each with why it lost. This section is where reviewers learn whether you really explored the problem.
+5. **Risks, rollout and rollback**: how it ships safely ([Part 11](../shipping/how-software-ships.mdx)), how you'd know it's failing ([Part 13](../observability/logs.mdx)), how you'd undo it.
+6. **Open questions**: what you don't know yet. Being explicit here invites the right help.
+
+It's shared for review, people comment, the design improves, and the outcome is recorded, often as one or more ADRs. The document's real value is that disagreements happen on paper, cheaply, before anyone has written code they're attached to.
+
+Keep it proportionate. Two pages that people read beat twenty that they skim. And a design doc is not a contract: when implementation teaches you something, update the plan and record the change.
+
+---
+
+## The C4 model: diagrams at four zoom levels
+
+:::note[Everyday anchor]
+An online map. Zoomed out, you see countries and the roads between cities. Zoom in and you see a city's districts, then streets, then buildings. Each level answers different questions, and nobody wants every street drawn on the map of Europe.
+:::
+
+Most architecture diagrams fail the same way: boxes of every kind (servers, services, classes, teams) mixed on one page, arrows without labels, no legend. The **C4 model**, created by Simon Brown, fixes that with four zoom levels, each for a different audience:
+
+1. **Context**: your system as one box, the people who use it, and the other systems it talks to. For everyone, including non-technical people.
+2. **Containers**: the separately running pieces inside your system (applications, databases, queues) and how they communicate. ("Container" here means anything that runs or stores data, not specifically a Docker container.) For engineers and operators.
+3. **Components**: the major parts inside one container. For the people working on that container.
+4. **Code**: classes and functions. Almost never drawn by hand; your editor shows it.
+
+In practice, levels 1 and 2 give most of the value. Here's the shop at level 1, the context: one box for the system, and everything outside it:
+
+```mermaid
+flowchart LR
+  customer["<b>Customer</b><br/>[person]"] -- "browses, orders" --> shop["<b>Online shop</b><br/>[the system]"]
+  shop -- "charges cards" --> pay["<b>Payment provider</b><br/>[external system]"]
+  shop -- "sends emails" --> mail["<b>Email provider</b><br/>[external system]"]
+```
+
+And at level 2, zoomed into the shop's box:
+
+```mermaid
+flowchart TB
+  customer["Customer"] -- "HTTPS" --> web["<b>Web app</b><br/>[Python: Django]<br/>Pages, cart, checkout"]
+  web -- "SQL: products, orders" --> db[("<b>Postgres</b><br/>Source of truth")]
+  web -- "page cache, 5 min (ADR 2)" --> cache[("<b>Redis</b><br/>Cache and queue")]
+  web -- "enqueue 'order placed' (ADR 3)" --> cache
+  worker["<b>Email worker</b><br/>[Python]<br/>Sends order emails"] -- "take jobs" --> cache
+  worker -- "API call" --> mail["Email provider"]
+```
+
+The rules that make it readable:
+
+- **Every box says what it is and what it's made of**: a name, a type in brackets (`[Python: Django]`), and one line on its job.
+- **Every arrow is labelled** with what flows along it, and ideally how (HTTPS, SQL, an API call).
+- **One level per diagram.** No classes on the container diagram, no servers on the context diagram.
+- **Links to the reasoning**: the boxes and arrows point at ADRs, so a reader can go from "what" to "why".
+
+### Diagrams as code
+
+The diagrams above are **Mermaid**: text that a renderer turns into a picture (it's also what draws every diagram in this handbook). Kept inside a Markdown file in the repository, GitHub renders them, they're reviewed in pull requests like code, and when the architecture changes, the diagram changes in the same pull request. A diagram drawn in a separate tool and exported as a picture starts going stale the day it's made, because updating it is a separate chore nobody owns. Keeping diagrams as text next to the code is the single most effective way to keep them true.
+
+---
+
+## Apply it to snip
+
+snip, the URL shortener built through this handbook, keeps its decisions and diagrams exactly this way: ADRs in `snip/docs/adr/`, and a C4 context and container diagram in `snip/docs/architecture.md`.
+
+### snip's trade-offs, with their prices
+
+| Decision | Gains | Gives up |
+|---|---|---|
+| 302 redirects (ADR 3) | Accurate counts; links can be disabled instantly | One request to snip per click, forever |
+| Counting clicks through a stream (ADR 5) | Fast redirects; batched writes | Counts lag; clicks can be lost if Redis is down |
+| Random slugs (ADR 4) | No coordination; unguessable | Occasional retry; slugs aren't sequential or meaningful |
+| One Postgres primary (ADR 2) | Simplicity, consistency, SQL | A ceiling on writes; one region |
+
+Its doors: the cache TTL (one hour, a config value) is two-way. The slug format is one-way: every link ever shared depends on it. So is 302 versus 301.
+
+### ADR 6: the one the game day forced
+
+Here's snip's ADR 6, in full. It records the fix for the outage in this chapter's opening:
 
 ```markdown
 # 6. Redis is a soft dependency
@@ -101,57 +226,15 @@ dependency without anyone deciding it should.
   hard or soft, and test the soft ones failing.
 ```
 
-What to notice:
-
-- The **context** tells the story, including the failure. That's what stops the newcomer in this chapter's opening from "fixing" the readiness check: a comment in the code linking to ADR 6 would take them straight here.
-- The **consequences** include the bad ones, honestly: lost clicks, unlimited link creation during an outage. A record that lists only benefits is a sales pitch.
-- It's **short**. An ADR is read in two minutes. Every one of snip's is under 40 lines.
+What to notice: the context tells the story of the failure; the consequences admit lost clicks and unlimited link creation during an outage; and it's under 40 lines, like every one of snip's ADRs.
 
 :::info[Honesty label]
 snip's ADRs 2 to 5 were written **after the fact**, from the chapters where those decisions were made, and they say so ("recorded 2026-09-25"). That's common and fine: recording a decision late is far better than never. ADR 6 was written as part of the decision it records.
 :::
 
-### When to write one
+### snip's container diagram
 
-Write an ADR when a decision is **hard to reverse**, **affects more than one component or team**, or is something people will ask "why?" about. Don't write one for two-way doors: an ADR about which logging library to use is noise that buries the important ones. A team making a handful a year is about right; one a month is fine for a young system. If a decision isn't worth a paragraph, it isn't significant enough for a record.
-
-:::warning[What can go wrong]
-ADRs fail in predictable ways. **Nobody reads them**: fix that by linking to them from the code they explain (`// Readiness ignores Redis on purpose: see docs/adr/0006`) and from onboarding docs. **They're written after the argument is over**, to justify what was already done, with the alternatives made to look silly: write them while deciding, and give the rejected options their best case. **They're rewritten** when minds change, losing the history: supersede instead.
-:::
-
----
-
-## Design documents: for decisions that need discussion
-
-An ADR records a decision. For bigger changes (a new service, a migration, a feature touching several teams), the thinking happens first in a **design document** (some organisations call it an **RFC**, "request for comments"). A typical structure:
-
-1. **Problem and context**: what's wrong or missing, and why now. With numbers.
-2. **Goals and non-goals**: what success means, and what this deliberately won't do ([chapter 15.1](./system-design-method.mdx)'s "out of scope").
-3. **Proposal**: the design, at the level of [chapter 15.1](./system-design-method.mdx)'s steps 3 to 5: API, data, components, the hard parts.
-4. **Alternatives considered**, each with why it lost. This section is where reviewers learn whether you really explored the problem.
-5. **Risks, rollout and rollback**: how it ships safely ([Part 11](../shipping/how-software-ships.mdx)), how you'd know it's failing ([Part 13](../observability/logs.mdx)), how you'd undo it.
-6. **Open questions**: what you don't know yet. Being explicit here invites the right help.
-
-It's shared for review, people comment, the design improves, and the outcome is recorded, often as one or more ADRs. The document's real value is that disagreements happen on paper, cheaply, before anyone has written code they're attached to.
-
-Keep it proportionate. Two pages that people read beat twenty that they skim. And a design doc is not a contract: when implementation teaches you something, update the plan and record the change.
-
----
-
-## The C4 model: diagrams at four zoom levels
-
-:::note[Everyday anchor]
-An online map. Zoomed out, you see countries and the roads between cities. Zoom in and you see a city's districts, then streets, then buildings. Each level answers different questions, and nobody wants every street drawn on the map of Europe.
-:::
-
-Most architecture diagrams fail the same way: boxes of every kind (servers, services, classes, teams) mixed on one page, arrows without labels, no legend. The **C4 model**, created by Simon Brown, fixes that with four zoom levels, each for a different audience:
-
-1. **Context**: your system as one box, the people who use it, and the other systems it talks to. For everyone, including non-technical people.
-2. **Containers**: the separately running pieces inside your system (applications, databases, queues) and how they communicate. ("Container" here means anything that runs or stores data, not specifically a Docker container.) For engineers and operators.
-3. **Components**: the major parts inside one container. For the people working on that container.
-4. **Code**: classes and functions. Almost never drawn by hand; your editor shows it.
-
-In practice, levels 1 and 2 give most of the value, and they're what snip's `docs/architecture.md` contains. The container diagram:
+From `snip/docs/architecture.md`, C4 level 2:
 
 ```mermaid
 flowchart TB
@@ -170,30 +253,23 @@ flowchart TB
   worker -- "add totals" --> pg
 ```
 
-The rules that make it readable:
-
-- **Every box says what it is and what it's made of**: a name, a type in brackets (`[Go: snip serve]`), and one line on its job.
-- **Every arrow is labelled** with what flows along it, and ideally how (HTTP, SQL, `XADD`).
-- **One level per diagram.** No classes on the container diagram, no servers on the context diagram.
-- **Links to the reasoning**: the boxes point at ADRs, so a reader can go from "what" to "why".
-
-### Diagrams as code
-
-snip's diagrams are **Mermaid** text inside a Markdown file (Mermaid is also what draws every diagram in this handbook). GitHub renders them, they're reviewed in pull requests like code, and when the architecture changes, the diagram changes in the same pull request. A diagram drawn in a separate tool and exported as a picture starts going stale the day it's made, because updating it is a separate chore nobody owns. Keeping diagrams as text next to the code is the single most effective way to keep them true.
+Every box names its technology and job, every arrow says what flows (`XADD` is the Redis command that appends to a stream), and the two data stores point at the ADRs that explain their roles.
 
 ---
 
 ## Lab
 
-About an hour. You need your clone of the repository.
+About an hour. Steps 1–2 need only a text editor; steps 3–5 need your clone of the repository.
 
-1. **Read snip's decisions.** Open `snip/docs/adr/README.md` and read ADRs 3 to 6. For each, find the code it describes (for example, `http.StatusFound` in `internal/httpapi/server.go` for ADR 3). **What to notice:** none of that code links back to its ADR yet. Add a one-line comment to two of those places pointing at the ADR.
+1. **Draw a context diagram** for a system you use daily (your bank's app, a food-delivery app) at C4 level 1, in Mermaid. Paste it into a Mermaid live editor or a GitHub Markdown file to render it. Keep it to one box for the system, and label every arrow. Then zoom in once: draw the containers you'd guess are inside it.
 
-2. **Write ADR 7.** [Chapter 14.9](../ai/agents.mdx) suggested that snip's delete should be a **soft delete** (hidden and recoverable for 30 days) instead of a permanent one. Write `0007-soft-delete-links.md` with status **Proposed**. In the context, list at least two alternatives (keep hard deletes; an audit log table; a `deleted_at` column). In the consequences, include the costs: every query must now exclude deleted links, the slug stays taken for 30 days, storage grows, and there's a privacy question (a user who deletes a link may expect it gone). Decide, and say why.
+2. **Write an ADR for a decision you know.** Pick one from your work, a side project, or the shop above (say, "cache product pages for 5 minutes"). Use the five parts. In the context, give at least two alternatives their best case; in the consequences, list at least one real cost.
 
-3. **Classify doors.** For each of these snip changes, decide: one-way or two-way door? Changing the cache TTL; adding a `/api/v2`; changing the slug alphabet; switching the click stream from Redis to a dedicated message broker; renaming a Prometheus metric. Write one sentence of reasoning for each. (The metric one is sneakier than it looks: who depends on the name? [Chapter 13.4](../observability/slos-alerting-on-call.mdx)'s alerts do.)
+3. **Read snip's decisions.** Open `snip/docs/adr/README.md` and read ADRs 3 to 6. For each, find the code it describes (for example, `http.StatusFound` in `internal/httpapi/server.go` for ADR 3). **What to notice:** none of that code links back to its ADR yet. Add a one-line comment to two of those places pointing at the ADR.
 
-4. **Draw a context diagram** for a system you use daily (your bank's app, a food-delivery app) at C4 level 1, in Mermaid. Paste it into a Mermaid live editor or a GitHub Markdown file to render it. Keep it to one box for the system, and label every arrow.
+4. **Write snip's ADR 7.** [Chapter 14.9](../ai/agents.mdx) suggested that snip's delete should be a **soft delete** (hidden and recoverable for 30 days) instead of a permanent one. Write `0007-soft-delete-links.md` with status **Proposed**. In the context, list at least two alternatives (keep hard deletes; an audit log table; a `deleted_at` column). In the consequences, include the costs: every query must now exclude deleted links, the slug stays taken for 30 days, storage grows, and there's a privacy question (a user who deletes a link may expect it gone). Decide, and say why.
+
+5. **Classify doors.** For each of these snip changes, decide: one-way or two-way door? Changing the cache TTL; adding a `/api/v2`; changing the slug alphabet; switching the click stream from Redis to a dedicated message broker; renaming a Prometheus metric. Write one sentence of reasoning for each. (The metric one is sneakier than it looks: who depends on the name? [Chapter 13.4](../observability/slos-alerting-on-call.mdx)'s alerts do.)
 
 ---
 
@@ -222,7 +298,7 @@ About an hour. You need your clone of the repository.
         'The log level, since dashboards are built on the lines it produces',
       ],
       answer: 1,
-      explain: 'Shared links live outside your control. Changes that break them can’t be taken back.',
+      explain: 'The slug format: shared links live in emails, documents and printed posters, outside your control, so a change that breaks them can’t be taken back. The cache TTL is a config value you can change back in minutes; a package name or a log level is internal, and fixing everything that depends on it is work, but entirely in your hands.',
     },
     {
       q: 'A decision recorded in ADR 4 changes. What should happen to ADR 4?',
@@ -244,7 +320,7 @@ About an hour. You need your clone of the repository.
         'The people who use the system and the other systems it depends on',
       ],
       answer: 1,
-      explain: 'A C4 "container" is anything that runs or stores data: an API, a worker, a database, a queue.',
+      explain: 'A C4 "container" is anything that runs or stores data: an API, a worker, a database, a queue. It isn’t specifically a Docker container. Classes are level 4 (code), and people plus external systems around one box is level 1 (context).',
     },
     {
       q: 'Why keep architecture diagrams as Mermaid text in the repository?',

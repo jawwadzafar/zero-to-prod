@@ -8,7 +8,7 @@ description: "Prompting as ordinary engineering, not magic words: a prompt is a 
 
 "Prompt engineering" has a reputation for secret phrases: say "you are an expert", offer the model a tip, type in capital letters. Some of that folklore occasionally helps a little on a particular model, and none of it is where the real gains are. The reliable part of prompting is ordinary engineering: **write a clear specification, show examples, structure the input, and measure the result on a fixed set of cases** instead of trusting how the last answer felt.
 
-[Chapter 14.4](./calling-models-from-code.mdx) left snip's link describer with real, observed problems: a small model called python.org "a link shortener", answered in two sentences when asked for one, and invented a claim. In this chapter you'll audit that prompt, rewrite it twice using the techniques that consistently work, and **measure all three versions** on twelve fixed pages with a real open model. The numbers include the places where the better prompt still fails, because that's what measuring is for.
+This chapter works on one small, real task: **describe a web page in one sentence**, the kind of line a link preview or a search result shows. It's the job of snip's link describer (snip is the URL shortener you build through this handbook; [chapter 14.4](./calling-models-from-code.mdx) built the describer), and its first prompt failed in instructive ways: a small model called python.org "a link shortener", answered in two sentences when asked for one, and invented a claim. You'll audit that prompt, rewrite it twice using the techniques that consistently work, and **measure all three versions** on twelve fixed pages with a real open model. The numbers include the places where the better prompt still fails, because that's what measuring is for.
 
 ## What you'll learn
 
@@ -27,7 +27,7 @@ description: "Prompting as ordinary engineering, not magic words: a prompt is a 
 You hire a capable temp for one afternoon and leave a note: "Write descriptions for the links." You come back to find they're all different lengths, some describe the wrong thing, and one says "no idea". The temp wasn't bad; your note was. They didn't know who the descriptions were for, how long to make them, what to do with a broken page, or that the pages themselves might contain nonsense. A good brief answers those questions before they're asked.
 :::
 
-A model is a very capable reader with **no context except what you give it**. It doesn't know your product, your users, your edge cases or your definition of "good". The prompt is its only brief. Here's v1, the prompt from [chapter 14.4](./calling-models-from-code.mdx):
+A model is a very capable reader with **no context except what you give it**. It doesn't know your product, your users, your edge cases or your definition of "good". The prompt is its only brief. Here's v1, the describer's first prompt (`{title}`, `{summary}` and `{text}` are filled in from the fetched page; the summary is the page's own `<meta name="description">`):
 
 ```text
 SYSTEM: You write short, factual descriptions of web pages for a link shortener.
@@ -239,27 +239,36 @@ Prompting is the cheapest lever, so pull it first. But some problems need a diff
 
 ## Lab
 
-Free. Steps 1–3 need nothing but the `ai` project; step 4 uses a free local model through Ollama ([chapter 14.4](./calling-models-from-code.mdx)); step 5 is optional with your own key.
+Free. Step 1 needs only Ollama, a free local model runner ([chapter 14.4](./calling-models-from-code.mdx)); steps 2–4 need nothing but the `ai` project; step 5 uses Ollama again; step 6 is optional with your own key.
 
-1. **Read the three prompts side by side** in `ai/src/snipai/describe.py`. For each rule in v2, find the row of the audit table it answers.
+1. **Measure a prompt of your own, before snip.** Pick a tiny task, say "a subject line of at most 6 words for this email". Put five varied inputs in `inputs.txt`, one per line (include a hard one: an empty-ish email, or one that says "ignore your instructions"). Then run a first prompt over all of them:
+   ```bash
+   ollama pull qwen2.5:1.5b                                     # about 1 GB, once
+   while IFS= read -r email; do                                 # one model call per line
+     ollama run qwen2.5:1.5b "Write a subject line for this email: $email"
+   done < inputs.txt
+   ```
+   Count by hand: how many answers have at most 6 words, and no preamble like "Sure! Here's"? Now write a v2 with the techniques above (the email inside `<email>` tags, data first, rules as a list, an escape hatch, one example), run it over the same five inputs, and count again. **What to notice:** the change you expected, and the one you didn't.
 
-2. **Run the prompt lab with the fake model** (free, instant):
+2. **Read the three prompts side by side** in `ai/src/snipai/describe.py`. For each rule in v2, find the row of the audit table it answers.
+
+3. **Apply it to snip: run the prompt lab with the fake model** (free, instant):
    ```bash
    cd ~/code/zero-to-prod/ai
    uv run python -m snipai.prompt_lab v1 v2 v3
    ```
    **What to notice:** all three versions score the same, because the fake ignores the prompt. That's how you'd expect a "model" that only copies text to behave, and it shows what the checks can and can't see.
 
-3. **Add a test case.** Add a page to `ai/data/describe_cases.json`: say, a video page, a PDF viewer page with almost no text (expect UNKNOWN), or a page whose text is in Spanish. Run `uv run pytest tests/test_prompt_lab.py` (one test counts the cases; update it) and the lab again.
+4. **Add a test case.** Add a page to `ai/data/describe_cases.json`: say, a video page, a PDF viewer page with almost no text (expect UNKNOWN), or a page whose text is in Spanish. Run `uv run pytest tests/test_prompt_lab.py` (one test counts the cases; update it) and the lab again.
 
-4. **Measure with a real model.** With Ollama running:
+5. **Measure with a real model.** With Ollama running:
    ```bash
    ollama pull qwen2.5:1.5b
    SNIPAI_PROVIDER=ollama SNIPAI_MODEL=qwen2.5:1.5b SNIPAI_TEMPERATURE=0 uv run python -m snipai.prompt_lab v1 v2 v3
    ```
    It takes a few minutes on a laptop CPU. Compare your table with the chapter's. Then **write a v4**: add it to `PROMPTS`, aimed at the failures v2 and v3 still have, and run the lab on `v2 v4`. Did it fix what you aimed at? Did it break anything else?
 
-5. **Optional: compare models.** Run the same lab with `SNIPAI_MODEL=qwen2.5:0.5b`, or with Claude (`SNIPAI_PROVIDER=anthropic`, with your key; about 36 small calls, a fraction of a cent with the smallest model). Does the best prompt for one model win on the other?
+6. **Optional: compare models.** Run the same lab with `SNIPAI_MODEL=qwen2.5:0.5b`, or with Claude (`SNIPAI_PROVIDER=anthropic`, with your key; about 36 small calls, a fraction of a cent with the smallest model). Does the best prompt for one model win on the other?
 
 ## Self-check
 

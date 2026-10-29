@@ -6,7 +6,7 @@ description: "Running a language model on your own machines: when it beats an AP
 
 # 14.11 Serving open models
 
-So far, every model in [Part 14](./python-for-ai-engineers.mdx) has been either a hosted API (Claude) or a small open model running on your laptop through Ollama. Hosted APIs are the default for good reasons: you rent someone else's GPUs by the token, and the models are the best available. But there are real reasons to run a model yourself, and once you do, you're running a server again, with the same questions as snip: how fast is it, how much can it handle, what does it cost, and what happens when it's overloaded? The answers are different enough to deserve a chapter, because a language model is the strangest server you'll ever operate: one request can take thirty seconds, and it needs gigabytes of memory to say hello.
+Most teams meet language models through a hosted API, like Claude's ([chapter 14.4](./calling-models-from-code.mdx)), or as a small open model on a laptop through Ollama, a free tool that downloads and runs open models locally. Hosted APIs are the default for good reasons: you rent someone else's GPUs by the token, and the models are the best available. But there are real reasons to run a model yourself, and once you do, you're running a server again, with the same questions as any web service: how fast is it, how much can it handle, what does it cost, and what happens when it's overloaded? The answers are different enough to deserve a chapter, because a language model is the strangest server you'll ever operate: one request can take thirty seconds, and it needs gigabytes of memory to say hello.
 
 In this chapter you'll learn what's inside a model file, why it's memory, not raw computing power, that limits how fast text comes out, and how to measure a model server properly. Then you'll benchmark two model sizes on the same CPU-only machine CI uses, and see the numbers.
 
@@ -67,7 +67,7 @@ That's the weights alone. Running also needs working memory (the KV cache, below
 
 **Quantization** stores each weight in fewer bits: instead of a 16-bit float, a 4-bit integer plus a shared scale for each small group of weights. It's lossy compression, like a JPEG: a 4-bit model is about a quarter of the size, and noticeably but usually slightly worse. 8-bit is nearly indistinguishable from 16-bit on most tasks; 4-bit is the popular compromise for running on laptops and small GPUs; below 4 bits, quality falls off faster.
 
-Ollama's models are quantized by default. The `qwen2.5:1.5b` you've been using is a 4-bit version, stored in the **GGUF** file format used by **llama.cpp**, the C++ engine inside Ollama. That's why a "1.5 billion parameter" model downloaded as a file of about a gigabyte.
+Ollama's models are quantized by default. The `qwen2.5:1.5b` you've been using is a 4-bit version, stored in the **GGUF** file format of **llama.cpp**, the C++ engine Ollama was built on (newer Ollama versions also run some models on their own engine, built on the same underlying library). That's why a "1.5 billion parameter" model downloaded as a file of about a gigabyte.
 
 :::warning[What can go wrong]
 Quantization's quality loss isn't spread evenly. A quantized model can keep its general fluency and lose precision on exactly the thing you care about: arithmetic, a rare language, strict output formats. "4-bit is fine" is a claim about averages. Run *your* evals ([chapter 14.10](./evals.mdx)) on the exact quantized file you'll serve, not on the original model's published scores.
@@ -194,7 +194,7 @@ You don't write a serving engine; you choose one. The landscape, roughly:
 | Tool | What it's for |
 |---|---|
 | **llama.cpp** / **Ollama** | CPUs, laptops, Apple silicon, small GPUs; quantized GGUF models; easiest to start with. Ollama wraps llama.cpp with a model library and a simple HTTP API (the one snipai uses). Great for development, internal tools and on-device use. |
-| **vLLM**, **SGLang**, **TGI** | Production serving on data-centre GPUs: continuous batching, efficient KV cache management, many concurrent users, multi-GPU models. |
+| **vLLM**, **SGLang** | Production serving on data-centre GPUs: continuous batching, efficient KV cache management, many concurrent users, multi-GPU models. (Hugging Face's **TGI**, once a third option here, has been in maintenance mode since December 2025, and its maintainers point to these two.) |
 | Managed endpoints | Cloud providers and specialist hosts run open models for you, billed by token or by the hour. Open weights, someone else's pager. |
 
 Most of these offer an **OpenAI-compatible API**: the same request and response shapes as one popular hosted API, so client libraries and tools work unchanged. It's a de facto standard for talking to self-hosted models. (snipai talks to Ollama's native API instead, because it exposes the timing counters the benchmark needs.)

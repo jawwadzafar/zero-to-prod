@@ -24,7 +24,8 @@ def test_fake_llm_reports_truncation() -> None:
 
 
 def test_cost_estimate() -> None:
-    # 1M input tokens at $1 + 1M output tokens at $5
+    # 1M input tokens at $0.10 + 1M output tokens at $0.50
+    assert estimate_cost("claude-haiku-5-5", 1_000_000, 1_000_000) == 0.6
     assert estimate_cost("claude-haiku-4-5", 1_000_000, 1_000_000) == 6.0
     assert estimate_cost("some-local-model", 5000, 5000) == 0.0
 
@@ -50,24 +51,47 @@ def test_anthropic_request_and_response() -> None:
                 "id": "msg_test",
                 "type": "message",
                 "role": "assistant",
-                "model": "claude-haiku-4-5",
-                "content": [{"type": "text", "text": "The Go website."}],
+                "model": "claude-haiku-5-5",
+                "content": [
+                    {"type": "thinking", "thinking": "", "signature": "sig"},
+                    {"type": "text", "text": "The Go website."},
+                ],
                 "stop_reason": "end_turn",
                 "stop_sequence": None,
                 "usage": {"input_tokens": 120, "output_tokens": 6},
             },
         )
 
-    llm = AnthropicLLM("claude-haiku-4-5", client=fake_anthropic(handler))
+    llm = AnthropicLLM("claude-haiku-5-5", client=fake_anthropic(handler))
     c = llm.complete("Describe go.dev", system="Be brief.", max_tokens=50)
     assert seen["path"] == "/v1/messages" and seen["key"] == "test-key"
     body = seen["body"]
     assert isinstance(body, dict)
-    assert body["model"] == "claude-haiku-4-5" and body["max_tokens"] == 50
+    assert body["model"] == "claude-haiku-5-5" and body["max_tokens"] == 50
+    assert body["output_config"] == {"effort": "low"}
     assert body["system"] == "Be brief."
     assert body["messages"] == [{"role": "user", "content": "Describe go.dev"}]
+    # The (empty) thinking block is skipped: only text blocks make the answer.
     assert (c.text, c.input_tokens, c.output_tokens) == ("The Go website.", 120, 6)
-    assert c.cost_usd() == (120 * 1.0 + 6 * 5.0) / 1_000_000
+    assert c.cost_usd() == (120 * 0.10 + 6 * 0.50) / 1_000_000
+
+
+def test_anthropic_without_effort_for_older_models() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx2.Response(
+            200,
+            json={
+                "id": "m", "type": "message", "role": "assistant", "model": "claude-haiku-4-5",
+                "content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn",
+                "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1},
+            },
+        )  # fmt: skip
+
+    AnthropicLLM("claude-haiku-4-5", effort=None, client=fake_anthropic(handler)).complete("hi")
+    assert isinstance(seen["body"], dict) and "output_config" not in seen["body"]
 
 
 def sse(events: list[dict[str, object]]) -> bytes:

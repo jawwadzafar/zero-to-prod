@@ -1,23 +1,23 @@
 ---
 title: "14.4 Calling models from code"
 sidebar_label: "14.4 Calling models from code"
-description: "From chat window to API: what a model request and response really are, API keys, the official SDK, one interface for fake, local (Ollama) and hosted (Claude) models, streaming, tokens and cost, timeouts, retries and rate limits, fetching pages safely (SSRF), and where a model call belongs in a system — by building snip's first AI feature, a one-line description of where a short link goes."
+description: "From chat window to API: what a model request and response really are, API keys, the official SDK, a free local model with Ollama, streaming, tokens, thinking and cost, timeouts, retries and rate limits, choosing a model, and where a model call belongs in a system; then snip's first AI feature, a one-line description of where a short link goes, with pages fetched safely (SSRF)."
 ---
 
 # 14.4 Calling models from code
 
-A chat window is a demo. A product calls models **from code**: thousands of times a day, with nobody watching, with money leaving your account on every call, and with all the ways a network request can fail. This chapter turns the ideas of [chapter 14.3](./how-llms-work.mdx) into software. You'll build **snip's first AI feature**: before someone clicks `https://snip.example/x7Kp2`, show them a one-line description of where it goes. It needs everything a real AI feature needs: fetch the page safely, ask a model, handle what comes back, and know what it cost.
+You've typed a question into a chat window and watched an answer appear. That's a demo. A product calls models **from code**: thousands of times a day, with nobody watching, with money leaving your account on every call, and with all the ways a network request can fail. This chapter turns the ideas of [chapter 14.3](./how-llms-work.mdx) (a model predicts text one **token**, a word-piece, at a time) into software: what you send, what comes back, what it costs, and how to keep a slow, fallible, paid call from hurting the rest of your system.
 
-And it runs **free by default**. snipai talks to models through one small interface with three providers: a **fake** model that runs offline (for tests and first steps), a free **open model on your own machine** (through Ollama), and **Claude** through Anthropic's API, if you choose to use your own key.
+Everything here runs **free** if you want it to: you'll call a real open model on your own machine at no cost, and a hosted model (Claude) only if you choose to use your own key. At the end you'll apply it to snip, by building its first AI feature.
 
 ## What you'll learn
 
-- What a model **API request** and **response** actually contain.
-- Handling **API keys** safely, and using the **official SDK**.
-- **One interface, several providers**: fake, local and hosted.
-- **Streaming**, **tokens and cost**, and **choosing a model**.
-- **Timeouts, retries and rate limits**, and where a model call belongs in a system.
-- Fetching user-supplied URLs **safely** (SSRF).
+- What a model **API request** and **response** contain: an order slip and a tray with a receipt.
+- Handling **API keys** safely, and what the provider's **SDK** does for you.
+- **Streaming**, **tokens**, **thinking** and **cost**: how to estimate a feature's bill before shipping it.
+- **Timeouts, retries and rate limits**, and how to **choose a model**.
+- Where a model call **belongs** in a system: never in the hot path.
+- Applied to snip: one interface for fake, local and hosted models, and fetching user-supplied URLs **safely** (SSRF).
 
 ---
 
@@ -27,7 +27,7 @@ And it runs **free by default**. snipai talks to models through one small interf
 Ordering at a restaurant counter. You hand over an order slip (what you want, how much of it), the kitchen works on it, and you get back a tray with the food and a receipt showing exactly what you're paying for. The kitchen doesn't remember you: next time, you hand over a whole new slip.
 :::
 
-Behind every chat app is an HTTP API ([chapter 1.5](../foundations/http-from-zero.mdx)). Here's a real request to Anthropic's **Messages API**, as a `curl` command:
+Behind every chat app is an HTTP API ([chapter 1.5](../foundations/http-from-zero.mdx): a request with a method, headers and a body; a response with a status and a body). Here's a real request to Anthropic's **Messages API**, as a `curl` command:
 
 ```bash
 curl https://api.anthropic.com/v1/messages \
@@ -35,8 +35,8 @@ curl https://api.anthropic.com/v1/messages \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
   -d '{
-    "model": "claude-haiku-4-5",
-    "max_tokens": 100,
+    "model": "claude-haiku-5-5",
+    "max_tokens": 1024,
     "system": "You write short, factual descriptions of web pages.",
     "messages": [{"role": "user", "content": "Describe https://go.dev in one sentence."}]
   }'
@@ -44,33 +44,38 @@ curl https://api.anthropic.com/v1/messages \
 
 The **order slip** has four parts:
 
-- **`model`**: which model to use. It's a name like `claude-haiku-4-5`. Providers publish exact identifiers, and production code should use a specific one, so the model can't change underneath you.
-- **`max_tokens`**: the most output tokens you'll accept (and pay for). The model stops there even mid-sentence.
+- **`model`**: which model to use, by its exact identifier, like `claude-haiku-5-5`. Production code pins a specific one, so the model can't change underneath you.
+- **`max_tokens`**: the most output tokens you'll accept (and pay for). The model stops there, even mid-sentence.
 - **`system`**: the **system prompt** ([chapter 14.3](./how-llms-work.mdx)): the application's instructions and context.
 - **`messages`**: the conversation so far, as a list of turns with **roles** (`user` and `assistant`). For one question, it's one user message.
 
-The **tray and receipt** come back as JSON:
+The **tray and receipt** come back as JSON (trimmed):
 
 ```json
 {
-  "model": "claude-haiku-4-5",
-  "content": [{"type": "text", "text": "The official website of Go, an open-source programming language..."}],
+  "model": "claude-haiku-5-5",
+  "content": [
+    {"type": "thinking", "thinking": "", "signature": "EqQBCkYI..."},
+    {"type": "text", "text": "The official website of Go, an open-source programming language..."}
+  ],
   "stop_reason": "end_turn",
-  "usage": {"input_tokens": 31, "output_tokens": 18}
+  "usage": {"input_tokens": 31, "output_tokens": 64}
 }
 ```
 
-- **`content`** is a **list of blocks**, not a string. Usually it's one `text` block, but it can also contain other kinds ([chapter 14.6](./structured-output-and-tools.mdx)'s tool calls, for example), so code should pick out the text blocks rather than assume.
+- **`content`** is a **list of blocks**, not a string. Current Claude models **think** before answering: they may produce `thinking` blocks first (the reasoning itself is hidden by default, so the text is empty), then the `text` block with the answer. Later you'll meet tool-call blocks too ([chapter 14.6](./structured-output-and-tools.mdx)). So code picks out the `text` blocks by type, never "the first block".
 - **`stop_reason`** says **why** it stopped: `end_turn` (finished), `max_tokens` (cut off: your answer is incomplete), `refusal` (the model declined for safety reasons), and others you'll meet later. **Always check it.**
-- **`usage`** is the receipt: tokens in and out, which is what you're billed for.
+- **`usage`** is the receipt: tokens in and out, which is what you're billed for. Thinking tokens are **output** tokens: they count toward `max_tokens` and the bill.
 
 The API is **stateless**: the kitchen doesn't remember you. To continue a conversation, you send the whole history again, every time. That's why long conversations get more expensive with every turn.
+
+Every provider's API has this same shape. OpenAI, Google and open-model servers name the fields slightly differently, but it's always: model, limits, instructions, messages in; content, stop reason, usage out.
 
 ---
 
 ## API keys: a password that spends money
 
-The `x-api-key` header carries your **API key**: a long secret that identifies your account and lets anyone holding it **spend your money**. Everything from [chapter 7.6](../security/secrets-management.mdx) applies, with extra urgency:
+The `x-api-key` header carries your **API key**: a long secret that identifies your account and lets anyone holding it **spend your money**. Everything from [chapter 7.6](../security/secrets-management.mdx) (secrets live outside code, in the environment or a secret manager) applies, with extra urgency:
 
 - Keep it in an **environment variable** (`ANTHROPIC_API_KEY`) or a secret manager, **never in code**. Automated bots scan public GitHub for leaked keys within minutes of a push.
 - Use **separate keys** per environment and per application, so one leak can be revoked without breaking everything.
@@ -81,24 +86,188 @@ The `x-api-key` header carries your **API key**: a long secret that identifies y
 
 ## The official SDK: the same request, with the chores done
 
-You could build that HTTP request yourself with `httpx`. Instead, use the provider's **SDK** (software development kit), its official client library. It builds the same request, but also retries temporary failures, raises typed errors, and handles streaming. Here's the core of snipai's Claude provider, in `ai/src/snipai/llm.py`:
+You could build that HTTP request yourself with `httpx` ([chapter 14.1](./python-for-ai-engineers.mdx)). Instead, use the provider's **SDK** (software development kit), its official client library (`uv add anthropic`). It builds the same request, but also retries temporary failures, raises typed errors, and handles streaming. A complete program that summarises a text file:
+
+```python title="summarize.py"
+"""Summarise a text file in one sentence, with Claude."""
+
+import sys
+
+import anthropic
+
+client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from the environment
+
+with open(sys.argv[1]) as f:
+    text = f.read()
+
+response = client.messages.create(
+    model="claude-haiku-5-5",  # an exact model name, never "latest"
+    max_tokens=1024,  # the most output tokens you'll pay for, thinking included
+    output_config={"effort": "low"},  # think briefly: this is an easy job
+    system="You summarise text in one plain sentence.",
+    messages=[{"role": "user", "content": text}],
+)
+
+for block in response.content:  # a list of blocks: pick out the text ones
+    if block.type == "text":
+        print(block.text)
+print(response.stop_reason, response.usage.input_tokens, response.usage.output_tokens)
+```
+
+Two parameters deserve a word:
+
+- **`effort`** (inside `output_config`) sets how much the model thinks before answering: `low`, `medium`, `high`, `xhigh` or `max`. More effort helps hard problems and costs more output tokens and time. A one-sentence summary is easy, so `low`.
+- **`max_tokens=1024`** looks generous for one sentence. It's sized for the sentence *plus* any thinking: set it too tight and the thinking uses it up, and you get `stop_reason: "max_tokens"` with no answer at all.
+
+Notice what *isn't* there: **temperature**. [Chapter 14.3](./how-llms-work.mdx) explained it (how random the next-token choice is), and older APIs accepted it. Current Claude models set sampling themselves and reject non-default values, and current versions of the Python SDK no longer send the parameter at all. That's a small example of a general rule: **check the provider's documentation for the exact model you use**, because model APIs change quickly. (Open models you run yourself still take a temperature; [chapter 14.11](./serving-open-models.mdx) uses it.)
+
+### The same call, free, on your own machine
+
+**Ollama** runs open models on your laptop and exposes them through an HTTP API of the same shape ([chapter 14.11](./serving-open-models.mdx) explains how it works). After installing it from [ollama.com](https://ollama.com/download):
+
+```bash
+ollama pull qwen2.5:0.5b              # a small open model, about 400 MB
+curl http://localhost:11434/api/chat -d '{
+  "model": "qwen2.5:0.5b",
+  "stream": false,
+  "messages": [{"role": "user", "content": "Describe https://go.dev in one sentence."}]
+}'
+```
+
+The JSON that comes back has the same ingredients under different names: `message.content` for the answer, `done_reason` for why it stopped, `prompt_eval_count` and `eval_count` for tokens in and out. It costs nothing, nothing leaves your machine, and the answers from a model this small are noticeably worse. That trade-off is the theme of this whole part.
+
+---
+
+## Streaming: show the answer as it's written
+
+Models generate one token at a time, so a 300-word answer can take several seconds to finish. **Streaming** delivers it piece by piece, as it's generated, so a person sees text start appearing in under a second. The SDK makes it a loop:
+
+```python
+import anthropic
+
+client = anthropic.Anthropic()
+
+with client.messages.stream(
+    model="claude-haiku-5-5",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Explain DNS in three short paragraphs."}],
+) as stream:
+    for piece in stream.text_stream:  # a few tokens at a time, as they're generated
+        print(piece, end="", flush=True)
+print()
+```
+
+Under the hood, the server sends **server-sent events**: a long-lived HTTP response that delivers small chunks (`content_block_delta` events, each carrying a few tokens) as they're ready. Use streaming when **a person is waiting** for a long answer. For background work, plain complete-and-return is simpler.
+
+---
+
+## Tokens are money and time
+
+Every call reports its tokens, and the price is public: dollars per million tokens, with output costing more than input. At the time of writing, Anthropic's current models cost:
+
+| Model | Input, per million tokens | Output, per million tokens |
+|---|---|---|
+| Claude Haiku 5.5 (`claude-haiku-5-5`) | $0.10 (prompts up to 100K tokens) | $0.50 |
+| Claude Sonnet 5.5 (`claude-sonnet-5-5`) | $2 | $10 |
+| Claude Opus 5.5 (`claude-opus-5-5`) | $4 | $20 |
+| Claude Fable 5.1 (`claude-fable-5-1`) | $10 | $50 |
+
+Prices change; check the provider's [pricing page](https://platform.claude.com/docs/en/about-claude/pricing) before relying on them. The habit that matters is the **back-of-the-envelope estimate**, done before you ship. Say a feature sends about 1,100 input tokens (roughly 4,000 characters of text plus instructions) and gets back about 30 output tokens:
+
+- With Haiku 5.5: 1,100 × $0.10 + 30 × $0.50, per million, is about **$0.000125 per call**, or **$125 per million calls**.
+- With Sonnet 5.5: 1,100 × $2 + 30 × $10, per million, is **$0.0025 per call**: 20 times as much, **$2,500 per million calls**.
+
+Then add **thinking**: those tokens are output, invisible in the answer but on the receipt. That's why you *measure* the real `usage` on a sample of real inputs before trusting any estimate.
+
+Time matters as much as money. Input tokens are processed all at once, but output tokens come one at a time, so **long outputs (and long thinking) are slow**, and a call can easily take one to several seconds.
+
+### Where a model call belongs
+
+That leads to the most important design decision of this chapter. **Never put a model call in the hot path** of a request that has to be fast. A model call takes seconds, fails sometimes, and costs money every time. If your checkout page waits on a model to write a "thanks for your order" message, a slow model makes checkout slow, and a model outage breaks checkout.
+
+The pattern that works: do the model call **once**, in the **background**, and store the result. The request that needs to be fast puts a job on a queue ([chapter 8.2](../distributed/queues-and-background-work.mdx): a list of work items that a separate worker process takes one at a time); a worker calls the model and saves the answer; the page shows it when it's ready. If the model is slow, down or out of budget, the core feature still works, just without the AI extra. That's **graceful degradation** ([chapter 13.5](../observability/incidents-and-postmortems.mdx)), designed in from the start.
+
+---
+
+## When calls fail
+
+Model APIs fail in all the ways networked services do ([chapter 8.1](../distributed/distributed-survival-kit.mdx): slow answers, dropped connections, overloaded servers), plus a few of their own:
+
+| Error | Means | What to do |
+|---|---|---|
+| **400** bad request | Your request is invalid (unknown parameter, a setting this model doesn't accept, too many tokens) | Fix the code; retrying won't help |
+| **401 / 403** | Wrong, revoked or unauthorised key | Fix the configuration; alert someone |
+| **404** | Unknown model name (often a typo, or a retired model) | Fix the model name |
+| **429** rate limited | Too many requests or tokens per minute for your account | Wait and retry (the response says how long); smooth out bursts; ask for higher limits |
+| **500 / 529** | The provider's servers are failing or overloaded | Retry with backoff; consider a fallback model |
+| Timeout | No answer in time | Retry once; check your timeout suits the output length |
+| `stop_reason: max_tokens` | The answer was cut off (perhaps by thinking) | Raise `max_tokens`, lower `effort`, or ask for shorter answers |
+| `stop_reason: refusal` | The model declined for safety reasons | Don't retry blindly; show a sensible message |
+
+The SDK already **retries** 429s, 5xx errors and dropped connections (twice by default, with exponential backoff), and raises **typed exceptions** you can catch precisely (`anthropic.RateLimitError`, `anthropic.AuthenticationError`, and so on). Two things it can't decide for you:
+
+- **The timeout.** The SDK's default is 10 minutes, sensible for very long answers, far too long for anything a person is waiting on. Set your own: `anthropic.Anthropic(timeout=60.0)`.
+- **Your budget of retries across the whole system.** Every retry of a model call is paid for again. Wrap retries with limits, and watch the cost ([chapter 14.13](./ai-in-production.mdx)).
+
+---
+
+## Choosing a model
+
+Providers offer a ladder: small, fast, cheap models, and large, slower, more capable ones. As of this writing, Anthropic's runs from Claude Haiku 5.5 (the smallest and cheapest) through Claude Sonnet 5.5 (fast and capable, for everyday work) and Claude Opus 5.5 (more capable again) to Claude Fable 5.1 (the most capable, for the hardest reasoning and long-running agent work). Every other provider has a similar ladder, and open models ([chapter 14.11](./serving-open-models.mdx)) add a free-to-run option with more work.
+
+The approach that works: **start with the smallest model that could plausibly do the job, measure whether it does, and move up only if it doesn't.** "Measure" means evals ([chapter 14.10](./evals.mdx)), not a gut feeling from three tries. On newer models, also try a *lower effort* before a bigger model: it's often enough. A one-sentence summary of a web page is a simple job, so it gets the smallest model. A complex coding agent does not. And **pin the exact model name** in configuration, so an upgrade is a deliberate, tested change.
+
+---
+
+## Apply it to snip: describing where a link goes
+
+snip is the URL shortener you build through this handbook: `https://snip.example/x7Kp2` redirects to some long URL. A short link hides where it goes, which is exactly why people hesitate to click one. So snip's first AI feature is: **before someone clicks, show a one-line description of the destination.** It needs everything above: ask a model, check what comes back, know what it cost, keep it off the hot path. And one thing more, because the page comes from a user-supplied URL: fetch it safely.
+
+The code is in **snipai** (`ai/`), the Python project from [chapter 14.1](./python-for-ai-engineers.mdx).
+
+### One interface, three providers
+
+snipai never calls a provider directly from feature code. Every provider fits one small interface, a Python **Protocol** (like a Go interface, [chapter 4.3](../go/packages-modules-interfaces.mdx): any class with these methods qualifies), in `ai/src/snipai/llm.py`:
+
+```python
+class LLM(Protocol):
+    name: str
+    model: str
+
+    def complete(self, prompt: str, *, system: str | None = None, max_tokens: int = 500) -> Completion: ...
+    def stream(self, prompt: str, *, system: str | None = None, max_tokens: int = 500) -> Iterator[str]: ...
+```
+
+(Simplified: the real Protocol adds a `schema` parameter and a `chat` method, both from [chapter 14.6](./structured-output-and-tools.mdx).) Three things fit it, chosen with the `SNIPAI_PROVIDER` environment variable:
+
+| Provider | Costs | Needs | Good for |
+|---|---|---|---|
+| **`fake`** (default) | Nothing | Nothing | Tests, CI, first steps, working offline. It "answers" by extracting the first sentence of the text you gave it: dumb, but **deterministic** |
+| **`ollama`** | Nothing (your electricity) | Ollama and a downloaded model | Learning, privacy (nothing leaves your machine), development without a bill |
+| **`anthropic`** | A fraction of a cent per call | An API key | Real quality |
+
+The Claude provider is `summarize.py`'s call, wrapped:
 
 ```python
 class AnthropicLLM:
-    def __init__(self, model: str = "claude-haiku-4-5", *, client=None) -> None:
+    def __init__(self, model: str = "claude-haiku-5-5", *, effort: str | None = "low",
+                 client: anthropic.Anthropic | None = None) -> None:
         self.model = model
+        self.effort = effort
         self._client = client or anthropic.Anthropic(
             timeout=60.0,  # the SDK default is 10 minutes: far too long for a web request
             max_retries=2,  # retries 429s, 5xx and connection errors, with backoff
         )
 
-    def complete(self, prompt: str, *, system: str | None = None, max_tokens: int = 500) -> Completion:
+    def complete(self, prompt: str, *, system: str | None = None, max_tokens: int = 500,
+                 schema: dict[str, Any] | None = None) -> Completion:
         start = time.perf_counter()
         response = self._client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             system=system or anthropic.omit,
             messages=[{"role": "user", "content": prompt}],
+            output_config=self._output_config(schema),
         )
         # The answer is a list of content blocks; we want the text ones.
         text = "".join(block.text for block in response.content if block.type == "text")
@@ -112,40 +281,15 @@ class AnthropicLLM:
         )
 ```
 
-`anthropic.Anthropic()` reads `ANTHROPIC_API_KEY` from the environment by itself, so the key never appears in the code.
-
-Notice what *isn't* there: **temperature**. [Chapter 14.3](./how-llms-work.mdx) explained it, and older models accept it. But several current models set sampling for you and reject non-default values, so snipai leaves it out. That's a small example of a general rule: **check the provider's documentation for the exact model you use**, because model APIs change quickly.
-
----
-
-## One interface, three providers
-
-snipai never calls a provider directly from feature code. Every provider fits one small interface, a Python **Protocol** (like a Go interface, [chapter 4.3](../go/packages-modules-interfaces.mdx)):
-
-```python
-class LLM(Protocol):
-    name: str
-    model: str
-
-    def complete(self, prompt: str, *, system: str | None = None, max_tokens: int = 500) -> Completion: ...
-    def stream(self, prompt: str, *, system: str | None = None, max_tokens: int = 500) -> Iterator[str]: ...
-```
-
-And there are three things that fit it, chosen with the `SNIPAI_PROVIDER` environment variable:
-
-| Provider | Costs | Needs | Good for |
-|---|---|---|---|
-| **`fake`** (default) | Nothing | Nothing | Tests, CI, first steps, working offline. It "answers" by extracting the first sentence of the text you gave it: dumb, but **deterministic** |
-| **`ollama`** | Nothing (your electricity) | Ollama and a downloaded model ([chapter 14.11](./serving-open-models.mdx)) | Learning, privacy (nothing leaves your machine), development without a bill |
-| **`anthropic`** | A fraction of a cent per call | An API key | Real quality |
+`_output_config` sends `{"effort": "low"}`, plus a JSON schema when one is given ([chapter 14.6](./structured-output-and-tools.mdx)). `effort=None` sends nothing, for older models such as `claude-haiku-4-5` that reject the setting.
 
 This is the same pattern as snip's `Store` interface with its memory and Postgres implementations ([chapter 4.3](../go/packages-modules-interfaces.mdx)), and it pays off the same way. Tests run in milliseconds with no network and no key. Every contributor can run everything for free. And switching models, or providers, is a configuration change, not a rewrite.
 
-The tests go one step further for the Claude provider: they hand the real SDK a **mock HTTP transport** that plays the part of Anthropic's server, so they check the exact request snipai sends (path, key header, model, messages) and that it reads the response correctly, including streaming and a rate-limit error, all without a key (`ai/tests/test_llm.py`). What they can't prove is how good Claude's *answers* are. That's what evals are for ([chapter 14.10](./evals.mdx)).
+The tests go one step further for the Claude provider: they hand the real SDK a **mock HTTP transport** (the [chapter 14.1](./python-for-ai-engineers.mdx) trick) that plays the part of Anthropic's server, so they check the exact request snipai sends (path, key header, model, effort, messages) and that it reads the response correctly, including a thinking block, streaming and a rate-limit error, all without a key (`ai/tests/test_llm.py`). What they can't prove is how good Claude's *answers* are. That's what evals are for ([chapter 14.10](./evals.mdx)).
 
----
+snipai also keeps the price table from "Tokens are money and time" (`PRICES_PER_MTOK` in `llm.py`) and prints the cost of every call.
 
-## snip's first AI feature: describing a link
+### The prompt, and the code that distrusts its answer
 
 The feature itself, `ai/src/snipai/describe.py`, is short. The interesting part is the prompt. This is its first version, which the code keeps as `PROMPTS["v1"]`; [chapter 14.5](./prompt-engineering.mdx) improves it, and the default today is v3. The code around it is the same for every version:
 
@@ -167,8 +311,9 @@ The **summary** is the page's own `<meta name="description">`, a sentence most w
 
 ```python
 def describe(page: Page, llm: LLM, version: str = DEFAULT_PROMPT) -> Description:
-    system, prompt = render(page, version)  # fills the chosen version's template
-    completion = llm.complete(prompt, system=system, max_tokens=100)
+    system, prompt = render(page, version)
+    # Room for the ~35-token sentence, plus any thinking a hosted model does first.
+    completion = llm.complete(prompt, system=system, max_tokens=300)
     text = completion.text.strip()
     if text == "UNKNOWN" or completion.truncated:
         text = ""  # better no description than a wrong or half-finished one
@@ -177,7 +322,7 @@ def describe(page: Page, llm: LLM, version: str = DEFAULT_PROMPT) -> Description
 
 Three design choices worth copying:
 
-- **"Use only information in the page text"** narrows the model's job to summarising what's in front of it. That's safer than asking it what it knows about a website, which invites hallucination ([chapter 14.3](./how-llms-work.mdx)).
+- **"Use only information in the page text"** narrows the model's job to summarising what's in front of it. That's safer than asking it what it knows about a website, which invites **hallucination** (confident, invented facts, [chapter 14.3](./how-llms-work.mdx)).
 - **An explicit escape hatch** (`UNKNOWN`). Without one, a model given a login page or an empty page will invent something plausible. With one, it has an honest answer available, and the code turns it into "no description".
 - **A truncated answer is thrown away.** If `stop_reason` is `max_tokens`, the sentence is incomplete. Showing half a sentence is worse than showing nothing.
 
@@ -203,7 +348,7 @@ Three lessons in six lines:
 
 1. **The escape hatch worked.** For go.dev, only 94 tokens went in: the page text was almost empty (more on why below). With nothing to go on, the model answered `UNKNOWN`, and the code turned that into "no description". Without the escape hatch, it would almost certainly have made something up.
 2. **The python.org answer is a hallucination, and we caused it.** Python.org is not "a link shortener". The model borrowed that phrase from our own system prompt ("descriptions of web pages **for a link shortener**") and stated it as a fact about the page. Tiny models are especially prone to this, but every model can blur the task's context into its answer. Prompt wording matters: [chapter 14.5](./prompt-engineering.mdx) rewrites this prompt and measures the difference. And the only way to find problems like this at scale is to measure systematically ([chapter 14.10](./evals.mdx)).
-3. **Small and local is slow and cheap.** Five seconds for 29 words on a CPU, and it cost nothing. A hosted model would answer in about a second, for about a tenth of a cent.
+3. **Small and local is slow and cheap.** Five seconds for 29 words on a CPU, and it cost nothing. A hosted model answers in about a second, for a small fraction of a cent.
 
 :::warning[What can go wrong: garbage in]
 Why was go.dev's text almost empty? Our first text extractor skipped a list of tags that "aren't content" (navigation, headers, footers), counting opening and closing tags. On real pages, that heuristic threw away nearly everything. We couldn't fetch go.dev from the development machine to check, so instead of guessing, we made extraction robust: prefer the page's `<main>` element, where most sites put their content; skip only tags that are never visible and always closed (`<script>`, `<style>`, `<svg>`...); and read the page's own `<meta name="description">`. The command now prints how much text it extracted, and how it starts. **Most bad model outputs start with bad inputs**, so always look at exactly what the model was given before blaming the model.
@@ -227,9 +372,9 @@ https://www.python.org/
 
 go.dev is now described well. Python.org shows two new problems: the answer is **two sentences** (the prompt asked for one), and the second sentence is invented from the page's "no JavaScript" notice, plus a claim nobody made ("reliable and up-to-date"). Better input fixed one failure and exposed others. [Chapter 14.5](./prompt-engineering.mdx) takes this prompt apart and measures a better one.
 
-## Fetching pages safely
+### Fetching pages safely
 
-To describe a page, snipai must **download it from the server**, and the URL comes from a user. [Chapter 7.5](../security/web-attacks.mdx) described exactly this feature as an **SSRF** risk: a user shortens `http://169.254.169.254/latest/meta-data/`, and your server obligingly fetches the cloud's metadata service, which hands out the server's credentials ([chapter 12.4](../cloud/iam.mdx)). `ai/src/snipai/pages.py` follows [chapter 7.5](../security/web-attacks.mdx)'s defences:
+To describe a page, snipai must **download it from the server**, and the URL comes from a user. [Chapter 7.5](../security/web-attacks.mdx) described exactly this feature as an **SSRF** risk (server-side request forgery: tricking a server into fetching an address the attacker can't reach themselves). A user shortens `http://169.254.169.254/latest/meta-data/`, and your server obligingly fetches the cloud's metadata service, which hands out the server's credentials ([chapter 12.4](../cloud/iam.mdx)). `ai/src/snipai/pages.py` follows [chapter 7.5](../security/web-attacks.mdx)'s defences:
 
 ```python
 def is_public_host(host: str) -> bool:
@@ -256,48 +401,11 @@ http://169.254.169.254/latest/meta-data/
 Checking the address and then connecting are two separate steps, and a determined attacker can exploit the gap. With **DNS rebinding**, their domain answers "a public address" when you check and "127.0.0.1" a moment later when you connect. Production systems close the gap by connecting to the exact IP they checked, or, better, by running the fetcher as a **separate, locked-down service** whose network can only reach the internet ([chapter 7.5](../security/web-attacks.mdx)'s second defence). snipai's checks are a real first layer, not the last one.
 :::
 
----
+### Where the call goes in snip
 
-## Streaming: show the answer as it's written
+snip's redirect must take milliseconds (its SLO, the target it promises, is 250 ms, [chapter 13.4](../observability/slos-alerting-on-call.mdx)). So the description is generated **once, when the link is created, in the background**: the same pattern as snip's click worker ([chapter 8.2](../distributed/queues-and-background-work.mdx)). Create the link, queue a "describe this link" job, a worker fetches the page and calls the model, stores the result, and the link page shows it when it's ready. If the model is slow, down or out of budget, links still work; they just don't have descriptions yet.
 
-Models generate one token at a time ([chapter 14.3](./how-llms-work.mdx)), so a 300-word answer can take several seconds to finish. **Streaming** delivers it piece by piece, as it's generated, so a person sees text start appearing in under a second. The SDK makes it a loop:
-
-```python
-def stream(self, prompt: str, *, system: str | None = None, max_tokens: int = 500) -> Iterator[str]:
-    with self._client.messages.stream(
-        model=self.model,
-        max_tokens=max_tokens,
-        system=system or anthropic.omit,
-        messages=[{"role": "user", "content": prompt}],
-    ) as stream:
-        yield from stream.text_stream
-```
-
-Under the hood, the server sends **server-sent events**: a long-lived HTTP response that delivers small chunks (`content_block_delta` events, each carrying a few tokens) as they're ready. Use streaming when **a person is waiting** for a long answer. For background work, like describing links in a queue, plain complete-and-return is simpler.
-
----
-
-## Tokens are money and time
-
-Every call reports its tokens, and the price is public (per million tokens, and output costs more than input). snipai keeps a small price table and prints the cost of every call:
-
-```python
-# US dollars per million tokens (input, output), as published at the time of
-# writing. Prices change: check the provider's pricing page before relying on them.
-PRICES_PER_MTOK = {
-    "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-5": (2.00, 10.00),
-    "claude-opus-5": (5.00, 25.00),
-}
-```
-
-A back-of-the-envelope estimate for describing one link with the smallest model: about 1,100 input tokens (the page text is capped at 4,000 characters, around 1,000 tokens, plus the prompt) and about 30 output tokens. That's 1,100 × $1 + 30 × $5, per million: about **$0.0013 per link**, or **$1.30 per thousand links**. It's cheap, but it's not free at scale, and it's worth knowing **before** you ship. A million links a month is $1,300. Choosing the most capable model instead, at 5× the price, is $6,500.
-
-Time matters as much as money. Input tokens are processed all at once, but output tokens come one at a time, so **long outputs are slow**, and a call can easily take one to several seconds. That leads to the most important design decision of this chapter.
-
-### Where the model call belongs
-
-Never put a model call in the **hot path** of a request that has to be fast. snip's redirect must take milliseconds (its SLO is 250 ms, [chapter 13.4](../observability/slos-alerting-on-call.mdx)). A model call takes seconds, fails sometimes, and costs money every time. So a description is generated **once**, when the link is created, in the **background**: the same pattern as snip's click worker ([chapter 8.2](../distributed/queues-and-background-work.mdx)). Create the link, queue a "describe this link" job, a worker calls the model, stores the result, and the link page shows it when it's ready. If the model is slow, down or out of budget, links still work; they just don't have descriptions yet. That's **graceful degradation** ([chapter 13.5](../observability/incidents-and-postmortems.mdx)), designed in from the start.
+With Haiku 5.5, the estimate from earlier (about 1,100 tokens in, 30 out) is roughly $125 per million links, before thinking tokens. Cheap, but worth knowing before you ship.
 
 :::info[Honesty label]
 **Exists today:** the description feature as a command-line tool and library (`python -m snipai.describe`), with tests. **Not built yet:** wiring it into snip's worker and database, so that new links get descriptions automatically. The design above is how it would fit, and it's a good exercise once you've finished [Part 14](./python-for-ai-engineers.mdx).
@@ -305,72 +413,41 @@ Never put a model call in the **hot path** of a request that has to be fast. sni
 
 ---
 
-## When calls fail
-
-Model APIs fail in all the ways [chapter 8.1](../distributed/distributed-survival-kit.mdx) described, plus a few of their own:
-
-| Error | Means | What to do |
-|---|---|---|
-| **400** bad request | Your request is invalid (unknown parameter, too many tokens) | Fix the code; retrying won't help |
-| **401 / 403** | Wrong, revoked or unauthorised key | Fix the configuration; alert someone |
-| **404** | Unknown model name (often a typo, or a retired model) | Fix the model name |
-| **429** rate limited | Too many requests or tokens per minute for your account | Wait and retry (the response says how long); smooth out bursts; ask for higher limits |
-| **500 / 529** | The provider's servers are failing or overloaded | Retry with backoff; consider a fallback model |
-| Timeout | No answer in time | Retry once; check your timeout suits the output length |
-| `stop_reason: max_tokens` | The answer was cut off | Raise `max_tokens`, or ask for shorter answers |
-| `stop_reason: refusal` | The model declined for safety reasons | Don't retry blindly; show a sensible message |
-
-The SDK already **retries** 429s, 5xx errors and dropped connections (twice by default, with exponential backoff), and raises **typed exceptions** you can catch precisely (`anthropic.RateLimitError`, `anthropic.AuthenticationError`, and so on). Two things it can't decide for you:
-
-- **The timeout.** The SDK's default is 10 minutes, sensible for very long answers, far too long for anything a person is waiting on. snipai sets 60 seconds.
-- **Your budget of retries across the whole system.** Every retry of a model call is paid for again. Wrap retries with limits, and watch the cost ([chapter 14.13](./ai-in-production.mdx)).
-
----
-
-## Choosing a model
-
-Providers offer a range: small, fast, cheap models, and large, slower, more capable ones. As of this writing, Anthropic's include Claude Haiku 4.5 (the smallest and cheapest), Claude Sonnet 5 (the balance of capability and speed) and Claude Opus 5 (the most capable of the three). Every other provider has a similar ladder, and open models ([chapter 14.11](./serving-open-models.mdx)) add a free-to-run option with more work.
-
-The approach that works: **start with the smallest model that could plausibly do the job, measure whether it does, and move up only if it doesn't.** "Measure" means evals ([chapter 14.10](./evals.mdx)), not a gut feeling from three tries. A one-sentence summary of a web page is a simple job, which is why snipai's default is the smallest model. A complex coding agent is not. And **pin the exact model name** in configuration, so an upgrade is a deliberate, tested change.
-
----
-
 ## Lab
 
-Free by default. Steps 1–3 cost nothing and need no account. Step 4 uses a free local model. Step 5 is optional and costs a fraction of a cent with your own key.
+Free by default. Steps 1–2 cost nothing and need no account; step 3 is optional and costs a fraction of a cent with your own key. Steps 4–6 apply it to snip.
 
-1. **Run the tests.** They exercise all three providers, with no network and no key:
+1. **Call a real model, free, on your machine.** Install Ollama from [ollama.com](https://ollama.com/download), then:
+   ```bash
+   ollama pull qwen2.5:0.5b                       # a small open model, about 400 MB
+   curl http://localhost:11434/api/chat -d '{"model": "qwen2.5:0.5b", "stream": false,
+     "messages": [{"role": "user", "content": "What is a URL shortener? One sentence."}]}'
+   ```
+   **What to notice:** find the answer, the stop reason (`done_reason`) and the two token counts in the JSON. Send the same request again: the model doesn't remember the first one.
+
+2. **Watch tokens become time.** Ask for something long ("Explain DNS in five paragraphs") with `"stream": true`. The answer arrives as many small JSON lines, one per few tokens. Time the whole thing with `time curl ...`, then ask for one sentence and compare.
+
+3. **Optional: the SDK with your own key.** Create a key in the Claude Console ([platform.claude.com](https://platform.claude.com)), and **set a small monthly spending limit first**. In the `demo` project from [chapter 14.1](./python-for-ai-engineers.mdx), `uv add anthropic`, create `summarize.py` from this chapter, and run it without typing the key into a file:
+   ```bash
+   read -rs ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY   # paste the key; it isn't echoed or saved
+   uv run python summarize.py README.md                    # any text file
+   ```
+   The last line prints the stop reason and the tokens. Work out the cost from the price table. Then change `max_tokens` to `20` and run again: what's the `stop_reason` now, and is there any text? Then `unset ANTHROPIC_API_KEY`.
+
+4. **Apply it to snip: run the tests.** They exercise all three providers, with no network and no key:
    ```bash
    cd ~/code/zero-to-prod/ai
    uv run pytest tests/test_llm.py tests/test_pages_describe.py -v
    ```
    **What to notice:** `test_anthropic_request_and_response` checks the exact JSON snipai sends to Anthropic, against a mock server.
 
-2. **Describe some links with the fake model** (the default provider):
+5. **Describe some links, then try to attack the fetcher.**
    ```bash
-   uv run python -m snipai.describe https://go.dev/ https://www.python.org/ https://en.wikipedia.org/wiki/URL_shortening
-   ```
-   The "descriptions" are just the first sentence of each page's text, but everything around the model is real: fetching, extraction, the token count, the cost line.
-
-3. **Try to attack it.** These should all be refused before any request is made:
-   ```bash
+   uv run python -m snipai.describe https://go.dev/ https://www.python.org/          # fake model (default)
+   SNIPAI_PROVIDER=ollama uv run python -m snipai.describe --stream https://go.dev/   # the local model
    uv run python -m snipai.describe http://169.254.169.254/latest/meta-data/ http://localhost:8080/ http://10.0.0.1/ ftp://example.com/
    ```
-
-4. **Use a real model, free, on your machine.** Install Ollama from [ollama.com](https://ollama.com/download) ([chapter 14.11](./serving-open-models.mdx) explains what it does), then download a small model (about 400 MB) and use it:
-   ```bash
-   ollama pull qwen2.5:0.5b
-   SNIPAI_PROVIDER=ollama uv run python -m snipai.describe https://go.dev/
-   SNIPAI_PROVIDER=ollama uv run python -m snipai.describe --stream https://www.python.org/
-   ```
-   **What to notice:** real descriptions now, with a token count and a cost of $0. A tiny model is fast but not always accurate. Try `SNIPAI_MODEL=qwen2.5:3b` (about 2 GB) and compare.
-
-5. **Optional: use Claude with your own key.** Create a key in the Claude Console ([platform.claude.com](https://platform.claude.com)), and **set a small monthly spending limit first**. Then, without typing the key into a file:
-   ```bash
-   read -rs ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY   # paste the key; it isn't echoed or saved
-   SNIPAI_PROVIDER=anthropic uv run python -m snipai.describe https://go.dev/ https://www.python.org/
-   ```
-   The last line prints the total cost: a fraction of a cent. Compare the descriptions with step 4's. Then `unset ANTHROPIC_API_KEY`.
+   The fake model's "descriptions" are the first sentence of each page's text, but everything around the model is real: fetching, extraction, the token count, the cost line. The last command should refuse all four URLs before any request is made. Try `SNIPAI_MODEL=qwen2.5:3b` (about 2 GB) and compare quality and speed. If you did step 3, try `SNIPAI_PROVIDER=anthropic` too.
 
 6. **Read the code path end to end:** `describe.py` → `llm.py` (`get_llm`, then one provider's `complete`) → `pages.py`. Where would you add a cache, so the same URL is never described (and paid for) twice?
 
@@ -388,7 +465,7 @@ Free by default. Steps 1–3 cost nothing and need no account. Step 4 uses a fre
         'The model refused, and wrote as much as it was allowed to explain',
       ],
       answer: 1,
-      explain: 'The answer was cut off at the token limit, so it’s incomplete. Don’t show it as a finished answer; raise max_tokens or ask for shorter output. Always check stop_reason. snipai throws away truncated descriptions rather than show half a sentence.',
+      explain: 'The output hit the max_tokens limit, so the answer is incomplete, or missing entirely if thinking used the whole budget. Don’t show it as finished; raise max_tokens, lower effort, or ask for shorter output. A finished answer says end_turn, and a refusal says refusal. snipai throws away truncated descriptions rather than show half a sentence.',
     },
     {
       q: 'Why does snipai have a "fake" provider?',
@@ -399,7 +476,7 @@ Free by default. Steps 1–3 cost nothing and need no account. Step 4 uses a fre
         'It’s a security requirement, so API keys never reach the test machines',
       ],
       answer: 1,
-      explain: 'So tests, CI and learners can run all the code around a model call for free, offline and deterministically. Like snip’s in-memory store: fast, free tests of everything except the model’s answer quality, which evals measure.',
+      explain: 'So tests, CI and learners can run all the code around a model call for free, offline and deterministically. It never reaches users, and keeping keys off test machines is a side benefit, not the reason. Like snip’s in-memory store: fast, free tests of everything except the model’s answer quality, which evals measure.',
     },
     {
       q: 'Where should snip generate a link’s description?',
@@ -410,7 +487,7 @@ Free by default. Steps 1–3 cost nothing and need no account. Step 4 uses a fre
         'Nowhere; a model can’t describe a page it hasn’t been trained on',
       ],
       answer: 1,
-      explain: 'Once, in the background when the link is created, storing the result, so redirects stay fast and work even when the model is down. Model calls take seconds, fail, and cost money. Keep them off hot paths; queue them, like snip’s click worker.',
+      explain: 'Once, in the background when the link is created, storing the result, so redirects stay fast and work even when the model is down. Model calls take seconds, fail, and cost money: in the redirect handler they would break the 250 ms target. The model describes the page text you send it, so it needs no training on that page.',
     },
     {
       q: 'A user creates a link to http://169.254.169.254/latest/meta-data/. What should the describer do, and why?',
@@ -421,7 +498,7 @@ Free by default. Steps 1–3 cost nothing and need no account. Step 4 uses a fre
         'Ask the model whether the address is safe before fetching it',
       ],
       answer: 1,
-      explain: 'Refuse: it’s the cloud metadata service, and fetching it from the server could leak the server’s credentials (SSRF). Check every hop, including redirects, and never let user-supplied URLs reach private addresses.',
+      explain: 'Refuse: it’s the cloud metadata service, and fetching it from the server could leak the server’s credentials (SSRF). Asking the model is no defence: the check must be code that inspects every resolved address, on every redirect hop.',
     },
     {
       q: 'Your code gets a 429 from the model API. What’s the right response?',
@@ -432,22 +509,22 @@ Free by default. Steps 1–3 cost nothing and need no account. Step 4 uses a fre
         'Treat it as a bug in your prompt, which must be too long',
       ],
       answer: 1,
-      explain: 'Wait (the response says how long) and retry with backoff, and reduce bursts; the SDK does the basic version for you. 429 means "too many requests for your account right now". Backoff, smoothing and, if needed, a higher limit.',
+      explain: '429 means "too many requests for your account right now". Wait (the response says how long), retry with backoff, and reduce bursts; the SDK does the basic version for you. A tight retry loop makes the overload worse, and rotating keys to dodge limits breaks the provider’s terms. If you hit it constantly, ask for a higher limit.',
     },
   ]}
 />
 
 <details>
-<summary>Estimate the monthly cost of describing every new snip link with a small model if snip gets 50,000 new links a day. Then name three ways to cut it.</summary>
+<summary>Estimate the monthly cost of describing every new snip link with Claude Haiku 5.5 if snip gets 50,000 new links a day. Then name three ways to cut it.</summary>
 
-With the chapter's estimate of about $0.0013 per link: 50,000 × 30 days × $0.0013 ≈ **$1,950 per month**. (It's an estimate: measure real token counts from `usage` on a sample of real pages before trusting it.)
+With the chapter's estimate of about $0.000125 per link: 50,000 × 30 days × $0.000125 ≈ **$190 per month**, plus thinking tokens. With Sonnet 5.5 at $0.0025 per link it would be about **$3,750**. (These are estimates: measure real token counts, thinking included, from `usage` on a sample of real pages before trusting them.)
 
 Ways to cut it:
 
 - **Don't describe duplicates.** Many links point at the same popular pages. Cache descriptions by URL (or normalised URL), so each page is described once. This could remove a large share of calls on its own.
 - **Send less text.** Cap the page text lower (the first 2,000 characters usually say what a page is about), strip boilerplate better, or use the page's own `<meta name="description">` when it exists and skip the model entirely.
 - **Only describe links that get clicked.** Generate descriptions lazily, for links with at least a few clicks, instead of eagerly for every link, most of which may never be opened.
-- **Batch APIs**: providers offer discounted asynchronous batch processing for work that doesn't need an answer immediately, like this.
+- **Batch APIs**: providers offer discounted asynchronous batch processing (Anthropic's is half price) for work that doesn't need an answer immediately, like this.
 
 And measure quality before and after each change ([chapter 14.10](./evals.mdx)), so the savings don't come from quietly worse descriptions.
 
@@ -462,6 +539,6 @@ And measure quality before and after each change ([chapter 14.10](./evals.mdx)),
 - **No control.** You can't rate-limit per user, enforce what prompts are sent, log usage, or stop abuse, because requests don't pass through you.
 - **No SSRF protection or caching**, and the model's output reaches users without any of your checks.
 
-**Design:** the browser calls **snip's API**, authenticated as the user. snip's server checks the user's permissions and rate limit ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)), then queues or makes the model call with a key that only the server holds (from a secret manager, [chapter 7.6](../security/secrets-management.mdx)), validates the output, caches it, logs tokens and cost, and returns the result. "Server load" is small: the server mostly waits on the network, and a model call's real cost is the provider's, not your CPU's.
+**Design:** the browser calls **your API**, authenticated as the user. Your server checks the user's permissions and rate limit ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)), then queues or makes the model call with a key that only the server holds (from a secret manager, [chapter 7.6](../security/secrets-management.mdx)), validates the output, caches it, logs tokens and cost, and returns the result. "Server load" is small: the server mostly waits on the network, and a model call's real cost is the provider's, not your CPU's.
 
 </details>
