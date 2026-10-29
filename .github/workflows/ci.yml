@@ -52,9 +52,9 @@ jobs:
       - name: promtool check and test
         run: |
           docker run --rm -v "$PWD/snip/deploy/prometheus/rules:/rules:ro" -w /rules \
-            --entrypoint promtool prom/prometheus:v3.5.0 check rules snip-slo.yml
+            --entrypoint promtool prom/prometheus:v3.5.5 check rules snip-slo.yml
           docker run --rm -v "$PWD/snip/deploy/prometheus/rules:/rules:ro" -w /rules \
-            --entrypoint promtool prom/prometheus:v3.5.0 test rules snip-slo_test.yml
+            --entrypoint promtool prom/prometheus:v3.5.5 test rules snip-slo_test.yml
 
   snip:
     name: snip (Go) — vet, test, build
@@ -380,13 +380,13 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.25.x'           # the latest 1.25 patch: what golang:1.25-alpine ships
+          go-version: '1.26.x'           # the latest 1.26 patch: what golang:1.26-alpine ships
           cache-dependency-path: snip/go.sum
       - name: govulncheck — known vulnerabilities in code snip actually calls
         working-directory: snip
         run: |
-          # The tool needs a newer Go to *build*; snip is analysed with its own 1.25 toolchain.
-          GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+          # GOTOOLCHAIN=auto lets go fetch the toolchain snip's go.mod names if setup-go's is older.
+          GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           "$(go env GOPATH)/bin/govulncheck" ./...
       - name: Build the image and save it as a tarball
         run: |

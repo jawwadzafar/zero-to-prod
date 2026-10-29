@@ -5,11 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Allow the job to publish to GitHub Pages.
+# Least privilege: the build job (which runs npm install scripts) can only read.
+# Only the deploy job, which runs no third-party packages, may publish to Pages.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # One deployment at a time; don't cancel one that's already publishing.
 concurrency:
@@ -19,8 +18,13 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read           # configure-pages reads the site's settings
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -38,6 +42,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

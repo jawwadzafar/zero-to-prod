@@ -116,7 +116,7 @@ A slow pipeline gets ignored ([chapter 11.1](./how-software-ships.mdx)). The mai
   ```yaml
   strategy:
     matrix:
-      go: ["1.24", "1.25"]
+      go: ["1.25", "1.26"]
       os: [ubuntu-latest, macos-latest]
   runs-on: ${{ matrix.os }}
   steps:
@@ -187,7 +187,7 @@ To deploy to a cloud ([Part 12](../cloud/cloud-from-zero.mdx)), a workflow needs
 
 ### Pin what you run
 
-`uses: actions/checkout@v7` runs someone else's code, with your token. A **tag** like `v7` can be moved by the action's owner, or by an attacker who compromises them, which has happened to popular actions: in March 2025 the widely used `tj-actions/changed-files` had its tags repointed to code that printed CI secrets into build logs ([GitHub advisory](https://github.com/advisories/GHSA-mrrh-fwg8-r2c3)). The strongest protection is to pin third-party actions to a **full commit SHA** (`uses: some/action@8f4b7f84…  # v1.2.3`) and let Dependabot or Renovate propose updates. The same applies to images (`rhysd/actionlint:1.7.12`) and tools you install (`govulncheck@v1.8.0`): pin versions of everything you run.
+`uses: actions/checkout@v7` runs someone else's code, with your token. A **tag** like `v7` can be moved by the action's owner, or by an attacker who compromises them, which has happened to popular actions: in March 2025 the widely used `tj-actions/changed-files` had its tags repointed to code that printed CI secrets into build logs ([GitHub advisory](https://github.com/advisories/GHSA-mrrh-fwg8-r2c3)). The strongest protection is to pin third-party actions to a **full commit SHA** (`uses: some/action@8f4b7f84…  # v1.2.3`) and let Dependabot or Renovate propose updates. The same applies to images (`rhysd/actionlint:1.7.12`) and tools you install (`govulncheck@v1.9.0`): pin versions of everything you run.
 
 ### Don't let untrusted text become code
 
@@ -296,7 +296,7 @@ Free, with a GitHub account. Steps 1–5 use a new, empty repository of your own
    ```go title="go.mod"
    module example.com/cilab
 
-   go 1.24
+   go 1.26
    ```
    ```go title="add.go"
    package cilab
