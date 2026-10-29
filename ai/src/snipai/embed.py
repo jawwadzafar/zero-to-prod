@@ -139,7 +139,8 @@ def clean_mdx(text: str) -> str:
 
 def chunk_handbook(docs: Path = DOCS, max_chars: int = 1500) -> list[Chunk]:
     """One chunk per section (split at '## ' headings), long sections split
-    into pieces of at most max_chars at paragraph boundaries."""
+    into pieces of at most max_chars at paragraph boundaries (or, for a
+    very long paragraph such as a list, at line breaks)."""
     chunks: list[Chunk] = []
     for path in sorted(docs.glob("*/*.mdx")):
         doc = f"{path.parent.name}/{path.stem}"
@@ -158,14 +159,18 @@ def chunk_handbook(docs: Path = DOCS, max_chars: int = 1500) -> list[Chunk]:
             if heading in ("Self-check", "What you'll learn"):
                 continue
             piece = ""
-            for para in re.split(r"\n\s*\n", rest):
-                para = " ".join(para.split())
-                if not para:
-                    continue
-                if piece and len(piece) + len(para) > max_chars:
-                    chunks.append(Chunk(doc, label, piece))
-                    piece = ""
-                piece = f"{piece} {para}".strip()
+            for block in re.split(r"\n\s*\n", rest):
+                # A long list has no blank lines between its items: split it at
+                # line breaks instead, so no piece grows far past max_chars.
+                lines = block.split("\n") if len(block) > max_chars else [block]
+                for para in lines:
+                    para = " ".join(para.split())
+                    if not para:
+                        continue
+                    if piece and len(piece) + len(para) > max_chars:
+                        chunks.append(Chunk(doc, label, piece))
+                        piece = ""
+                    piece = f"{piece} {para}".strip()
             if len(piece) > 80:
                 chunks.append(Chunk(doc, label, piece))
     return chunks

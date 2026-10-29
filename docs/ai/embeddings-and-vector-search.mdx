@@ -85,7 +85,7 @@ query: my program keeps restarting in kubernetes
 
 You could embed each chapter as one vector. Don't. A chapter covers many topics, and a single vector for all of it is a blurry average of all of them. And when you retrieve it for a question ([chapter 14.8](./rag.mdx)), you'd have to hand the model 40,000 characters to find one relevant paragraph. So documents are split into **chunks**, and each chunk gets its own vector.
 
-snipai's `chunk_handbook()` splits each chapter at its `##` section headings (sections are written to be about one thing), splits long sections into pieces of at most 1,500 characters at paragraph boundaries, strips code, quizzes and markup, and skips the "What you'll learn" and "Self-check" sections, which only list topics. And it embeds each chunk **with its headings**:
+snipai's `chunk_handbook()` splits each chapter at its `##` section headings (sections are written to be about one thing), splits long sections into pieces of at most 1,500 characters at paragraph boundaries (a long list is split between its items), strips code, quizzes and markup, and skips the "What you'll learn" and "Self-check" sections, which only list topics. And it embeds each chunk **with its headings**:
 
 ```python
 @property
