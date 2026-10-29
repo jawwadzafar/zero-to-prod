@@ -73,7 +73,7 @@ def run_agent(
             break
         turn = llm.chat(messages, specs, system=system)
         run.tokens += turn.completion.input_tokens + turn.completion.output_tokens
-        messages.append(Message("assistant", turn.text, tool_calls=turn.tool_calls))
+        messages.append(Message("assistant", turn.text, tool_calls=turn.tool_calls, raw=turn.raw))
         if not turn.tool_calls:
             run.answer = turn.text.strip() or "(the agent gave no final answer)"
             run.log("answer", run.answer)

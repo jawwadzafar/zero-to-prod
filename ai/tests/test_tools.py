@@ -168,7 +168,8 @@ def test_anthropic_tool_use_round_trip() -> None:
         bodies.append(body)
         if len(bodies) == 1:
             content: list[dict[str, Any]] = [
-                {"type": "tool_use", "id": "toolu_1", "name": "list_links", "input": {"limit": 5}}
+                {"type": "thinking", "thinking": "", "signature": "sig-1"},
+                {"type": "tool_use", "id": "toolu_1", "name": "list_links", "input": {"limit": 5}},
             ]
             stop = "tool_use"
         else:
@@ -191,8 +192,11 @@ def test_anthropic_tool_use_round_trip() -> None:
     assert answer.text == "py has 40 clicks."
     first, second = bodies
     assert first["tools"][0]["name"] == "list_links" and "input_schema" in first["tools"][0]
-    # The tool call and its result are echoed back in Anthropic's block format.
-    assert second["messages"][1]["content"][0]["type"] == "tool_use"
+    # Claude's turn goes back unchanged, thinking block (and its signature) first,
+    # then the tool result, in Anthropic's block format.
+    echoed = second["messages"][1]["content"]
+    assert [b["type"] for b in echoed] == ["thinking", "tool_use"]
+    assert echoed[0]["signature"] == "sig-1" and echoed[1]["id"] == "toolu_1"
     result = second["messages"][2]
     assert result["role"] == "user" and result["content"][0]["type"] == "tool_result"
     assert result["content"][0]["tool_use_id"] == "toolu_1"

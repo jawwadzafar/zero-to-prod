@@ -108,7 +108,7 @@ def ask(question: str, llm: LLM, tools: dict[str, Tool], *, max_steps: int = 5) 
         turn = llm.chat(messages, specs, system=SYSTEM)
         answer.input_tokens += turn.completion.input_tokens
         answer.output_tokens += turn.completion.output_tokens
-        messages.append(Message("assistant", turn.text, tool_calls=turn.tool_calls))
+        messages.append(Message("assistant", turn.text, tool_calls=turn.tool_calls, raw=turn.raw))
         if not turn.tool_calls:
             # Small models sometimes reply with nothing, or announce a tool call
             # ("let me look that up...") without making one. Report, don't guess.
