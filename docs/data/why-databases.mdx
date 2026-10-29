@@ -1,26 +1,26 @@
 ---
 title: "6.1 Why databases exist"
 sidebar_label: "6.1 Why databases exist"
-description: Why snip can't just keep links in memory or in a file — durability, concurrency, querying and integrity — what a database gives you, the main kinds of database, and your first real SQL against Postgres running in your browser.
+description: Why an app can't just keep its data in memory or in a file — durability, concurrency, querying and integrity — what a database gives you, the main kinds of database, and your first real SQL against Postgres running in your browser.
 ---
 
 # 6.1 Why databases exist
 
-snip v0 forgot every link the moment it stopped ([chapter 5.1](../apis/first-http-server.mdx)). The obvious fix sounds simple: *save the links to a file.* Engineers try exactly that all the time — and discover, one painful surprise after another, why databases exist. This chapter walks through those surprises: crashes halfway through a write, two requests writing at once, finding one link among millions, and data that quietly stops making sense. A **database** is decades of hard-won answers to all four. By the end you'll have run real SQL — in a real PostgreSQL database running inside this web page.
+Every app you use remembers things: your messages, your cart, the links you shortened, the playlist you made last year. A program's variables vanish the moment it stops, so that memory has to live somewhere else. The obvious fix sounds simple: *save everything to a file.* Engineers try exactly that all the time, and discover, one painful surprise after another, why databases exist. This chapter walks through those surprises: crashes halfway through a write, two requests writing at once, finding one link among millions, and data that quietly stops making sense. A **database** is decades of hard-won answers to all four. By the end you'll have run real SQL — in a real PostgreSQL database running inside this web page.
 
 ## What you'll learn
 
 - The four problems every serious app hits when storing data: **durability**, **concurrency**, **querying** and **integrity**.
 - What a **database** and a **database management system** are, and why "just use a file" breaks.
 - The **relational model**: data in **tables** of **rows** and **columns**, queried with **SQL**.
-- The main **kinds of databases** (relational, key-value, document and more) and why snip uses **PostgreSQL**.
-- How snip talks to its database — and your first `SELECT`, `INSERT` and `UPDATE`.
+- The main **kinds of databases** (relational, key-value, document and more) and why **PostgreSQL** is the usual default.
+- Your first `SELECT`, `INSERT` and `UPDATE`, and how a program (snip, the project you build) talks to its database.
 
 ---
 
 ## Why not just save to a file?
 
-Let's try the obvious approach and watch it fail. Suppose snip writes its links to `links.json` after every change.
+Let's try the obvious approach and watch it fail. Imagine a small link-shortener app (paste a long URL, get a short code like `k7Qz2a`) that saves all its links to `links.json` after every change.
 
 ### Problem 1: durability — crashes happen mid-write
 
@@ -32,7 +32,7 @@ And even a "finished" write might not be safe: the operating system often keeps 
 
 ### Problem 2: concurrency — two requests at once
 
-snip handles requests concurrently ([chapter 4.5](../go/concurrency.mdx)). Two people create links at the same moment. Each request reads the file, adds its link, and writes the file back:
+A web app handles many requests at the same time ([chapter 4.5](../go/concurrency.mdx)). Two people create links at the same moment. Each request reads the file, adds its link, and writes the file back:
 
 ```mermaid
 sequenceDiagram
@@ -46,7 +46,7 @@ sequenceDiagram
     Note over F: A's link is lost
 ```
 
-That's [chapter 1.2](../foundations/programs-processes-threads.mdx)'s race condition, now destroying data. You could add a lock — but only within one process. Run two copies of snip ([chapter 8.6](../distributed/scaling.mdx)) and they can't share a lock on a file.
+That's the race condition from [chapter 1.2](../foundations/programs-processes-threads.mdx) (two workers changing the same thing at once, one overwriting the other), now destroying data. You could add a lock, but only within one process. Run two copies of the app on two servers ([chapter 8.6](../distributed/scaling.mdx)) and they can't share a lock on a file.
 
 ### Problem 3: querying — finding things fast
 
@@ -73,18 +73,18 @@ A **database** is an organised collection of data. The software that manages it 
 | **Querying** | A **query language** (SQL) plus **indexes** that find one row among millions without reading them all | 6.2, 6.4 |
 | **Integrity** | **Constraints** — types, required fields, uniqueness, valid references — enforced on every write, by the database itself | 6.3 |
 
-The database is a separate **server** ([chapter 1.6](../foundations/what-a-server-is.mdx)): a long-running process, listening on a port (Postgres uses **5432**), that many clients — every copy of snip, your terminal, a reporting tool — connect to over the network.
+The database is a separate **server** ([chapter 1.6](../foundations/what-a-server-is.mdx)): a long-running process, listening on a port (Postgres uses **5432**), that many clients (every copy of your app, your terminal, a reporting tool) connect to over the network.
 
 ```mermaid
 flowchart LR
-    A1["snip copy 1"] --> DB[("PostgreSQL<br/>:5432")]
-    A2["snip copy 2"] --> DB
-    W["snip worker"] --> DB
+    A1["app copy 1"] --> DB[("PostgreSQL<br/>:5432")]
+    A2["app copy 2"] --> DB
+    W["background worker"] --> DB
     Y["you, in psql"] --> DB
     DB --> D["disk<br/>(data files + write-ahead log)"]
 ```
 
-This is also why the database becomes the **source of truth** in snip's architecture ([chapter 0.3](../start/meet-snip.mdx)): caches and copies come and go, but the database holds the real data.
+This is why the database becomes the **source of truth** in almost every system: caches and copies come and go, but the database holds the real data.
 
 ---
 
@@ -96,7 +96,7 @@ Most business data lives in **relational databases**, which store data in **tabl
 - Each **column** is one attribute, with a fixed **type**: `slug` is text, `clicks` is a whole number, `created_at` is a timestamp.
 - Each **row** is one item: one link.
 
-snip's `links` table looks like this:
+The link shortener's `links` table might look like this:
 
 | slug | url | owner_id | clicks | created_at |
 |---|---|---|---|---|
@@ -164,7 +164,7 @@ Relational databases are the default, but not the only kind. You'll meet these (
 | **Search** | Inverted indexes of words | Full-text search, "did you mean…" | Elasticsearch, OpenSearch |
 | **Vector** | Lists of numbers (embeddings) | Finding things by *meaning* — AI search | pgvector, Pinecone, Qdrant ([chapter 14.7](../ai/embeddings-and-vector-search.mdx)) |
 
-snip uses two: **PostgreSQL** as the source of truth for links and keys, and **Redis**, a key-value store, as a fast cache, rate limiter and queue ([chapter 6.7](./redis-and-caching.mdx)).
+Many systems use two: a relational database as the source of truth, and **Redis**, a key-value store, as a fast cache ([chapter 6.7](./redis-and-caching.mdx)).
 
 ### Why PostgreSQL?
 
@@ -176,7 +176,17 @@ Many successful products run on a single well-looked-after Postgres database for
 
 ---
 
-## How snip talks to its database
+:::warning[What can go wrong]
+- **"We'll just use files/JSON for now."** It works until the first crash mid-write or the first concurrent request, and then data is silently lost. Start with a database — even SQLite, a database in a single file, is far safer than hand-rolled files.
+- **Treating the database as a dumb bucket.** Checking rules only in application code means one buggy script or a second service can corrupt everything. Put the essential rules in the schema, where the database enforces them for everyone ([chapter 6.3](./designing-schemas.mdx)).
+- **The database as a single point of failure.** It's the source of truth — if it's down, the app is down, and if it's lost, the data is lost. Backups and replicas matter (chapters [12.3](../cloud/compute-storage-databases.mdx) and [8.6](../distributed/scaling.mdx)).
+:::
+
+---
+
+## Apply it to snip
+
+snip, the link shortener you build in this handbook ([chapter 0.3](../start/meet-snip.mdx)), started life keeping links in memory, so it forgot every one the moment it stopped ([chapter 5.1](../apis/first-http-server.mdx)). It fixes that with exactly the setup above: **PostgreSQL** as the source of truth for links and API keys, and **Redis** as a fast cache, rate limiter and queue in front of it ([chapter 6.7](./redis-and-caching.mdx)). Its `links` table has the same columns as the one in the playground.
 
 snip's code never touches Postgres's files. It connects over the network and sends SQL, through the **`Store` interface** you met in [chapter 4.3](../go/packages-modules-interfaces.mdx). From `internal/store/postgres/postgres.go`:
 
@@ -194,12 +204,6 @@ func (s *Store) Get(ctx context.Context, slug string) (links.Link, error) {
 ```
 
 Send a query; the database returns rows; `Scan` copies each column into a field of a Go struct; "no rows" becomes snip's own `ErrNotFound` ([chapter 4.2](../go/types-structs-errors.mdx)). [Chapter 6.6](./postgres-from-go.mdx) covers this code — and why that `$1` is so important — properly.
-
-:::warning[What can go wrong]
-- **"We'll just use files/JSON for now."** It works until the first crash mid-write or the first concurrent request, and then data is silently lost. Start with a database — even SQLite, a database in a single file, is far safer than hand-rolled files.
-- **Treating the database as a dumb bucket.** Checking rules only in application code means one buggy script or a second service can corrupt everything. Put the essential rules in the schema, where the database enforces them for everyone ([chapter 6.3](./designing-schemas.mdx)).
-- **The database as a single point of failure.** It's the source of truth — if it's down, snip is down, and if it's lost, the data is lost. Backups and replicas matter (chapters [12.3](../cloud/compute-storage-databases.mdx) and [8.6](../distributed/scaling.mdx)).
-:::
 
 ---
 
@@ -224,7 +228,7 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
    \dt          -- psql command: list tables
    \q           -- quit
    ```
-   Now prove **durability**: `docker restart pg-lab`, reconnect with the `docker exec` line, and `SELECT * FROM notes;` — your row survived the restart, unlike snip v0's links. Clean up with `docker rm -f pg-lab`.
+   Now prove **durability**: `docker restart pg-lab`, reconnect with the `docker exec` line, and `SELECT * FROM notes;` — your row survived the restart, which a program keeping data in its own memory can't promise. Clean up with `docker rm -f pg-lab`.
 
 ## Self-check
 
@@ -232,7 +236,7 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
   id="data-why-databases"
   questions={[
     {
-      q: 'Two snip requests each read links.json, add a link, and write the file back at the same moment. What can happen?',
+      q: 'Two requests each read links.json, add a link, and write the file back at the same moment. What can happen?',
       options: [
         'Both links are saved, because each write adds to the file',
         'One link is silently lost: the second write overwrites the first',
@@ -256,7 +260,7 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
     {
       q: 'In the playground, INSERT of a duplicate slug fails. What made the database refuse it?',
       options: [
-        'snip’s Go code checked for the duplicate before inserting it',
+        'The app’s code checked for the duplicate before inserting it',
         'slug is declared PRIMARY KEY, so the database enforces uniqueness',
         'The browser blocked the request, since it had sent it already',
         'Duplicate values are never allowed in any column of any table',
@@ -279,7 +283,7 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
 />
 
 <details>
-<summary>List the four problems with storing snip's links in a file, and one sentence each on how a database solves them.</summary>
+<summary>List the four problems with storing an app's data in a file, and one sentence each on how a database solves them.</summary>
 
 1. **Durability** — a crash mid-write corrupts the file. *The database logs every change to disk before confirming it, and recovers from the log after a crash.*
 2. **Concurrency** — simultaneous writes lose data. *Transactions and locks let many clients write safely at once.*
