@@ -6,9 +6,9 @@ description: "What happens to authorization when a product grows teams, sharing,
 
 # 7.10 Authorization at scale: policies & relationships
 
-In [chapter 7.4](./authorization-multi-tenancy.mdx), snip's authorization fit in one line of SQL: `WHERE owner_id = $1`. Each API key owns its links, and nobody else can see them. That's correct, and for a product with one kind of user, it's enough.
+Most products start with authorization that fits in one line of SQL: `WHERE owner_id = $1`. Each user owns their things, and nobody else can see them ([chapter 7.4](./authorization-multi-tenancy.mdx) shows why that condition belongs inside the query). That's correct, and for a product with one kind of user, it's enough.
 
-Now imagine snip succeeds. Customers want **teams**, where colleagues edit each other's links. They want to **share** a folder of campaign links with an agency. Enterprise customers want roles from their identity provider to decide who's an admin ([chapter 7.9](./single-sign-on.mdx)). Your **support staff** need to look at a customer's links to fix a problem, but only when that customer asked. And deleting links should require a recent second factor ([chapter 7.7](./mfa-and-passkeys.mdx)). Each rule is simple. Written as `if` statements scattered through the handlers, together they become the part of the code nobody dares change, and the source of the most damaging bugs: one user reading another's data.
+Now imagine the product succeeds. Take a link shortener — this chapter's examples use snip, the one this handbook builds. Customers want **teams**, where colleagues edit each other's links. They want to **share** a folder of campaign links with an agency. Enterprise customers want roles from their identity provider to decide who's an admin ([chapter 7.9](./single-sign-on.mdx)). Your **support staff** need to look at a customer's links to fix a problem, but only when that customer asked. And deleting links should require a recent second factor ([chapter 7.7](./mfa-and-passkeys.mdx)). Each rule is simple. Written as `if` statements scattered through the handlers, together they become the part of the code nobody dares change, and the source of the most damaging bugs: one user reading another's data.
 
 This chapter is about keeping authorization **correct as it grows**: separating decisions from code, writing policies you can test, and modelling sharing with relationships.
 
@@ -16,7 +16,7 @@ This chapter is about keeping authorization **correct as it grows**: separating 
 
 - Where authorization should happen: **enforcement points** and **decision points**.
 - Why roles alone stop scaling (**role explosion**), and what attributes add.
-- **Policy as code** with **Open Policy Agent**: snip's links policy, with tests.
+- **Policy as code** with **Open Policy Agent**: a real links policy, with tests.
 - **Relationship-based access control** (**ReBAC**), the model behind Google's Zanzibar, built from scratch.
 - **Filtering lists** without checking every row.
 - **Impersonation**, **break-glass** access and **audit**.

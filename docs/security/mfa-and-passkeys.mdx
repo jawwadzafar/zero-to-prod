@@ -6,7 +6,7 @@ description: "Why a password alone isn't enough, and every kind of second factor
 
 # 7.7 Multi-factor authentication & passkeys
 
-In [chapter 7.2](./authentication.mdx) you stored passwords properly: slow, salted hashes that are useless to someone who steals the database. That protects passwords *on your side*. It does nothing about what happens on the user's side, which is where most accounts are actually lost. People reuse passwords, type them into convincing fake login pages, and choose ones that thousands of others chose too. When snip's CI checks two common passwords against a public database of leaked credentials, `password123` has appeared in breaches **2,266,543 times**, and `P@ssw0rd`, which looks strong to a password-rules checker, **6,421,042 times**.
+In [chapter 7.2](./authentication.mdx) you stored passwords properly: slow, salted hashes that are useless to someone who steals the database. That protects passwords *on your side*. It does nothing about what happens on the user's side, which is where most accounts are actually lost. People reuse passwords, type them into convincing fake login pages, and choose ones that thousands of others chose too. When this handbook's CI checks two common passwords against Have I Been Pwned's public database of leaked credentials, `password123` has appeared in breaches **2,266,543 times**, and `P@ssw0rd`, which looks strong to a password-rules checker, **6,421,042 times**.
 
 The fix that works is to require something a remote attacker doesn't have: a second **factor**. This chapter ranks every common kind by what it actually stops, builds the one in your authenticator app from its specification, and ends with the one kind that even a perfect fake login page can't defeat.
 
@@ -51,7 +51,7 @@ Not all second factors are equal, though, and the differences are exactly what a
 The pattern: everything above the last row relies on the *user* noticing the fake. The last row doesn't. That's the difference between **phishable** and **phishing-resistant** factors, and it's why the last row is where the industry is heading.
 
 :::warning[What can go wrong]
-MFA fatigue is not theoretical. In Uber's publicly reported 2022 breach, the attacker had a contractor's password and repeatedly sent push approval requests, then contacted the contractor pretending to be IT support, until one was approved. Defences: **number matching** (the login screen shows a number the user must type into the app, so a blind tap can't approve), limits on how many prompts can be sent, and alerts on repeated denials.
+MFA fatigue is not theoretical. In Uber's 2022 breach, the attacker had a contractor's password and repeatedly sent push approval requests, until the contractor accepted one ([Uber's security update](https://www.uber.com/newsroom/security-update/)); public reporting at the time said the attacker also messaged the contractor pretending to be IT support. Defences: **number matching** (the login screen shows a number the user must type into the app, so a blind tap can't approve), limits on how many prompts can be sent, and alerts on repeated denials.
 :::
 
 ---
@@ -122,15 +122,15 @@ TOTP stops an attacker who only has the password. It does **not** stop phishing:
 sequenceDiagram
     participant U as Device (phone, laptop, security key)
     participant B as Browser
-    participant S as snip.example
+    participant S as shop.example
     Note over U,S: Registration, once
-    S->>B: register: here's a challenge, I am snip.example
-    B->>U: create a key pair for snip.example
+    S->>B: register: here's a challenge, I am shop.example
+    B->>U: create a key pair for shop.example
     U->>U: new key pair (private key never leaves the device)
     U->>S: public key (plus a signature)
     Note over U,S: Every login
     S->>B: sign this random challenge
-    B->>U: sign it for snip.example (the page's real origin)
+    B->>U: sign it for shop.example (the page's real origin)
     U->>U: user unlocks with fingerprint, face or PIN
     U->>S: signature
     S->>S: verify with the stored public key
@@ -138,7 +138,7 @@ sequenceDiagram
 
 Why phishing fails against it:
 
-- **The browser, not the user, decides which site is asking.** A passkey created for `snip.example` is bound to that domain. On `snip-example-login.com`, the browser simply won't offer it. There's no code for the user to type into the wrong page.
+- **The browser, not the user, decides which site is asking.** A passkey created for `shop.example` is bound to that domain. On `shop-example-login.com`, the browser simply won't offer it. There's no code for the user to type into the wrong page.
 - **Nothing reusable crosses the network.** Each login signs a fresh random challenge, so a captured signature is useless for the next one.
 - **The server stores only public keys.** A database breach reveals nothing that can log anyone in.
 
@@ -150,7 +150,7 @@ Two flavours matter in practice:
 - **Device-bound passkeys**, such as hardware security keys, never leave the device. Stronger, and common for administrators, but losing the key without a backup means recovery.
 
 :::info[In the real world]
-Passkeys are supported by the major browsers and phone platforms, and many large sites now offer them. Hardware security keys are standard for staff access at security-conscious companies, and some have publicly reported that phishing-based account takeovers of employees stopped after rolling them out. For a product, a reasonable plan is: offer passkeys to everyone, keep TOTP as an alternative, and **require** phishing-resistant factors for your own administrators.
+Passkeys are supported by every major browser and phone platform, and large providers now push them as the default: Google made passkeys the default sign-in option for personal accounts in 2023 ([Google](https://blog.google/technology/safety-security/passkeys-default-google-accounts/)). Hardware security keys are standard for staff access at security-conscious companies. In 2022, Cloudflare employees received a convincing SMS phishing attack; some typed their passwords into the fake page, but the attack failed because every employee logged in with a hardware security key ([Cloudflare's write-up](https://blog.cloudflare.com/2022-07-sms-phishing-attacks/)). For a product, a reasonable plan is: offer passkeys to everyone, keep TOTP as an alternative, and **require** phishing-resistant factors for your own administrators.
 :::
 
 ---
@@ -182,7 +182,7 @@ To make that decision, the application needs to know *how* and *when* the user l
 - **Give a grace period** and clear instructions, and make enrollment part of sign-up for new accounts.
 - **Require at least one backup** (recovery codes or a second factor) during enrollment.
 - **Measure**: enrollment rate, how often recovery is used, how often MFA prompts are denied. A spike in denials may be an attack in progress.
-- **Follow the standards bodies' guidance.** NIST's digital identity guidelines (SP 800-63B) classify SMS codes as a restricted option because of SIM swapping and interception, and recognise phishing-resistant authenticators as the strongest.
+- **Follow the standards bodies' guidance.** NIST's digital identity guidelines ([SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html), final since August 2025) classify SMS codes as a restricted option because of SIM swapping and interception, push services towards phishing-resistant options at the everyday assurance level, require them at the highest, and accept synced passkeys for everyday use.
 
 :::info[Honesty label]
 **Exists today:** snip's TOTP implementation (`snip/examples/totp`), tested against RFC 4226 and RFC 6238's official vectors, and a CI job in which a Keycloak user enrolls an authenticator using that code, logs in with password and code, and has a replayed code refused. **Not built:** MFA for snip itself. snip's API authenticates with API keys ([chapter 7.2](./authentication.mdx)) and has no user logins; in a real product, you'd get MFA and passkeys from an identity provider ([chapter 7.9](./single-sign-on.mdx)) rather than building them.

@@ -8,7 +8,7 @@ description: "The login form is only one door into an account. This chapter cove
 
 Attackers don't care *how* they get into an account, only that they do. A strong password and MFA ([chapter 7.7](./mfa-and-passkeys.mdx)) protect one door, the login form. But an account has others: the "forgot password" link, the session cookie that stays valid for weeks, the email-change form, the support desk, the device that was never logged out. **Account takeover** (**ATO**) is the name for any of these ending with someone else in control of the account.
 
-This chapter walks through each door, how it's attacked, and how to defend it, with snip's labs implementing the two pieces most often done wrong: password-reset tokens and breached-password checks.
+This chapter walks through each door, how it's attacked, and how to defend it, with small standalone Go programs (in this handbook's repository, under `snip/examples/accountsec`) implementing the two pieces most often done wrong: password-reset tokens and breached-password checks.
 
 ## What you'll learn
 
@@ -63,7 +63,7 @@ Checking whether a password has leaked sounds like it requires sending the passw
 3. The service returns every leaked hash that starts with those 5 characters (hundreds of them), with a count for each.
 4. Compare the remaining 35 characters **locally**.
 
-The service never learns the password, or even its full hash: hundreds of different passwords share any 5-character prefix. snip's `accountsec.BreachCount` implements it, and its test checks the one property that matters, that only the prefix is ever sent:
+The service never learns the password, or even its full hash: hundreds of different passwords share any 5-character prefix. The example package `accountsec.BreachCount` implements it, and its test checks the one property that matters, that only the prefix is ever sent:
 
 ```go
 sum := sha1.Sum([]byte(password))
@@ -84,7 +84,7 @@ req.Header.Set("Add-Padding", "true") // pad responses so their size doesn't lea
 The last one is a famous example of a *good* passphrase from a well-known comic. It's been used as a real password often enough to appear in breaches 391 times. Any password that's famous, however strong it looks, is on the attackers' lists.
 
 :::info[In the real world]
-Current guidance from standards bodies such as NIST has moved away from the rules many sites still use. It recommends **long passwords** (and allowing very long ones, with spaces), **checking new passwords against breached and common lists**, and **no** forced periodic changes or composition rules ("one uppercase, one symbol"), which push people towards predictable patterns like `P@ssw0rd`, and it recommends changing a password when there's evidence it's compromised.
+Current guidance from standards bodies has moved away from the rules many sites still use. NIST's [SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html) (final since August 2025) requires **long passwords** (at least 15 characters when the password is the only factor, 8 when it's part of MFA, and accepting at least 64, spaces included), **checking new passwords against breached and common lists**, and **no** forced periodic changes or composition rules ("one uppercase, one symbol"), which push people towards predictable patterns like `P@ssw0rd`, and it recommends changing a password when there's evidence it's compromised.
 :::
 
 ---
@@ -99,7 +99,7 @@ The fixes:
 - **The same timing**: when the user doesn't exist, hash the submitted password against a dummy hash anyway, so both paths do the same slow work.
 - **Sign-up**: send "you already have an account; here's how to log in" by email, rather than saying it on screen.
 
-snip's reset code follows the same principle: one error, `ErrInvalidToken`, whether the token never existed, expired or was already used.
+The example reset code follows the same principle: one error, `ErrInvalidToken`, whether the token never existed, expired or was already used.
 
 ---
 
@@ -139,7 +139,7 @@ sequenceDiagram
 
 ## Password reset, done properly
 
-A reset link is a temporary key to the account, sent through email: often the weakest door of all. snip's `accountsec.Resets` shows the rules in about 60 lines:
+A reset link is a temporary key to the account, sent through email: often the weakest door of all. The example `accountsec.Resets` shows the rules in about 60 lines:
 
 ```go
 // Issue returns a token to put in the reset link. Send it only to the

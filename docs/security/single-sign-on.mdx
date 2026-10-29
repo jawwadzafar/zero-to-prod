@@ -6,7 +6,7 @@ description: "How companies give people one login for every tool, and how your p
 
 # 7.9 Single sign-on: OIDC, SAML & SCIM
 
-A company of 500 people uses maybe 100 tools: email, chat, code hosting, the cloud console, the HR system, and snip. Without **single sign-on**, that's 50,000 separate accounts, each with its own password, its own MFA setup, and its own forgotten admin who left two years ago but can still log in. With single sign-on, each person has **one** identity at the company's **identity provider**, every tool trusts it, and when someone leaves, disabling that one identity closes every door.
+A company of 500 people uses maybe 100 tools: email, chat, code hosting, the cloud console, the HR system, an internal link shortener. Without **single sign-on**, that's 50,000 separate accounts, each with its own password, its own MFA setup, and its own forgotten admin who left two years ago but can still log in. With single sign-on, each person has **one** identity at the company's **identity provider**, every tool trusts it, and when someone leaves, disabling that one identity closes every door.
 
 That's why "Does it support SSO?" is one of the first questions business customers ask about any product, and why understanding it is part of building one. This chapter covers the whole picture: the protocols (OpenID Connect and SAML), what your application must check, how a product serves many companies with different identity providers, and how accounts are created and, more importantly, removed.
 
@@ -36,7 +36,7 @@ The roles:
 
 ```mermaid
 flowchart LR
-  U["Employee"] --> A["snip<br/>(relying party)"]
+  U["Employee"] --> A["Your app<br/>(relying party)"]
   A -->|"who is this?"| I["Company IdP<br/>(Keycloak, Entra ID, Okta…)"]
   I -->|"signed answer"| A
   I --- B["Chat"] & C["Code hosting"] & D["Cloud console"]
@@ -55,14 +55,14 @@ The protocols are the same; the risks differ, as you'll see.
 
 ## OpenID Connect sign-in, from the application's side
 
-[Chapter 7.3](./oauth-and-oidc.mdx) explained OAuth 2.0 and OpenID Connect (OIDC) and built a toy authorization server. Now you're on the other side: the application that lets people sign in. snip's `examples/oidcrp` is a complete relying party in under 500 lines of standard-library Go, comments included, so every step is visible. (In production, use a maintained library: this one exists to be read.)
+[Chapter 7.3](./oauth-and-oidc.mdx) explained OAuth 2.0 and OpenID Connect (OIDC) and built a toy authorization server. Now you're on the other side: the application that lets people sign in. This handbook's `snip/examples/oidcrp` is a complete, standalone relying party in under 500 lines of standard-library Go, comments included, so every step is visible. (In production, use a maintained library: this one exists to be read.)
 
 The flow, as the relying party runs it:
 
 ```mermaid
 sequenceDiagram
     participant B as Browser
-    participant A as snip (relying party)
+    participant A as Your app (relying party)
     participant I as IdP (Keycloak)
     A->>I: discovery: GET /.well-known/openid-configuration, then the public keys
     B->>A: GET /login
