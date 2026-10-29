@@ -6,7 +6,7 @@ description: "Running a multi-container system with one file and one command: se
 
 # 9.3 Docker Compose: the whole stack locally
 
-snip is no longer one program. It's Postgres, Redis, two copies of the API, a worker, and nginx in front, plus Prometheus and Grafana when you want to watch it. Starting all of that with `docker run` means a page of commands: create a network, start each piece with the right name, environment, volume and ports, in the right order, and remember to tear it all down afterwards. **Docker Compose** replaces that page with one file that *describes* the whole system, and one command that makes it so. You've used it since chapter 8.3. This chapter explains every line of snip's `docker-compose.yml`, the networking that lets the pieces find each other, and the day-to-day commands, including the ones that delete your data.
+snip is no longer one program. It's Postgres, Redis, two copies of the API, a worker, and nginx in front, plus Prometheus and Grafana when you want to watch it. Starting all of that with `docker run` means a page of commands: create a network, start each piece with the right name, environment, volume and ports, in the right order, and remember to tear it all down afterwards. **Docker Compose** replaces that page with one file that *describes* the whole system, and one command that makes it so. You've used it since [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx). This chapter explains every line of snip's `docker-compose.yml`, the networking that lets the pieces find each other, and the day-to-day commands, including the ones that delete your data.
 
 ## What you'll learn
 
@@ -69,7 +69,7 @@ services:
 - **`services:`** lists the containers to run. Each key (`postgres`) is a **service name**, which also becomes its **hostname** on the network (below).
 - **`image:`** uses a ready-made image from a registry.
 - **`environment:`** sets variables inside the container. The official Postgres image reads these on first start to create the user and database.
-- **`volumes:`** mounts the named volume `pgdata` where Postgres keeps its files, so the data outlives the container (chapter 9.1).
+- **`volumes:`** mounts the named volume `pgdata` where Postgres keeps its files, so the data outlives the container ([chapter 9.1](./what-a-container-is.mdx)).
 - **`healthcheck:`** is a command Compose runs inside the container every 3 seconds. `pg_isready` succeeds once Postgres accepts connections, and then the container's status becomes `healthy`.
 
 ### Redis
@@ -83,7 +83,7 @@ services:
       retries: 20
 ```
 
-No volume: snip uses Redis as a cache and a queue, and losing it on `down` is acceptable in development. (Chapter 8.2 discussed what a lost queue means in production.)
+No volume: snip uses Redis as a cache and a queue, and losing it on `down` is acceptable in development. ([Chapter 8.2](../distributed/queues-and-background-work.mdx) discussed what a lost queue means in production.)
 
 ### The API: build, shared environment, replicas
 
@@ -101,12 +101,12 @@ No volume: snip uses Redis as a cache and a queue, and losing it on `down` is ac
       replicas: 2                     # two copies behind nginx (chapter 8.3)
 ```
 
-- **`build: .`** builds the image from the Dockerfile in this directory (chapter 9.2) instead of pulling one. `docker compose up --build` rebuilds it.
+- **`build: .`** builds the image from the Dockerfile in this directory ([chapter 9.2](./writing-dockerfiles.mdx)) instead of pulling one. `docker compose up --build` rebuilds it.
 - The database URL's host is **`postgres`**, the service name, not `localhost`. The Redis address is `redis:6379`.
 - **`&snip-env`** is a YAML **anchor**: it names this block so it can be reused below with `*snip-env`. That's plain YAML, not a Compose feature, and it saves copying the same variables twice.
 - **`depends_on` with `condition: service_healthy`**: don't start the API until Postgres and Redis report healthy.
 - **`deploy.replicas: 2`** runs two identical containers, `snip-api-1` and `snip-api-2`.
-- No `ports:`: the API copies are **not** reachable from your machine directly. Only nginx is. That's the reverse-proxy pattern of chapter 8.3.
+- No `ports:`: the API copies are **not** reachable from your machine directly. Only nginx is. That's the reverse-proxy pattern of [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx).
 
 ### The worker: same image, different program
 
@@ -119,7 +119,7 @@ No volume: snip uses Redis as a cache and a queue, and losing it on `down` is ac
       api: { condition: service_started }  # the API runs migrations first
 ```
 
-snip's image contains both programs (chapter 9.2). **`entrypoint:`** overrides the image's `ENTRYPOINT`, so this service runs the worker. `*snip-env` reuses the API's environment.
+snip's image contains both programs ([chapter 9.2](./writing-dockerfiles.mdx)). **`entrypoint:`** overrides the image's `ENTRYPOINT`, so this service runs the worker. `*snip-env` reuses the API's environment.
 
 ### nginx: the only door
 
@@ -155,7 +155,7 @@ volumes:
   pgdata:
 ```
 
-Services with a **`profiles:`** entry only start when that profile is asked for. Everyday `docker compose up` stays lean, and `--profile observability` adds monitoring (chapter 13.2). The top-level **`volumes:`** section declares the named volume `pgdata` that Postgres uses.
+Services with a **`profiles:`** entry only start when that profile is asked for. Everyday `docker compose up` stays lean, and `--profile observability` adds monitoring ([chapter 13.2](../observability/metrics.mdx)). The top-level **`volumes:`** section declares the named volume `pgdata` that Postgres uses.
 
 ---
 
@@ -168,12 +168,12 @@ Compose creates a private network for the project (`snip_default`) and connects 
 - Prometheus finds every API copy by looking up `api` (its config uses `dns_sd_configs` with `names: [api]`).
 
 :::warning[What can go wrong]
-**`localhost` inside a container means that container itself** (its own network namespace, chapter 9.1), not your machine and not another container. `SNIP_DATABASE_URL=postgres://...@localhost:5432/...` works when snip runs directly on your laptop next to a Postgres container with a published port. Inside Compose it fails with "connection refused". Use the **service name**. This is the single most common Compose mistake.
+**`localhost` inside a container means that container itself** (its own network namespace, [chapter 9.1](./what-a-container-is.mdx)), not your machine and not another container. `SNIP_DATABASE_URL=postgres://...@localhost:5432/...` works when snip runs directly on your laptop next to a Postgres container with a published port. Inside Compose it fails with "connection refused". Use the **service name**. This is the single most common Compose mistake.
 :::
 
 Containers on the network talk to each other on the containers' **own** ports (`api:8080`), whether or not those ports are published. `ports:` is only for traffic from **outside**, your machine, into the network.
 
-**DNS isn't load balancing.** Docker's DNS returns all the copies' addresses, but *which* one gets used is up to the client. In a test, a simple client given both addresses sent 3 of 4 requests to the same copy. That's why snip puts nginx in front, which deliberately spreads requests round robin (chapter 8.3). And nginx looks up `api` **only when it starts**, so after scaling you run `docker compose restart nginx` (chapter 8.6).
+**DNS isn't load balancing.** Docker's DNS returns all the copies' addresses, but *which* one gets used is up to the client. In a test, a simple client given both addresses sent 3 of 4 requests to the same copy. That's why snip puts nginx in front, which deliberately spreads requests round robin ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)). And nginx looks up `api` **only when it starts**, so after scaling you run `docker compose restart nginx` ([chapter 8.6](../distributed/scaling.mdx)).
 
 ---
 
@@ -207,7 +207,7 @@ And the commands that decide their fate:
 - **`condition: service_started`**: just wait for it to start (snip's worker, which only needs the API to have begun its migrations).
 - **`condition: service_completed_successfully`**: wait for a one-off job, like a migration container, to finish with exit code 0.
 
-Even so, **your program should retry its connections** (chapter 8.1). In production nothing guarantees start order: a database restarts under a running app, or a network blips. Healthchecks make local startup smooth; retries make the app survive the real world. `docker compose up --wait` blocks until everything is running and healthy. It's ideal in scripts and CI.
+Even so, **your program should retry its connections** ([chapter 8.1](../distributed/distributed-survival-kit.mdx)). In production nothing guarantees start order: a database restarts under a running app, or a network blips. Healthchecks make local startup smooth; retries make the app survive the real world. `docker compose up --wait` blocks until everything is running and healthy. It's ideal in scripts and CI.
 
 ---
 
@@ -236,13 +236,13 @@ A detail worth knowing: after you change `environment:` for a service and run `u
 
 - **`docker-compose.override.yml`**, if present next to `docker-compose.yml`, is **merged automatically**. Teams use it for personal tweaks (publish the API port for debugging, mount source code) without editing the shared file. It's often gitignored.
 - **`-f`** picks files explicitly: `docker compose -f docker-compose.yml -f compose.ci.yml up`.
-- **Variable substitution**: `image: snip:${SNIP_TAG:-dev}` takes `SNIP_TAG` from your shell or from a **`.env` file** next to the compose file, defaulting to `dev`. The `.env` file is for Compose's own substitution; it doesn't automatically become the containers' environment. Keep real secrets out of both (chapter 7.6).
+- **Variable substitution**: `image: snip:${SNIP_TAG:-dev}` takes `SNIP_TAG` from your shell or from a **`.env` file** next to the compose file, defaulting to `dev`. The `.env` file is for Compose's own substitution; it doesn't automatically become the containers' environment. Keep real secrets out of both ([chapter 7.6](../security/secrets-management.mdx)).
 
 ---
 
 ## What Compose is (and isn't) for
 
-Compose is excellent for **development**, **CI** (snip's CI runs this exact stack on every push: up, smoke test through nginx, scale to 4, count clicks) and **small single-server deployments**. It isn't a production platform for anything that must survive a machine dying. Compose runs everything on **one host**. It doesn't move containers to a healthy machine when one fails, roll out new versions gradually with health checks, autoscale, or manage secrets across a fleet. That's the job of an **orchestrator**, and Part 10 is Kubernetes. The ideas carry straight over: services, replicas, health, config from the environment, volumes.
+Compose is excellent for **development**, **CI** (snip's CI runs this exact stack on every push: up, smoke test through nginx, scale to 4, count clicks) and **small single-server deployments**. It isn't a production platform for anything that must survive a machine dying. Compose runs everything on **one host**. It doesn't move containers to a healthy machine when one fails, roll out new versions gradually with health checks, autoscale, or manage secrets across a fleet. That's the job of an **orchestrator**, and [Part 10](../kubernetes/why-orchestration.mdx) is Kubernetes. The ideas carry straight over: services, replicas, health, config from the environment, volumes.
 
 :::warning[What can go wrong]
 - **`localhost` in a connection string** inside Compose: use the service name.
@@ -289,7 +289,7 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
    docker compose exec redis redis-cli XLEN snip:clicks        # click events in the stream
    docker compose logs worker | tail -5
    ```
-   After a few seconds, `counted` shows 5 clicks: the API recorded each click in Redis, and the worker added them to Postgres (chapter 8.2).
+   After a few seconds, `counted` shows 5 clicks: the API recorded each click in Redis, and the worker added them to Postgres ([chapter 8.2](../distributed/queues-and-background-work.mdx)).
 
 4. **Change configuration, and watch what Compose recreates.** Add `SNIP_LOG_LEVEL: debug` under the API's `environment:` (inside the `&snip-env` block), then:
    ```bash
@@ -309,7 +309,7 @@ Steps 5 and 7 use `docker compose down -v`, which **deletes the project's volume
    ```bash
    docker compose --profile observability up -d
    ```
-   Open [localhost:9090/targets](http://localhost:9090/targets): Prometheus has found both API copies by DNS and shows them `UP`. Chapter 13.2 does the rest.
+   Open [localhost:9090/targets](http://localhost:9090/targets): Prometheus has found both API copies by DNS and shows them `UP`. [Chapter 13.2](../observability/metrics.mdx) does the rest.
 
 7. **Clean up completely** with `docker compose --profile observability down -v`, and confirm with `docker volume ls` that `snip_pgdata` is gone.
 
@@ -429,6 +429,6 @@ Key points: the app reaches the database as `db`; only the web app publishes a p
 
 **Reasonable** for small, internal or early-stage systems where some downtime is acceptable: a single well-sized server with Compose is simple, cheap and understandable.
 
-**Warn them** that everything depends on that one machine (it's a single point of failure). Compose won't move containers elsewhere if the machine dies. Deploys replace containers without gradual, health-checked rollouts, so expect brief downtime unless you add that yourself. There's no autoscaling. Secrets need proper handling (not development passwords in the file). Backups of the volumes are entirely their job. Plan for monitoring, restarts on reboot (`restart: unless-stopped`), and TLS in front. When any of those becomes painful, it's time for an orchestrator or a managed platform (Parts 10–12).
+**Warn them** that everything depends on that one machine (it's a single point of failure). Compose won't move containers elsewhere if the machine dies. Deploys replace containers without gradual, health-checked rollouts, so expect brief downtime unless you add that yourself. There's no autoscaling. Secrets need proper handling (not development passwords in the file). Backups of the volumes are entirely their job. Plan for monitoring, restarts on reboot (`restart: unless-stopped`), and TLS in front. When any of those becomes painful, it's time for an orchestrator or a managed platform (Parts [10](../kubernetes/why-orchestration.mdx)–[12](../cloud/cloud-from-zero.mdx)).
 
 </details>

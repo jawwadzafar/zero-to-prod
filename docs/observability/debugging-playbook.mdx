@@ -41,7 +41,7 @@ It sounds obvious. The ways people break it are not:
 
 - **Skipping observe**: changing code before knowing what's wrong ("let's try upgrading the library").
 - **Changing several things at once**: it works now, but you don't know which change fixed it, or whether one of them broke something else.
-- **Never writing it down**: after an hour you can't remember what you tried. Keep a scratch file: time, hypothesis, test, result. It makes you faster, and it becomes the postmortem timeline (chapter 13.5) for free.
+- **Never writing it down**: after an hour you can't remember what you tried. Keep a scratch file: time, hypothesis, test, result. It makes you faster, and it becomes the postmortem timeline ([chapter 13.5](./incidents-and-postmortems.mdx)) for free.
 - **Falling in love with a theory**: the moment a test contradicts your hypothesis, the hypothesis is wrong, however elegant it was.
 
 ---
@@ -54,7 +54,7 @@ Before touching anything, answer these three. They solve a surprising share of p
 
 **2. What changed?** Working systems usually break because *something changed*: a deploy, a config edit, a dependency upgrade, a certificate expiring, traffic growing, a disk filling up, a new customer with unusual data. Check deploy history, Git log, config history, and the dashboards' "since when". If the timing matches a change, you have a prime suspect, and probably a quick mitigation (roll it back).
 
-**3. Can I reproduce it?** A bug you can trigger on demand is a bug you'll fix. A bug you can't is a bug you'll guess at. Find the **smallest reliable reproduction**: one `curl` command, one failing test, one input file. Then you can test hypotheses in seconds instead of waiting for it to happen again. snip's game day in chapter 13.5 is an example: "freeze Redis, time three redirects" reproduced the problem every time, so each fix could be checked in seconds.
+**3. Can I reproduce it?** A bug you can trigger on demand is a bug you'll fix. A bug you can't is a bug you'll guess at. Find the **smallest reliable reproduction**: one `curl` command, one failing test, one input file. Then you can test hypotheses in seconds instead of waiting for it to happen again. snip's game day in [chapter 13.5](./incidents-and-postmortems.mdx) is an example: "freeze Redis, time three redirects" reproduced the problem every time, so each fix could be checked in seconds.
 
 ---
 
@@ -69,7 +69,7 @@ This sounds too simple to include, but it's the most skipped step in debugging. 
 Read it word by word:
 
 - `click not recorded`: *what* snip failed to do (and `WARN`, not `ERROR`: the redirect itself still worked).
-- `dial tcp`: it was trying to **open a new TCP connection** (chapter 1.4), not send data on an existing one.
+- `dial tcp`: it was trying to **open a new TCP connection** ([chapter 1.4](../foundations/networks-from-zero.mdx)), not send data on an existing one.
 - `127.0.0.1:6379`: to *this* address. Is that where Redis is supposed to be? (A wrong address in config is a classic.)
 - `connection refused`: the machine answered, but **nothing was listening on that port**. So the network is fine and the host is up; the Redis process isn't running (or is on another port). Compare `i/o timeout`, which means *nobody answered at all* (a firewall dropping packets, a frozen process, the wrong host): a completely different problem.
 
@@ -78,7 +78,7 @@ A few habits:
 - **Find the first error, not the last.** When things fail, they fail in cascades: one missing config value causes a failed connection, which causes 500 errors, which causes a health check to fail. The last lines of a log are usually consequences. Scroll up to the **earliest** error.
 - **Read the whole stack trace**, and find the first line that's *your* code. That's usually where to start.
 - **Search for the exact message** (in quotes) in your codebase and on the web. Someone has almost always seen it before.
-- **Check the exit code** (chapter 2.4). A command that "printed nothing" but exited with `1` failed.
+- **Check the exit code** ([chapter 2.4](../linux/bash-scripting.mdx)). A command that "printed nothing" but exited with `1` failed.
 
 ---
 
@@ -98,9 +98,9 @@ flowchart LR
   A --> P["Postgres"]
 ```
 
-- `curl localhost:8080/gameday` fails. Is it nginx or snip? Skip nginx: `docker compose exec api wget -qO- localhost:8080/healthz` (or port-forward to one Pod in Kubernetes, chapter 10.5). If snip answers directly, the problem is nginx or the network in between.
+- `curl localhost:8080/gameday` fails. Is it nginx or snip? Skip nginx: `docker compose exec api wget -qO- localhost:8080/healthz` (or port-forward to one Pod in Kubernetes, [chapter 10.5](../kubernetes/operating-and-debugging.mdx)). If snip answers directly, the problem is nginx or the network in between.
 - If snip itself fails, check its dependencies directly: `docker compose exec redis redis-cli ping`, `docker compose exec postgres pg_isready -U snip`.
-- **Traces** (chapter 13.3) do this splitting for you: the span that's long or red is the hop to look at.
+- **Traces** ([chapter 13.3](./tracing.mdx)) do this splitting for you: the span that's long or red is the hop to look at.
 
 **Across code.** Comment out half the suspicious code, or add a log line in the middle: is the value already wrong at that point? Then halve again.
 
@@ -129,7 +129,7 @@ invalid: abc
 Five tests out of 40 commits, and it names the culprit: a commit titled "tidy", which nobody would have suspected from its message. That's the point: bisect doesn't care what the commits *claim* to do.
 
 :::info[If you've written code]
-Bisect works best with **small commits** that each build and pass tests on their own (chapter 3.3). A history of "WIP", "fix", "fix again" commits, half of which don't compile, makes bisect stumble (`git bisect skip` exists for those). If a bug depends on data or environment rather than code, bisect won't find it; check "what changed" outside Git too.
+Bisect works best with **small commits** that each build and pass tests on their own ([chapter 3.3](../git/pull-requests-and-review.mdx)). A history of "WIP", "fix", "fix again" commits, half of which don't compile, makes bisect stumble (`git bisect skip` exists for those). If a bug depends on data or environment rather than code, bisect won't find it; check "what changed" outside Git too.
 :::
 
 ---
@@ -140,7 +140,7 @@ Bisect works best with **small commits** that each build and pass tests on their
 
 **RED**, for anything that serves requests (Tom Wilkie's method). For each service:
 
-| | Question | snip's metric (chapter 13.2) |
+| | Question | snip's metric ([chapter 13.2](./metrics.mdx)) |
 |---|---|---|
 | **R**ate | How many requests per second? Did traffic change? | `rate(snip_http_requests_total[5m])` |
 | **E**rrors | How many are failing? | `...{code=~"5.."}` |
@@ -150,11 +150,11 @@ Bisect works best with **small commits** that each build and pass tests on their
 
 | | Question | Example |
 |---|---|---|
-| **U**tilisation | How busy is it, on average? | CPU at 95%; `kubectl top pods` (chapter 10.5) |
+| **U**tilisation | How busy is it, on average? | CPU at 95%; `kubectl top pods` ([chapter 10.5](../kubernetes/operating-and-debugging.mdx)) |
 | **S**aturation | Is work queuing because it's full? | Load average above the core count; requests waiting for a database connection; the click backlog growing |
 | **E**rrors | Is it failing? | Disk write errors; `OOMKilled`; `connection refused` |
 
-RED tells you **which service** is suffering; USE tells you **which resource** is the bottleneck. Saturation is the one people forget, and it's often the real answer: a CPU at 60% average can still have a long queue during bursts (chapter 8.5's queueing lab showed latency exploding well before 100%).
+RED tells you **which service** is suffering; USE tells you **which resource** is the bottleneck. Saturation is the one people forget, and it's often the real answer: a CPU at 60% average can still have a long queue during bursts ([chapter 8.5](../distributed/performance-and-load-testing.mdx)'s queueing lab showed latency exploding well before 100%).
 
 ---
 
@@ -162,7 +162,7 @@ RED tells you **which service** is suffering; USE tells you **which resource** i
 
 When a program is using too much CPU or memory and you don't know why, stop guessing and **measure inside it**. A **profiler** records what the program is doing, many times a second, and adds it up. Go's CPU profiler interrupts the program about 100 times per second and notes which function was running. Functions that appear in many samples are where the time goes.
 
-snip now has an optional profiling endpoint, off by default. Set **`SNIP_DEBUG_ADDR`** (e.g. `localhost:6060`) and it serves Go's built-in profiler, **pprof**, on that separate private address (`internal/debugserver/debugserver.go`). We profiled snip handling about 35,000 redirects per second on a laptop (in-memory storage, no Redis, 20 concurrent clients from chapter 8.5's `loadgen`):
+snip now has an optional profiling endpoint, off by default. Set **`SNIP_DEBUG_ADDR`** (e.g. `localhost:6060`) and it serves Go's built-in profiler, **pprof**, on that separate private address (`internal/debugserver/debugserver.go`). We profiled snip handling about 35,000 redirects per second on a laptop (in-memory storage, no Redis, 20 concurrent clients from [chapter 8.5](../distributed/performance-and-load-testing.mdx)'s `loadgen`):
 
 ```bash
 go tool pprof -top -cum "http://localhost:6060/debug/pprof/profile?seconds=5"
@@ -180,12 +180,12 @@ A trimmed view of the result. `cum` is the share of samples in which a function 
 | `slog` (the per-request log line) | **9.6%** | Formatting and writing one JSON log line per request |
 | snip's `redirect` handler | **8.0%** | The actual work: look up the slug, send the 302 |
 
-Two things stand out. First, **writing the log line costs more CPU than the redirect itself**. Second, the tracing middleware costs about 15% on its own (38% minus the 23% inside it), even with tracing switched off. Now the judgment part: **does it matter?** At 35,000 requests per second on one laptop, no. snip would need enormous traffic before this was the thing to fix, and per-request logs are worth their cost when debugging (chapter 13.1). If it ever did matter, the profile tells you exactly what to try: sample the logs, or drop the tracing middleware when tracing is off. That's what profiles are for: they replace "I think logging is cheap" with a number, so you optimise the right thing, or decide confidently to optimise nothing.
+Two things stand out. First, **writing the log line costs more CPU than the redirect itself**. Second, the tracing middleware costs about 15% on its own (38% minus the 23% inside it), even with tracing switched off. Now the judgment part: **does it matter?** At 35,000 requests per second on one laptop, no. snip would need enormous traffic before this was the thing to fix, and per-request logs are worth their cost when debugging ([chapter 13.1](./logs.mdx)). If it ever did matter, the profile tells you exactly what to try: sample the logs, or drop the tracing middleware when tracing is off. That's what profiles are for: they replace "I think logging is cheap" with a number, so you optimise the right thing, or decide confidently to optimise nothing.
 
 Other profiles pprof serves, all from the same address:
 
 - **heap**: which code allocated the memory that's still in use. It's the first stop for a memory leak.
-- **goroutine**: every goroutine and where it's blocked. If the count keeps growing, something is starting goroutines that never finish (chapter 4.5). `curl 'localhost:6060/debug/pprof/goroutine?debug=1'` shows them as text.
+- **goroutine**: every goroutine and where it's blocked. If the count keeps growing, something is starting goroutines that never finish ([chapter 4.5](../go/concurrency.mdx)). `curl 'localhost:6060/debug/pprof/goroutine?debug=1'` shows them as text.
 - **block** and **mutex**: where goroutines wait on each other (they must be enabled in code first).
 
 :::danger
@@ -198,14 +198,14 @@ Other profiles pprof serves, all from the same address:
 
 A **flaky** test or check sometimes passes and sometimes fails with no code change. The tempting response is to re-run it until it's green and move on. Resist it: almost every flaky failure we've investigated was a **real bug**, usually a race or an ordering assumption, that only shows up some of the time. Three real ones from building this handbook's CI:
 
-- **The alert test that passed sometimes.** snip's alert unit tests (chapter 13.4) failed now and then with values that looked slightly out of date. The cause: the recording rules and the alerts that used them were in **separate rule groups**, and Prometheus evaluates groups **concurrently**, so sometimes an alert read a recording from the previous evaluation. The fix was to put them in **one group**, where rules run in order. The test was right to fail.
+- **The alert test that passed sometimes.** snip's alert unit tests ([chapter 13.4](./slos-alerting-on-call.mdx)) failed now and then with values that looked slightly out of date. The cause: the recording rules and the alerts that used them were in **separate rule groups**, and Prometheus evaluates groups **concurrently**, so sometimes an alert read a recording from the previous evaluation. The fix was to put them in **one group**, where rules run in order. The test was right to fail.
 - **The debug step that failed sometimes.** A Kubernetes lab step ran `kubectl debug` against "the first API Pod". Right after a rollout, that was sometimes an *old* Pod that was being shut down, which vanished mid-command. The fix: wait until only the expected Pods remain, and pick a Pod that isn't being deleted.
-- **The check that always passed.** Not flaky, but the same lesson from the other side. A Terraform step ran `terraform plan | tee plan.txt`. In a pipeline, the exit code is the *last* command's, `tee`'s, which is always 0, so **a failing plan looked green**. The fix used `${PIPESTATUS[0]}`, the exit code of the first command in the pipe (chapter 2.3). **Check your checks**: break something on purpose and make sure the check goes red.
+- **The check that always passed.** Not flaky, but the same lesson from the other side. A Terraform step ran `terraform plan | tee plan.txt`. In a pipeline, the exit code is the *last* command's, `tee`'s, which is always 0, so **a failing plan looked green**. The fix used `${PIPESTATUS[0]}`, the exit code of the first command in the pipe ([chapter 2.3](../linux/pipes-and-text-tools.mdx)). **Check your checks**: break something on purpose and make sure the check goes red.
 
 When something is flaky, ask: **what could differ between runs?** Timing and ordering (concurrency, what's already running), leftover state from a previous run (a port still in use, data in a database), the environment (machine speed, time zone, network), and randomness (random ports, random test data, map iteration order in Go). Then make it fail **reliably**: run it 100 times in a loop, add load, add a delay in the suspicious spot. A bug you can reproduce every time is half fixed.
 
 :::warning[What can go wrong]
-A trap we fell into in this handbook's own labs: `go run ./server &`, then `kill %1` to stop it. `go run` **builds** a program and starts it as a **separate child process**, so killing `go run` can leave the actual server running, still holding its port. Anything that starts a server on that port afterwards fails with "address already in use", but only if the earlier step ran first, so it looks random. The fix was to build a binary and run that directly, so `kill` stops the real process. If a port is "mysteriously" in use, find out who has it: `ss -ltnp | grep 8080` (chapter 1.4).
+A trap we fell into in this handbook's own labs: `go run ./server &`, then `kill %1` to stop it. `go run` **builds** a program and starts it as a **separate child process**, so killing `go run` can leave the actual server running, still holding its port. Anything that starts a server on that port afterwards fails with "address already in use", but only if the earlier step ran first, so it looks random. The fix was to build a binary and run that directly, so `kill` stops the real process. If a port is "mysteriously" in use, find out who has it: `ss -ltnp | grep 8080` ([chapter 1.4](../foundations/networks-from-zero.mdx)).
 :::
 
 ---
@@ -214,11 +214,11 @@ A trap we fell into in this handbook's own labs: `go run ./server &`, then `kill
 
 Measurements aren't just "big" or "small". Their **exact values** often point straight at the cause:
 
-- **Suspiciously round durations are timeouts.** A request that takes exactly 5.0 s, 10.0 s or 30.0 s is almost always waiting for a timeout to expire, not doing slow work. During snip's game day (chapter 13.5), frozen-Redis redirects took **0.203 s**: two 100 ms read timeouts (cache read, click record) plus a little real work.
+- **Suspiciously round durations are timeouts.** A request that takes exactly 5.0 s, 10.0 s or 30.0 s is almost always waiting for a timeout to expire, not doing slow work. During snip's game day ([chapter 13.5](./incidents-and-postmortems.mdx)), frozen-Redis redirects took **0.203 s**: two 100 ms read timeouts (cache read, click record) plus a little real work.
 - **Multiply it out.** After the first fix, each redirect with Redis stopped still took **1.2 s**. Redirects make 3 Redis calls; 1.2 s ÷ 3 = 0.4 s per call; 0.4 s = 4 × 100 ms. Four pauses of 100 ms means five attempts, which matched a *second* retry setting in the Redis library, for opening connections. The arithmetic found it before reading any source code.
 - **Cut off at the same point.** Requests that all die at about 15 s match snip's server `WriteTimeout` of 15 s, and nginx's `proxy_read_timeout` of 15 s. A limit you configured shows up as a wall in your data.
-- **Powers of two, and familiar maxima.** 1024, 4096, 65,535 or 2,147,483,647 appearing as a count or size usually means a buffer, page size, port range or integer limit (chapter 1.3).
-- **Exactly the number of something.** 100 connections failing when the pool size is 100; errors starting at the 61st request in a minute when the rate limit is 60 (chapter 8.4).
+- **Powers of two, and familiar maxima.** 1024, 4096, 65,535 or 2,147,483,647 appearing as a count or size usually means a buffer, page size, port range or integer limit ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)).
+- **Exactly the number of something.** 100 connections failing when the pool size is 100; errors starting at the 61st request in a minute when the rate limit is 60 ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)).
 
 ---
 
@@ -240,7 +240,7 @@ Versions: commit a1b2c3d, Docker 28.x, macOS.
 Full output: (pasted below, not a screenshot)
 ```
 
-That question almost answers itself: `ready:false` with Redis paused means the API is running code from **before** the fix (chapter 13.5), so the image wasn't rebuilt. `docker compose up -d --build` would fix it.
+That question almost answers itself: `ready:false` with Redis paused means the API is running code from **before** the fix ([chapter 13.5](./incidents-and-postmortems.mdx)), so the image wasn't rebuilt. `docker compose up -d --build` would fix it.
 
 ### A cheat sheet
 
@@ -252,8 +252,8 @@ That question almost answers itself: `ready:false` with Redis paused means the A
 | Slow | RED to find the service, a trace to find the step, USE to find the resource, a profile to find the code |
 | Round-number durations | A timeout. Which one is set to that value? |
 | Sometimes fails | What differs between runs? Timing, leftover state, environment, randomness. Make it fail reliably. |
-| Works on my machine | Versions, config, data, network, OS, architecture (arm64 vs amd64, chapter 9.4) |
-| Crash-looping Pod | `kubectl logs --previous`, `describe` events, exit code (chapter 10.5) |
+| Works on my machine | Versions, config, data, network, OS, architecture (arm64 vs amd64, [chapter 9.4](../containers/images-in-production.mdx)) |
+| Crash-looping Pod | `kubectl logs --previous`, `describe` events, exit code ([chapter 10.5](../kubernetes/operating-and-debugging.mdx)) |
 
 ---
 
@@ -378,11 +378,11 @@ Stop snip with Ctrl+C when you're done, and delete the practice repository: `rm 
 <details>
 <summary>Users report that some short links "sometimes" take several seconds to open, while most are instant. Walk through how you'd debug it with the tools from this part.</summary>
 
-1. **Symptom, precisely:** which links, how often, since when? From the metrics (chapter 13.2), is p99 redirect latency up while p50 is fine? That's "some requests are slow", not "everything is slow".
+1. **Symptom, precisely:** which links, how often, since when? From the metrics ([chapter 13.2](./metrics.mdx)), is p99 redirect latency up while p50 is fine? That's "some requests are slow", not "everything is slow".
 2. **What changed?** A deploy, a traffic increase, a Redis or Postgres change around the start time?
-3. **Find a slow one:** in Jaeger (chapter 13.3), search `GET /{slug}` traces longer than 1 s. Which span is long: `cache.GetURL`, `store.Get` or `links.RecordClick`?
+3. **Find a slow one:** in Jaeger ([chapter 13.3](./tracing.mdx)), search `GET /{slug}` traces longer than 1 s. Which span is long: `cache.GetURL`, `store.Get` or `links.RecordClick`?
 4. **Numbers as clues:** are the slow ones all about the same duration (a timeout: which one?) or spread out (contention, a slow query)?
-5. **Hypothesise and test:** if `store.Get` is slow only for links not in the cache, look at the cache hit ratio (evictions? Redis restarted and the cache is cold?) and the query plan for the lookup (chapter 6.4). If the long span is `cache.GetURL`, check Redis's saturation (USE): CPU, memory, and the slow log (`SLOWLOG GET`).
+5. **Hypothesise and test:** if `store.Get` is slow only for links not in the cache, look at the cache hit ratio (evictions? Redis restarted and the cache is cold?) and the query plan for the lookup ([chapter 6.4](../data/indexes-and-performance.mdx)). If the long span is `cache.GetURL`, check Redis's saturation (USE): CPU, memory, and the slow log (`SLOWLOG GET`).
 6. **Reproduce** with `curl -w '%{time_total}'` on a specific slug, before and after the fix.
 7. **Write down** what you found, even if the fix was one line. The next person will thank you.
 

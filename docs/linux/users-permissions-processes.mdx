@@ -33,7 +33,7 @@ flowchart LR
 That's the whole model. Every "permission denied" is this check saying no.
 
 - A **user** is an identity: a human (`alice`) or a service (`postgres`, `nginx`, `www-data`). Each has a numeric ID (UID).
-- A **group** is a named set of users, so you can grant access to several at once (e.g. everyone in `developers`, or the `docker` group from chapter 0.2).
+- A **group** is a named set of users, so you can grant access to several at once (e.g. everyone in `developers`, or the `docker` group from [chapter 0.2](../start/set-up-your-machine.mdx)).
 
 ```bash
 whoami           # which user you are
@@ -61,7 +61,7 @@ sudo apt update          # runs just this one command as root (asks your passwor
 
 :::warning[What can go wrong]
 - **`sudo` as a reflex.** If a command fails with "permission denied", adding `sudo` often "works" — by skipping the question of *why*. A common result: files in your project now owned by root, so your normal user can't edit them later. Fix the ownership instead (below).
-- **Running services as root.** If a web server running as root has a security bug, the attacker gets root — the whole machine. Real services run as dedicated low-privilege users. snip's container runs as a user called `nonroot` for exactly this reason (chapter 9.4).
+- **Running services as root.** If a web server running as root has a security bug, the attacker gets root — the whole machine. Real services run as dedicated low-privilege users. snip's container runs as a user called `nonroot` for exactly this reason ([chapter 9.4](../containers/images-in-production.mdx)).
 :::
 
 ---
@@ -149,7 +149,7 @@ That last line is the proper fix for the classic "I used sudo and now I can't ed
 
 ## Processes inherit identity, environment and limits
 
-When a process starts (chapter 1.2), it inherits several things from whoever started it:
+When a process starts ([chapter 1.2](../foundations/programs-processes-threads.mdx)), it inherits several things from whoever started it:
 
 ```mermaid
 flowchart TB
@@ -170,7 +170,7 @@ ps -eo user,pid,comm | head      # every process with its owning user
 
 ### Environment variables
 
-An **environment variable** is a named piece of text a process carries: `HOME=/home/alice`, `PATH=…`, `SNIP_HTTP_ADDR=:8080`. Programs read them at startup to configure themselves — it's how snip reads all its settings (chapter 5.4).
+An **environment variable** is a named piece of text a process carries: `HOME=/home/alice`, `PATH=…`, `SNIP_HTTP_ADDR=:8080`. Programs read them at startup to configure themselves — it's how snip reads all its settings ([chapter 5.4](../apis/structuring-a-real-service.mdx)).
 
 ```bash
 export GREETING="hello"         # set a variable and mark it to be passed to child processes
@@ -182,7 +182,7 @@ SNIP_HTTP_ADDR=:9000 go run ./cmd/snip  # set a variable for ONE command only
 
 The difference between `GREETING=hello` and `export GREETING=hello`: without `export`, the variable exists only in your shell; child processes don't see it. It's a classic "but I set it!" bug.
 
-Why configure programs this way instead of files? Because the **same program** can run unchanged on your laptop, in testing and in production — only the environment differs. This idea is central to Parts 9–12.
+Why configure programs this way instead of files? Because the **same program** can run unchanged on your laptop, in testing and in production — only the environment differs. This idea is central to Parts [9](../containers/what-a-container-is.mdx)–[12](../cloud/cloud-from-zero.mdx).
 
 ### Limits
 
@@ -195,9 +195,9 @@ ulimit -n        # how many files this shell's processes may have open at once
 A server that reports **`too many open files`** has hit this limit — often because it's leaking connections (opening them and never closing), sometimes because the limit is simply too low for its traffic.
 
 :::warning[What can go wrong]
-- **"Works in my terminal, fails as a service."** Your terminal has your user, your `$PATH` and your environment variables. The same program run as a background service (chapter 2.5) may run as a different user, with almost no environment. Compare `whoami`, `$PATH` and the variables in both places.
+- **"Works in my terminal, fails as a service."** Your terminal has your user, your `$PATH` and your environment variables. The same program run as a background service ([chapter 2.5](./running-a-linux-server.mdx)) may run as a different user, with almost no environment. Compare `whoami`, `$PATH` and the variables in both places.
 - **Forgetting `export`.** A variable set without `export` is invisible to the programs you launch.
-- **Secrets in environment variables leaking.** They're convenient, but they show up in crash reports, debug pages and `ps e` output. Chapter 7.6 covers handling secrets properly.
+- **Secrets in environment variables leaking.** They're convenient, but they show up in crash reports, debug pages and `ps e` output. [Chapter 7.6](../security/secrets-management.mdx) covers handling secrets properly.
 :::
 
 ---
@@ -306,6 +306,6 @@ A folder is really a **list of names** pointing to files. Deleting a file means 
 <details>
 <summary>Why do well-run servers run each service as its own unprivileged user instead of root?</summary>
 
-Because of **blast radius**. If a service has a bug an attacker can exploit, the attacker gets exactly that service's permissions. As root, that means the entire machine: every file, every other service, the OS itself. As a dedicated user like `nginx` or `nonroot`, it means only what that user can touch. Least privilege turns a potential disaster into a contained incident — a theme that returns in security (Part 7), containers (Part 9) and the cloud (chapter 12.4).
+Because of **blast radius**. If a service has a bug an attacker can exploit, the attacker gets exactly that service's permissions. As root, that means the entire machine: every file, every other service, the OS itself. As a dedicated user like `nginx` or `nonroot`, it means only what that user can touch. Least privilege turns a potential disaster into a contained incident — a theme that returns in security ([Part 7](../security/security-literacy.mdx)), containers ([Part 9](../containers/what-a-container-is.mdx)) and the cloud ([chapter 12.4](../cloud/iam.mdx)).
 
 </details>

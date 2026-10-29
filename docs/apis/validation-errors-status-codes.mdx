@@ -88,11 +88,11 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
   ```
   Malformed JSON — a missing brace, a string where an object should be — fails here.
 - **`DisallowUnknownFields()`** rejects fields snip doesn't know. If a client sends `{"link": "https://…"}` (a typo for `url`), a lenient decoder would silently ignore it and then complain the URL is empty — confusing. Strict decoding says exactly what's wrong.
-- **`errors.As`** (chapter 4.2's cousin of `errors.Is`) checks whether the error is a specific *type* — here, "the body was too big" — so it gets its own status code.
+- **`errors.As`** ([chapter 4.2](../go/types-structs-errors.mdx)'s cousin of `errors.Is`) checks whether the error is a specific *type* — here, "the body was too big" — so it gets its own status code.
 
 ### Layer 3: meaning, in the domain
 
-A syntactically valid request can still be nonsense: `{"url": "javascript:alert(1)"}` is perfect JSON. Whether a URL is *acceptable* is a rule about **links**, so it lives in `internal/links`, not in the HTTP code. You read `NormalizeURL` in chapter 4.2; its partner checks custom slugs:
+A syntactically valid request can still be nonsense: `{"url": "javascript:alert(1)"}` is perfect JSON. Whether a URL is *acceptable* is a rule about **links**, so it lives in `internal/links`, not in the HTTP code. You read `NormalizeURL` in [chapter 4.2](../go/types-structs-errors.mdx); its partner checks custom slugs:
 
 ```go
 var slugPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
@@ -109,16 +109,16 @@ func ValidateSlug(s string) error {
 }
 ```
 
-The regular expression (chapter 2.3) allows 3–32 letters, digits, dashes and underscores. The **reserved** list stops someone registering the slug `healthz` or `api` — which would collide with snip's own routes and could hijack its health checks.
+The regular expression ([chapter 2.3](../linux/pipes-and-text-tools.mdx)) allows 3–32 letters, digits, dashes and underscores. The **reserved** list stops someone registering the slug `healthz` or `api` — which would collide with snip's own routes and could hijack its health checks.
 
-This is **allow-listing**: describing exactly what's *allowed* and rejecting everything else. It's far safer than **deny-listing** (trying to list everything *bad*), because attackers are endlessly creative about what "bad" looks like (chapter 7.5).
+This is **allow-listing**: describing exactly what's *allowed* and rejecting everything else. It's far safer than **deny-listing** (trying to list everything *bad*), because attackers are endlessly creative about what "bad" looks like ([chapter 7.5](../security/web-attacks.mdx)).
 
 ### Layer 4: business rules, in the domain and the store
 
 Some rules can only be checked against the system's state:
 
-- **Is the custom slug free?** Only the database knows for sure. snip doesn't check-then-insert (two requests could both see "free" and both insert — a race, chapter 1.2). It lets the database's **unique constraint** enforce it and translates the database's "duplicate key" error into `links.ErrSlugTaken` (chapter 6.3).
-- **Is this key under its rate limit?** Checked against shared counters in Redis before doing any work (chapter 8.4).
+- **Is the custom slug free?** Only the database knows for sure. snip doesn't check-then-insert (two requests could both see "free" and both insert — a race, [chapter 1.2](../foundations/programs-processes-threads.mdx)). It lets the database's **unique constraint** enforce it and translates the database's "duplicate key" error into `links.ErrSlugTaken` ([chapter 6.3](../data/designing-schemas.mdx)).
+- **Is this key under its rate limit?** Checked against shared counters in Redis before doing any work ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)).
 
 ---
 
@@ -155,7 +155,7 @@ func (s *Server) writeDomainError(w http.ResponseWriter, r *http.Request, err er
 }
 ```
 
-This is the payoff of chapter 4.2's **sentinel errors**. The domain code says *what* went wrong in its own words (`ErrSlugTaken`); the HTTP layer decides *how to say it* over HTTP (`409`, `slug_taken`). If snip one day adds another interface — a command-line tool, a gRPC API (chapter 5.5) — the domain doesn't change; that interface gets its own translation.
+This is the payoff of [chapter 4.2](../go/types-structs-errors.mdx)'s **sentinel errors**. The domain code says *what* went wrong in its own words (`ErrSlugTaken`); the HTTP layer decides *how to say it* over HTTP (`409`, `slug_taken`). If snip one day adds another interface — a command-line tool, a gRPC API ([chapter 5.5](./api-contracts.mdx)) — the domain doesn't change; that interface gets its own translation.
 
 :::info[In the real world]
 There's also an official standard error format for HTTP APIs: **"Problem Details"**, RFC 9457, with `Content-Type: application/problem+json` and fields like `type`, `title`, `status` and `detail`. Some teams adopt it so generic tools understand their errors. snip's simpler shape is equally common. What matters most is picking **one** format and using it everywhere.
@@ -168,11 +168,11 @@ There's also an official standard error format for HTTP APIs: **"Problem Details
 Look again at the `default` branch — anything *unexpected*: the database is down, a bug, a timeout. Two things happen:
 
 1. **The client gets a generic message**: `500`, `"internal"`, "something went wrong on our side".
-2. **The log gets everything**: the real error, with its full chain of wrapped context (chapter 4.2), the path, and the request ID.
+2. **The log gets everything**: the real error, with its full chain of wrapped context ([chapter 4.2](../go/types-structs-errors.mdx)), the path, and the request ID.
 
 Why not just send the real error to the client? Because internal error messages leak information attackers love: database names and versions, table structures, file paths, fragments of SQL, sometimes even credentials. A message like `pq: relation "api_keys" does not exist` tells an attacker what your database looks like.
 
-So how does a developer connect a user's report to the log? Through the **request ID**. snip's middleware gives every request an ID, returns it in the `X-Request-Id` response header, and includes it in every log line for that request (chapter 5.4):
+So how does a developer connect a user's report to the log? Through the **request ID**. snip's middleware gives every request an ID, returns it in the `X-Request-Id` response header, and includes it in every log line for that request ([chapter 5.4](./structuring-a-real-service.mdx)):
 
 ```text
 Client sees:  HTTP/1.1 500 …   X-Request-Id: 3f9a2c71d0b4e815
@@ -182,7 +182,7 @@ Logs show:    level=ERROR msg="internal error" request_id=3f9a2c71d0b4e815
               err="list links: postgres: query: connection refused" path=/api/links
 ```
 
-The user (or support) quotes the ID; the engineer searches the logs for it (chapter 2.3's `grep` or chapter 13.1's log tools) and sees exactly what happened.
+The user (or support) quotes the ID; the engineer searches the logs for it ([chapter 2.3](../linux/pipes-and-text-tools.mdx)'s `grep` or [chapter 13.1](../observability/logs.mdx)'s log tools) and sees exactly what happened.
 
 :::tip
 A **4xx** means the client should change something, so its message should say **what** — precisely. A **5xx** means *you* should change something, so its message to the client should say **nothing internal** — and your logs and alerts should say everything.
@@ -192,7 +192,7 @@ A **4xx** means the client should change something, so its message should say **
 
 ## Panics: the errors nobody planned
 
-Sometimes code doesn't return an error — it **panics**: a nil pointer, an index out of range (chapter 4.2). By default, Go's HTTP server catches a panicking request and closes that connection (so one bug doesn't kill the whole server), but the client just sees the connection drop. snip's middleware recovers the panic itself, logs it with the request ID, and returns a proper `500` with the standard error body (`internal/httpapi/middleware.go`). Every response, even from a bug, keeps the promised shape.
+Sometimes code doesn't return an error — it **panics**: a nil pointer, an index out of range ([chapter 4.2](../go/types-structs-errors.mdx)). By default, Go's HTTP server catches a panicking request and closes that connection (so one bug doesn't kill the whole server), but the client just sees the connection drop. snip's middleware recovers the panic itself, logs it with the request ID, and returns a proper `500` with the standard error body (`internal/httpapi/middleware.go`). Every response, even from a bug, keeps the promised shape.
 
 :::warning[What can go wrong]
 - **Validating only on the client.** Anyone can bypass your app and call the API directly. The server must check everything.
@@ -206,7 +206,7 @@ Sometimes code doesn't return an error — it **panics**: a nil pointer, an inde
 
 ## Lab
 
-Free, on your own computer. Start the reference snip in memory mode (`SNIP_LOG_FORMAT=text go run ./cmd/snip` in `~/code/zero-to-prod/snip`) and set `KEY` from its log, as in chapter 5.2.
+Free, on your own computer. Start the reference snip in memory mode (`SNIP_LOG_FORMAT=text go run ./cmd/snip` in `~/code/zero-to-prod/snip`) and set `KEY` from its log, as in [chapter 5.2](./designing-rest-apis.mdx).
 
 1. **Attack every layer.** Predict each status code and error `code` first:
    ```bash
@@ -225,7 +225,7 @@ Free, on your own computer. Start the reference snip in memory mode (`SNIP_LOG_F
 
 2. **Find the request ID.** Run any failing request with `-i` and note the `X-Request-Id` header. Then find the same ID in snip's log output in the other terminal. That's the thread connecting a user's report to your logs.
 
-3. **Read the tests that lock this in.** Open `internal/httpapi/server_test.go` and find `TestErrors` (chapter 4.4). Every case you just tried by hand is checked there automatically, on every push.
+3. **Read the tests that lock this in.** Open `internal/httpapi/server_test.go` and find `TestErrors` ([chapter 4.4](../go/testing.mdx)). Every case you just tried by hand is checked there automatically, on every push.
 
 4. **Extend the rules (optional).** Suppose snip should refuse to shorten its own short links (a link to `https://snip.example/abc` would just redirect to itself). Where would that rule live — the HTTP layer or the domain? Write the new table case you'd add to `TestNormalizeURL` or a new test first, then try implementing it.
 

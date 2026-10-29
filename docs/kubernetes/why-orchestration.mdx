@@ -26,7 +26,7 @@ With Compose, snip runs beautifully on **one** machine. Now imagine the real thi
 | **Self-healing** | A container crashes; a machine dies | Restarts the container; recreates what was on the dead machine somewhere else |
 | **Service discovery & load balancing** | Copies come and go, with changing IP addresses | Gives each service a stable name and address that always routes to its healthy copies |
 | **Rolling updates & rollbacks** | Deploying a new version without downtime | Replaces copies gradually, checking health as it goes; undoes it on request |
-| **Scaling** | Traffic doubles on Monday mornings | Changes the number of copies by command or automatically (chapter 8.6) |
+| **Scaling** | Traffic doubles on Monday mornings | Changes the number of copies by command or automatically ([chapter 8.6](../distributed/scaling.mdx)) |
 | **Configuration & secrets** | Twenty machines need the same settings | Stores config and secrets centrally and delivers them to containers |
 | **Storage** | A database's container moves to another machine | Attaches the right disk wherever the container lands |
 
@@ -40,7 +40,7 @@ Think of a big restaurant kitchen. The **head chef** doesn't cook. They look at 
 
 Scripts work **imperatively**: "start 3 copies of snip". If one copy dies ten minutes later, the script has long finished and nobody notices.
 
-Kubernetes works **declaratively** (like Compose, chapter 9.3, but continuously). You tell it the **desired state**: "there should be 3 copies of snip, version 1.4, each with 256 MB of memory". Kubernetes stores that, and then **controllers** run a loop, forever:
+Kubernetes works **declaratively** (like Compose, [chapter 9.3](../containers/docker-compose.mdx), but continuously). You tell it the **desired state**: "there should be 3 copies of snip, version 1.4, each with 256 MB of memory". Kubernetes stores that, and then **controllers** run a loop, forever:
 
 ```mermaid
 flowchart LR
@@ -95,17 +95,17 @@ flowchart TB
 | Component | Where | Job |
 |---|---|---|
 | **API server** | Control plane | The only front door. Everything (you, `kubectl`, controllers, kubelets) reads and writes state through its HTTPS API, which checks authentication and permissions |
-| **etcd** | Control plane | A small, strongly consistent key-value database (chapter 8.1) holding the whole cluster state. Lose it without a backup and you lose the cluster |
+| **etcd** | Control plane | A small, strongly consistent key-value database ([chapter 8.1](../distributed/distributed-survival-kit.mdx)) holding the whole cluster state. Lose it without a backup and you lose the cluster |
 | **Scheduler** | Control plane | Watches for new Pods with no node and picks one: enough free resources, spread for availability, honouring any rules |
 | **Controller manager** | Control plane | Runs the built-in reconciliation loops: copies, nodes, endpoints, jobs… |
 | **kubelet** | Every node | The node's agent. Watches the API for Pods assigned to its node, tells the container runtime to run them, runs their health checks, reports status |
-| **Container runtime** | Every node | Actually runs containers: **containerd** or CRI-O, using the namespaces and cgroups of chapter 9.1 |
-| **kube-proxy** | Every node | Programs the node's networking so a Service's stable address reaches its Pods (chapter 10.3) |
+| **Container runtime** | Every node | Actually runs containers: **containerd** or CRI-O, using the namespaces and cgroups of [chapter 9.1](../containers/what-a-container-is.mdx) |
+| **kube-proxy** | Every node | Programs the node's networking so a Service's stable address reaches its Pods ([chapter 10.3](./networking-and-ingress.mdx)) |
 
 **Everything goes through the API server, and every component watches it.** Nobody talks to anybody directly. When you ask for 3 copies of snip, `kubectl` sends it to the API server, which stores it in etcd. A controller notices and creates 3 Pod records. The scheduler notices Pods without nodes and assigns them. Each chosen node's kubelet notices a Pod assigned to it and starts the containers. Every step is a component watching for state it cares about, and writing its result back.
 
 :::info[If you've written code]
-The Kubernetes API is a REST API (chapter 5.2) over HTTPS with JSON bodies. `kubectl` is just a client. Every object has an `apiVersion`, a `kind`, `metadata` (name, namespace, labels), a `spec` (the desired state, which you write) and a `status` (the observed state, which controllers write). "Watching" is a long-lived HTTP request that streams changes. You can extend the API with your own object types (**CustomResourceDefinitions**) and your own controllers (**operators**). That's how databases, certificates and whole cloud resources get managed "the Kubernetes way".
+The Kubernetes API is a REST API ([chapter 5.2](../apis/designing-rest-apis.mdx)) over HTTPS with JSON bodies. `kubectl` is just a client. Every object has an `apiVersion`, a `kind`, `metadata` (name, namespace, labels), a `spec` (the desired state, which you write) and a `status` (the observed state, which controllers write). "Watching" is a long-lived HTTP request that streams changes. You can extend the API with your own object types (**CustomResourceDefinitions**) and your own controllers (**operators**). That's how databases, certificates and whole cloud resources get managed "the Kubernetes way".
 :::
 
 **Managed Kubernetes** services (Amazon EKS, Google GKE, Azure AKS and others) run the control plane for you: highly available, backed up, upgraded. You bring the nodes, or they do that too ("autopilot" modes). Running your own control plane in production is a specialist job. Most teams shouldn't.
@@ -118,7 +118,7 @@ Kubernetes is powerful and **complex**: dozens of object types, its own networki
 
 | Option | What you manage | Good for |
 |---|---|---|
-| **A single server + Compose/systemd** (chapters 2.5, 9.3) | The machine | Small apps, side projects, internal tools |
+| **A single server + Compose/systemd** (chapters [2.5](../linux/running-a-linux-server.mdx), [9.3](../containers/docker-compose.mdx)) | The machine | Small apps, side projects, internal tools |
 | **Serverless containers**: Google Cloud Run, AWS App Runner / ECS on Fargate, Azure Container Apps, Fly.io, Render | Only your image and a few settings | Most web apps and APIs. Scale (including to zero) is handled for you |
 | **Managed Kubernetes**: EKS, GKE, AKS | Your workloads, plus some cluster configuration | Many services and teams; portability; the huge ecosystem |
 | **Self-managed Kubernetes** | Everything | Specialist platform teams; on-premises |
@@ -127,8 +127,8 @@ A reasonable rule: start with the simplest platform that runs your containers re
 
 :::warning[What can go wrong]
 - **Adopting Kubernetes for one small app**: weeks spent on clusters, ingress and upgrades instead of the product.
-- **Fighting the reconciliation loop**: fixing things by hand (`kubectl edit`, deleting Pods) and wondering why they "come back wrong". Change the desired state instead, usually in files kept in Git (chapter 11.4).
-- **Assuming self-healing fixes bugs**: Kubernetes restarts a crashing container, and it crashes again. You get `CrashLoopBackOff` (chapter 10.5), not a fix.
+- **Fighting the reconciliation loop**: fixing things by hand (`kubectl edit`, deleting Pods) and wondering why they "come back wrong". Change the desired state instead, usually in files kept in Git ([chapter 11.4](../shipping/gitops.mdx)).
+- **Assuming self-healing fixes bugs**: Kubernetes restarts a crashing container, and it crashes again. You get `CrashLoopBackOff` ([chapter 10.5](./operating-and-debugging.mdx)), not a fix.
 - **Forgetting etcd backups** on self-managed clusters.
 :::
 
@@ -162,9 +162,9 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
    kubectl get nodes
    kubectl get pods -n kube-system           # the control plane itself runs as Pods
    ```
-   Find the API server, etcd, the scheduler and the controller manager in that list, plus `kube-proxy` and CoreDNS (the cluster's DNS server). Run `docker ps`: the "node" is itself a container (chapter 9.1).
+   Find the API server, etcd, the scheduler and the controller manager in that list, plus `kube-proxy` and CoreDNS (the cluster's DNS server). Run `docker ps`: the "node" is itself a container ([chapter 9.1](../containers/what-a-container-is.mdx)).
 
-3. **Run snip** (the image CI publishes, chapter 9.4) as three copies, in memory mode:
+3. **Run snip** (the image CI publishes, [chapter 9.4](../containers/images-in-production.mdx)) as three copies, in memory mode:
    ```bash
    kubectl create deployment snip --image=ghcr.io/jawwadzafar/snip:main --replicas=3
    kubectl rollout status deployment/snip
@@ -266,10 +266,10 @@ Free, on your own computer with Docker. **kind** ("Kubernetes in Docker") runs a
 
 1. **kubectl** sends an HTTPS request to the **API server** changing the Deployment's desired replicas to 4.
 2. The API server authenticates you, checks you're allowed, validates the change, and stores it in **etcd**.
-3. The Deployment's **controller** (in the controller manager), watching Deployments, sees desired 4 vs actual 3, and creates one new **Pod** object with no node assigned. (Strictly, a ReplicaSet controller in between does this, chapter 10.2.)
+3. The Deployment's **controller** (in the controller manager), watching Deployments, sees desired 4 vs actual 3, and creates one new **Pod** object with no node assigned. (Strictly, a ReplicaSet controller in between does this, [chapter 10.2](./core-objects.mdx).)
 4. The **scheduler**, watching for unassigned Pods, picks a node with enough free resources and writes the assignment.
 5. That node's **kubelet**, watching for Pods assigned to it, tells **containerd** to pull the image and start the container, then runs its health checks.
-6. The kubelet reports the Pod as `Running` and ready. The endpoints controller adds its IP to the Service's endpoints, and **kube-proxy** on every node updates the routing, so it starts receiving traffic (chapter 10.3).
+6. The kubelet reports the Pod as `Running` and ready. The endpoints controller adds its IP to the Service's endpoints, and **kube-proxy** on every node updates the routing, so it starts receiving traffic ([chapter 10.3](./networking-and-ingress.mdx)).
 
 Nobody called anybody directly. Each component watched the API server for the state it cares about and wrote back its result.
 

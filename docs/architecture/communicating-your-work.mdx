@@ -37,9 +37,9 @@ Every piece of workplace writing has the same test: **can someone who wasn't in 
 
 ## Commit messages and pull requests
 
-A **commit message** explains one change to future readers of the history: people running `git log` or `git blame` to find out why a line is the way it is (chapter 3.1). The conventional shape is a short summary line (under about 70 characters, saying what the change does), a blank line, then a body that explains **why**: the code already shows *what*.
+A **commit message** explains one change to future readers of the history: people running `git log` or `git blame` to find out why a line is the way it is ([chapter 3.1](../git/git-mental-model.mdx)). The conventional shape is a short summary line (under about 70 characters, saying what the change does), a blank line, then a body that explains **why**: the code already shows *what*.
 
-This repository uses short prefixes (`docs:`, `ai:`, `snip:`) so the history reads like a table of contents. A real one from building Part 14:
+This repository uses short prefixes (`docs:`, `ai:`, `snip:`) so the history reads like a table of contents. A real one from building [Part 14](../ai/python-for-ai-engineers.mdx):
 
 ```text
 ai: benchmark sends a different prompt each time (so cached prompts can't fake
@@ -49,7 +49,7 @@ token counts; ci: rerun with the server allowed 4 parallel requests
 
 It says what changed, and the reason in brackets is the part that saves the next reader: without it, "a different prompt each time" looks like pointless complexity someone might remove.
 
-A **pull request** (**PR**, chapter 3.3) description is for the reviewer. A good one answers, in order:
+A **pull request** (**PR**, [chapter 3.3](../git/pull-requests-and-review.mdx)) description is for the reviewer. A good one answers, in order:
 
 1. **What and why**, in two or three sentences. Link the issue or the incident.
 2. **How**: the approach, and anything surprising a reviewer should know ("the retry is deliberately removed: ADR 6").
@@ -74,7 +74,7 @@ Asking for help is a skill, and the good version gets answers several times fast
 - **What you expected** instead.
 - **What you've tried**, and what each attempt showed.
 
-A bad question and a good one, about a real failure from chapter 10.5:
+A bad question and a good one, about a real failure from [chapter 10.5](../kubernetes/operating-and-debugging.mdx):
 
 ```text
 Bad:  "snip doesn't work on kubernetes, any ideas?"
@@ -118,7 +118,7 @@ You've been reading an example of this for fifteen parts. Every chapter in this 
 - **Use a comparison from everyday life**, then the minimum mechanism needed to follow the decision.
 - **Give the decision you need from them, and its trade-off**, in their terms.
 
-An example: explaining chapter 13.5's Redis fix to a product manager.
+An example: explaining [chapter 13.5](../observability/incidents-and-postmortems.mdx)'s Redis fix to a product manager.
 
 ```text
 Too technical: "Readiness probes were gating on a degradable dependency and the
@@ -138,7 +138,7 @@ The second version is longer, but every sentence answers something the reader ca
 
 ## Incident communication
 
-During an incident (chapter 13.4), communication is part of the fix. Customers, support staff and leadership all need to know what's happening, and engineers need to be left alone to fix it. The patterns:
+During an incident ([chapter 13.4](../observability/slos-alerting-on-call.mdx)), communication is part of the fix. Customers, support staff and leadership all need to know what's happening, and engineers need to be left alone to fix it. The patterns:
 
 - **One incident channel, one coordinator.** The person communicating is often not the person debugging.
 - **Regular, short updates** at a stated interval ("next update in 30 minutes"), even when there's no news. Silence makes people assume the worst and interrupt the responders.
@@ -151,13 +151,13 @@ time out. Creating links is unaffected. We're looking at our cache servers.
 Next update 14:50.
 ```
 
-Afterwards, the **postmortem** (chapter 13.5) is the written version: blameless, specific, with actions. It's one of the most-read documents a team produces, so it's worth writing well.
+Afterwards, the **postmortem** ([chapter 13.5](../observability/incidents-and-postmortems.mdx)) is the written version: blameless, specific, with actions. It's one of the most-read documents a team produces, so it's worth writing well.
 
 ---
 
 ## Code review: giving and receiving
 
-Code review (chapter 3.3) is communication in its most concentrated form: written, about someone's work, often between people who've never met.
+Code review ([chapter 3.3](../git/pull-requests-and-review.mdx)) is communication in its most concentrated form: written, about someone's work, often between people who've never met.
 
 **When reviewing:**
 
@@ -182,13 +182,13 @@ About 45 minutes. Writing only.
 
 1. **Rewrite a commit message.** Run `git log --format="%h %s" -20` in any repository you've worked in, including this one. Pick your worst message and rewrite it: a summary line saying what the change does, and a body saying why.
 
-2. **Write a PR description** for the ADR you wrote in chapter 15.2's lab (soft deletes), using the five parts above. Include a "how it was tested" section, even if the honest answer is "not yet: this is a proposal".
+2. **Write a PR description** for the ADR you wrote in [chapter 15.2](./adrs-tradeoffs-c4.mdx)'s lab (soft deletes), using the five parts above. Include a "how it was tested" section, even if the honest answer is "not yet: this is a proposal".
 
 3. **Ask a good question.** Think of the last time you were stuck on something technical (from this handbook's labs, or anywhere). Write the question you *should* have asked, with the four parts. Did writing it make the answer obvious?
 
-4. **Explain to a non-engineer.** Pick one decision from snip's ADRs (chapter 15.2), and explain it to someone who doesn't write code, in under 100 words, starting with what they care about. Then try it on an actual person, and note which part they asked about.
+4. **Explain to a non-engineer.** Pick one decision from snip's ADRs ([chapter 15.2](./adrs-tradeoffs-c4.mdx)), and explain it to someone who doesn't write code, in under 100 words, starting with what they care about. Then try it on an actual person, and note which part they asked about.
 
-5. **Write an incident update.** Chapter 13.5's game day froze Redis. Write the first status update you'd post if that had happened in production at 14:05, and the "resolved" message at 14:40.
+5. **Write an incident update.** [Chapter 13.5](../observability/incidents-and-postmortems.mdx)'s game day froze Redis. Write the first status update you'd post if that had happened in production at 14:05, and the "resolved" message at 14:40.
 
 ---
 
@@ -260,7 +260,7 @@ About 45 minutes. Writing only.
 
 **In the moment:** listen fully, ask questions until you understand the flaw exactly ("so if two workers claim the same event, both deliver it?"), and thank them: finding it now is much cheaper than finding it in production. Don't defend the design reflexively, and don't collapse either. If you're not sure they're right, say so calmly and agree how to find out ("let me write a test for that case today"). Then agree the next step: fix, redesign, or a smaller change.
 
-**Next time:** the flaw was found after three weeks because the design wasn't reviewed before the building started. Write a short design document (chapter 15.2) in the first days, with the risky parts called out, and ask that same senior engineer to look at it. Share work in progress early and in small pieces: an hour of their time in week one is worth more than an hour in week three. Feedback is cheapest when the work is least finished.
+**Next time:** the flaw was found after three weeks because the design wasn't reviewed before the building started. Write a short design document ([chapter 15.2](./adrs-tradeoffs-c4.mdx)) in the first days, with the risky parts called out, and ask that same senior engineer to look at it. Share work in progress early and in small pieces: an hour of their time in week one is worth more than an hour in week three. Feedback is cheapest when the work is least finished.
 
 </details>
 
@@ -269,7 +269,7 @@ About 45 minutes. Writing only.
 
 Something like:
 
-"The demo shows it working on the examples we picked. The evaluation shows how often it works on the questions real users will ask, and how it fails when it doesn't. When we measured our document assistant, the model gave confident answers with made-up citations to questions it should have declined, and our automated grader turned out to be unreliable too (chapters 14.8 and 14.10). We only found that by measuring.
+"The demo shows it working on the examples we picked. The evaluation shows how often it works on the questions real users will ask, and how it fails when it doesn't. When we measured our document assistant, the model gave confident answers with made-up citations to questions it should have declined, and our automated grader turned out to be unreliable too (chapters [14.8](../ai/rag.mdx) and [14.10](../ai/evals.mdx)). We only found that by measuring.
 
 The week buys three things: a number for how often answers are right, so we launch knowing the quality rather than hoping; a list of the failures that matter most, so we fix those first; and a test we can rerun on every change, so a future update can't quietly make it worse. Without it, our users find the failures for us, in public.
 

@@ -6,7 +6,7 @@ description: Why snip can't just keep links in memory or in a file — durabilit
 
 # 6.1 Why databases exist
 
-snip v0 forgot every link the moment it stopped (chapter 5.1). The obvious fix sounds simple: *save the links to a file.* Engineers try exactly that all the time — and discover, one painful surprise after another, why databases exist. This chapter walks through those surprises: crashes halfway through a write, two requests writing at once, finding one link among millions, and data that quietly stops making sense. A **database** is decades of hard-won answers to all four. By the end you'll have run real SQL — in a real PostgreSQL database running inside this web page.
+snip v0 forgot every link the moment it stopped ([chapter 5.1](../apis/first-http-server.mdx)). The obvious fix sounds simple: *save the links to a file.* Engineers try exactly that all the time — and discover, one painful surprise after another, why databases exist. This chapter walks through those surprises: crashes halfway through a write, two requests writing at once, finding one link among millions, and data that quietly stops making sense. A **database** is decades of hard-won answers to all four. By the end you'll have run real SQL — in a real PostgreSQL database running inside this web page.
 
 ## What you'll learn
 
@@ -26,13 +26,13 @@ Let's try the obvious approach and watch it fail. Suppose snip writes its links 
 
 Writing a file isn't instant. If the power cuts or the process crashes halfway through writing `links.json`, you're left with half a file — often unreadable. **Every link is now gone**, not just the new one.
 
-And even a "finished" write might not be safe: the operating system often keeps recently written data in memory (chapter 1.1) and writes it to disk a moment later. Crash in that moment, and the data you "saved" never reached the disk.
+And even a "finished" write might not be safe: the operating system often keeps recently written data in memory ([chapter 1.1](../foundations/what-a-computer-does.mdx)) and writes it to disk a moment later. Crash in that moment, and the data you "saved" never reached the disk.
 
 **Durability** means: once the database says "saved", the data survives crashes, power cuts and restarts.
 
 ### Problem 2: concurrency — two requests at once
 
-snip handles requests concurrently (chapter 4.5). Two people create links at the same moment. Each request reads the file, adds its link, and writes the file back:
+snip handles requests concurrently ([chapter 4.5](../go/concurrency.mdx)). Two people create links at the same moment. Each request reads the file, adds its link, and writes the file back:
 
 ```mermaid
 sequenceDiagram
@@ -46,7 +46,7 @@ sequenceDiagram
     Note over F: A's link is lost
 ```
 
-That's chapter 1.2's race condition, now destroying data. You could add a lock — but only within one process. Run two copies of snip (chapter 8.6) and they can't share a lock on a file.
+That's [chapter 1.2](../foundations/programs-processes-threads.mdx)'s race condition, now destroying data. You could add a lock — but only within one process. Run two copies of snip ([chapter 8.6](../distributed/scaling.mdx)) and they can't share a lock on a file.
 
 ### Problem 3: querying — finding things fast
 
@@ -73,7 +73,7 @@ A **database** is an organised collection of data. The software that manages it 
 | **Querying** | A **query language** (SQL) plus **indexes** that find one row among millions without reading them all | 6.2, 6.4 |
 | **Integrity** | **Constraints** — types, required fields, uniqueness, valid references — enforced on every write, by the database itself | 6.3 |
 
-The database is a separate **server** (chapter 1.6): a long-running process, listening on a port (Postgres uses **5432**), that many clients — every copy of snip, your terminal, a reporting tool — connect to over the network.
+The database is a separate **server** ([chapter 1.6](../foundations/what-a-server-is.mdx)): a long-running process, listening on a port (Postgres uses **5432**), that many clients — every copy of snip, your terminal, a reporting tool — connect to over the network.
 
 ```mermaid
 flowchart LR
@@ -84,7 +84,7 @@ flowchart LR
     DB --> D["disk<br/>(data files + write-ahead log)"]
 ```
 
-This is also why the database becomes the **source of truth** in snip's architecture (chapter 0.3): caches and copies come and go, but the database holds the real data.
+This is also why the database becomes the **source of truth** in snip's architecture ([chapter 0.3](../start/meet-snip.mdx)): caches and copies come and go, but the database holds the real data.
 
 ---
 
@@ -104,7 +104,7 @@ snip's `links` table looks like this:
 | `k7Qz2a` | `https://example.com` | 1 | 3 | 2026-09-24 20:01:02+00 |
 | `launch` | `https://blog.example/launch` | 2 | 910 | 2026-09-23 09:15:44+00 |
 
-"Relational" refers to how tables **relate** to each other: `owner_id` refers to a row in the `api_keys` table, linking each link to who created it (chapter 6.3).
+"Relational" refers to how tables **relate** to each other: `owner_id` refers to a row in the `api_keys` table, linking each link to who created it ([chapter 6.3](./designing-schemas.mdx)).
 
 You ask a relational database questions in **SQL** (Structured Query Language, often pronounced "sequel"). SQL is **declarative**: you say *what* you want, not *how* to find it. The database works out the fastest way.
 
@@ -115,7 +115,7 @@ WHERE owner_id = 1
 ORDER BY clicks DESC;
 ```
 
-"Give me the slug and clicks of owner 1's links, most-clicked first." One line — and it stays fast with millions of rows, given the right index (chapter 6.4).
+"Give me the slug and clicks of owner 1's links, most-clicked first." One line — and it stays fast with millions of rows, given the right index ([chapter 6.4](./indexes-and-performance.mdx)).
 
 ---
 
@@ -153,7 +153,7 @@ Notice the last two. You didn't write any checking code — the **table definiti
 
 ## Kinds of databases
 
-Relational databases are the default, but not the only kind. You'll meet these (chapter 6.8 goes deeper):
+Relational databases are the default, but not the only kind. You'll meet these ([chapter 6.8](./choosing-a-datastore.mdx) goes deeper):
 
 | Kind | Stores data as | Great for | Examples |
 |---|---|---|---|
@@ -162,23 +162,23 @@ Relational databases are the default, but not the only kind. You'll meet these (
 | **Document** | JSON-like documents | Flexible, nested data; one object read at a time | MongoDB, Firestore, Couchbase |
 | **Wide-column / analytics** | Columns, optimised for scanning billions of rows | Reports and analytics | ClickHouse, BigQuery, Cassandra |
 | **Search** | Inverted indexes of words | Full-text search, "did you mean…" | Elasticsearch, OpenSearch |
-| **Vector** | Lists of numbers (embeddings) | Finding things by *meaning* — AI search | pgvector, Pinecone, Qdrant (chapter 14.7) |
+| **Vector** | Lists of numbers (embeddings) | Finding things by *meaning* — AI search | pgvector, Pinecone, Qdrant ([chapter 14.7](../ai/embeddings-and-vector-search.mdx)) |
 
-snip uses two: **PostgreSQL** as the source of truth for links and keys, and **Redis**, a key-value store, as a fast cache, rate limiter and queue (chapter 6.7).
+snip uses two: **PostgreSQL** as the source of truth for links and keys, and **Redis**, a key-value store, as a fast cache, rate limiter and queue ([chapter 6.7](./redis-and-caching.mdx)).
 
 ### Why PostgreSQL?
 
-**PostgreSQL** ("Postgres") is free, open source, more than 35 years in development, and one of the most widely used databases in the world. It's famously correct and careful with data, handles everything from a side project to very large companies, and has extensions for nearly anything — JSON documents, full-text search, geographic data, even vector search for AI (chapter 14.7). If you learn one database deeply, make it this one; the SQL transfers to every other relational database.
+**PostgreSQL** ("Postgres") is free, open source, more than 35 years in development, and one of the most widely used databases in the world. It's famously correct and careful with data, handles everything from a side project to very large companies, and has extensions for nearly anything — JSON documents, full-text search, geographic data, even vector search for AI ([chapter 14.7](../ai/embeddings-and-vector-search.mdx)). If you learn one database deeply, make it this one; the SQL transfers to every other relational database.
 
 :::info[In the real world]
-Many successful products run on a single well-looked-after Postgres database for years. "We need a special database for scale" is often premature: the first answer to most performance problems is a better index (chapter 6.4), not a different database. Reach for specialised stores when you have a specific need Postgres serves badly.
+Many successful products run on a single well-looked-after Postgres database for years. "We need a special database for scale" is often premature: the first answer to most performance problems is a better index ([chapter 6.4](./indexes-and-performance.mdx)), not a different database. Reach for specialised stores when you have a specific need Postgres serves badly.
 :::
 
 ---
 
 ## How snip talks to its database
 
-snip's code never touches Postgres's files. It connects over the network and sends SQL, through the **`Store` interface** you met in chapter 4.3. From `internal/store/postgres/postgres.go`:
+snip's code never touches Postgres's files. It connects over the network and sends SQL, through the **`Store` interface** you met in [chapter 4.3](../go/packages-modules-interfaces.mdx). From `internal/store/postgres/postgres.go`:
 
 ```go
 func (s *Store) Get(ctx context.Context, slug string) (links.Link, error) {
@@ -193,12 +193,12 @@ func (s *Store) Get(ctx context.Context, slug string) (links.Link, error) {
 }
 ```
 
-Send a query; the database returns rows; `Scan` copies each column into a field of a Go struct; "no rows" becomes snip's own `ErrNotFound` (chapter 4.2). Chapter 6.6 covers this code — and why that `$1` is so important — properly.
+Send a query; the database returns rows; `Scan` copies each column into a field of a Go struct; "no rows" becomes snip's own `ErrNotFound` ([chapter 4.2](../go/types-structs-errors.mdx)). [Chapter 6.6](./postgres-from-go.mdx) covers this code — and why that `$1` is so important — properly.
 
 :::warning[What can go wrong]
 - **"We'll just use files/JSON for now."** It works until the first crash mid-write or the first concurrent request, and then data is silently lost. Start with a database — even SQLite, a database in a single file, is far safer than hand-rolled files.
-- **Treating the database as a dumb bucket.** Checking rules only in application code means one buggy script or a second service can corrupt everything. Put the essential rules in the schema, where the database enforces them for everyone (chapter 6.3).
-- **The database as a single point of failure.** It's the source of truth — if it's down, snip is down, and if it's lost, the data is lost. Backups and replicas matter (chapters 12.3 and 8.6).
+- **Treating the database as a dumb bucket.** Checking rules only in application code means one buggy script or a second service can corrupt everything. Put the essential rules in the schema, where the database enforces them for everyone ([chapter 6.3](./designing-schemas.mdx)).
+- **The database as a single point of failure.** It's the source of truth — if it's down, snip is down, and if it's lost, the data is lost. Backups and replicas matter (chapters [12.3](../cloud/compute-storage-databases.mdx) and [8.6](../distributed/scaling.mdx)).
 :::
 
 ---
@@ -211,7 +211,7 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
 
 2. **Try to break the rules.** In the playground, try to: insert a link with no URL; insert a duplicate slug; set clicks to a negative number. Read each error message. Every one is the database protecting integrity without a line of application code.
 
-3. **Run a real Postgres server on your computer** (Docker, chapter 0.2):
+3. **Run a real Postgres server on your computer** (Docker, [chapter 0.2](../start/set-up-your-machine.mdx)):
    ```bash
    docker run -d --name pg-lab -e POSTGRES_PASSWORD=learn -p 5432:5432 postgres:16-alpine   # start Postgres
    docker exec -it pg-lab psql -U postgres                                                   # open the psql shell inside it
@@ -291,6 +291,6 @@ Free. Steps 1–2 run right here in the page; step 3 uses Docker on your compute
 <details>
 <summary>snip uses both Postgres and Redis. Why not just one of them?</summary>
 
-They're good at different things. **Postgres** is the **source of truth**: durable, transactional, enforces integrity, and answers flexible questions ("my newest links"). **Redis** keeps data **in memory** — extremely fast for simple lookups by key — so it's ideal as a **cache** for redirects, for shared rate-limit counters, and as a queue. If Redis loses its data, snip rebuilds the cache from Postgres; the reverse isn't true. Using each for what it does best is a very common pattern (chapter 6.7).
+They're good at different things. **Postgres** is the **source of truth**: durable, transactional, enforces integrity, and answers flexible questions ("my newest links"). **Redis** keeps data **in memory** — extremely fast for simple lookups by key — so it's ideal as a **cache** for redirects, for shared rate-limit counters, and as a queue. If Redis loses its data, snip rebuilds the cache from Postgres; the reverse isn't true. Using each for what it does best is a very common pattern ([chapter 6.7](./redis-and-caching.mdx)).
 
 </details>

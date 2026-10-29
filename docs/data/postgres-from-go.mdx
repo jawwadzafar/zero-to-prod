@@ -6,7 +6,7 @@ description: Connect snip to a real PostgreSQL — connection pools, running que
 
 # 6.6 Postgres from Go
 
-You've designed a schema (6.3), indexed it (6.4) and made it safe under concurrency (6.5) — all in SQL. Now snip needs to actually *use* it. This chapter walks through `internal/store/postgres`, the package that turns snip's `Store` interface (chapter 4.3) into SQL over the network: how it connects, how it runs queries and reads results, how it translates Postgres's errors into snip's own, and how it creates its tables on startup. At the end you'll run snip against a real Postgres, restart it, and watch your links **survive** — the problem snip v0 couldn't solve (chapter 5.1).
+You've designed a schema (6.3), indexed it (6.4) and made it safe under concurrency (6.5) — all in SQL. Now snip needs to actually *use* it. This chapter walks through `internal/store/postgres`, the package that turns snip's `Store` interface ([chapter 4.3](../go/packages-modules-interfaces.mdx)) into SQL over the network: how it connects, how it runs queries and reads results, how it translates Postgres's errors into snip's own, and how it creates its tables on startup. At the end you'll run snip against a real Postgres, restart it, and watch your links **survive** — the problem snip v0 couldn't solve ([chapter 5.1](../apis/first-http-server.mdx)).
 
 ## What you'll learn
 
@@ -20,7 +20,7 @@ You've designed a schema (6.3), indexed it (6.4) and made it safe under concurre
 
 ## Connecting: the connection pool
 
-A connection to Postgres is a TCP connection (chapter 1.4) plus a login handshake and some memory on the database server. Opening one takes several milliseconds — far too slow to do on every request. And Postgres can only handle a limited number of connections at once (often a few hundred).
+A connection to Postgres is a TCP connection ([chapter 1.4](../foundations/networks-from-zero.mdx)) plus a login handshake and some memory on the database server. Opening one takes several milliseconds — far too slow to do on every request. And Postgres can only handle a limited number of connections at once (often a few hundred).
 
 So services use a **connection pool**: a small set of connections opened once and **shared**. A request borrows a connection, runs its query, and returns it for the next request.
 
@@ -62,14 +62,14 @@ postgres://snip:snip@localhost:5432/snip?sslmode=disable
 └─scheme─┘ └user┘└pw┘ └──host──┘└port┘└db┘└─options──┘
 ```
 
-`Ping` makes snip **fail fast** (chapter 5.4): a wrong password or a stopped database is reported at startup, not on the first user's request. The pool's defaults (at most 4 connections, or the number of CPU cores if higher) can be tuned in the URL, e.g. `?pool_max_conns=20`.
+`Ping` makes snip **fail fast** ([chapter 5.4](../apis/structuring-a-real-service.mdx)): a wrong password or a stopped database is reported at startup, not on the first user's request. The pool's defaults (at most 4 connections, or the number of CPU cores if higher) can be tuned in the URL, e.g. `?pool_max_conns=20`.
 
 :::note[Everyday anchor]
 A connection pool is a company car pool. Buying a car for every trip would be absurdly slow and expensive, so the company keeps a few cars that staff sign out, use and return. If all the cars are out, you wait a moment for one to come back — which is far better than the car park overflowing.
 :::
 
 :::warning
-More pool connections is not always better. Every copy of snip has its own pool, so 10 copies × 20 connections = 200 connections to Postgres. Exceed the database's `max_connections` and new connections are refused. Size pools deliberately (chapter 8.6), and consider a connection pooler like PgBouncer at scale.
+More pool connections is not always better. Every copy of snip has its own pool, so 10 copies × 20 connections = 200 connections to Postgres. Exceed the database's `max_connections` and new connections are refused. Size pools deliberately ([chapter 8.6](../distributed/scaling.mdx)), and consider a connection pooler like PgBouncer at scale.
 :::
 
 ---
@@ -93,9 +93,9 @@ func (s *Store) Get(ctx context.Context, slug string) (links.Link, error) {
 }
 ```
 
-- **`ctx`** first, always: the request's context (chapter 4.5). If the client disconnects or a timeout fires, the query is cancelled on the database too.
+- **`ctx`** first, always: the request's context ([chapter 4.5](../go/concurrency.mdx)). If the client disconnects or a timeout fires, the query is cancelled on the database too.
 - **`$1`** is a **placeholder**; the value (`slug`) is passed separately. More on why in a moment.
-- **`Scan(&l.Slug, …)`** copies each column, **in order**, into the variable at that address (chapter 4.2's pointers: `&` gives Scan somewhere to write). Types are converted for you: `text` → `string`, `bigint` → `int64`, `timestamptz` → `time.Time`.
+- **`Scan(&l.Slug, …)`** copies each column, **in order**, into the variable at that address ([chapter 4.2](../go/types-structs-errors.mdx)'s pointers: `&` gives Scan somewhere to write). Types are converted for you: `text` → `string`, `bigint` → `int64`, `timestamptz` → `time.Time`.
 - **`pgx.ErrNoRows`** means the query found nothing. snip translates it into its own `links.ErrNotFound`, so nothing above the store layer ever needs to know about pgx.
 
 ### Query: many rows
@@ -119,7 +119,7 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID int64, limit int) ([]li
 }
 ```
 
-This is exactly the query chapter 6.4's composite index was designed for. `pgx.CollectRows` loops over the result, scans each row with the function you give it, builds a slice, and — importantly — **closes the rows** so the connection returns to the pool.
+This is exactly the query [chapter 6.4](./indexes-and-performance.mdx)'s composite index was designed for. `pgx.CollectRows` loops over the result, scans each row with the function you give it, builds a slice, and — importantly — **closes the rows** so the connection returns to the pool.
 
 ### Exec: no rows back
 
@@ -138,7 +138,7 @@ func (s *Store) Delete(ctx context.Context, slug string, ownerID int64) error {
 }
 ```
 
-Notice `AND owner_id = $2`: the **ownership check is part of the query itself**. Deleting someone else's link affects zero rows and returns `ErrNotFound` — the "404, not 403" rule from chapter 5.2, enforced in one atomic statement with no race.
+Notice `AND owner_id = $2`: the **ownership check is part of the query itself**. Deleting someone else's link affects zero rows and returns `ErrNotFound` — the "404, not 403" rule from [chapter 5.2](../apis/designing-rest-apis.mdx), enforced in one atomic statement with no race.
 
 ---
 
@@ -157,7 +157,7 @@ Now imagine a visitor requests the slug `x' OR '1'='1`. The query becomes:
 SELECT url FROM links WHERE slug = 'x' OR '1'='1'
 ```
 
-— which matches **every** row. Worse inputs can read other tables, change data, or delete it: `x'; DROP TABLE links; --`. This is **SQL injection**, for decades one of the most exploited vulnerabilities on the web (chapter 7.5).
+— which matches **every** row. Worse inputs can read other tables, change data, or delete it: `x'; DROP TABLE links; --`. This is **SQL injection**, for decades one of the most exploited vulnerabilities on the web ([chapter 7.5](../security/web-attacks.mdx)).
 
 **Placeholders** make it impossible. With `WHERE slug = $1` and the value passed separately, the SQL and the data travel to Postgres **separately**. Postgres parses the query's structure *first*, then slots the value in as pure data. `x' OR '1'='1` is simply a (nonexistent) slug. No quoting, no escaping, no cleverness required — and no exceptions.
 
@@ -169,7 +169,7 @@ SELECT url FROM links WHERE slug = 'x' OR '1'='1'
 
 ## Translating database errors
 
-snip's layers (chapter 5.4) mean the domain speaks in its own errors — `ErrSlugTaken`, `ErrNotFound` — and the store translates. The most interesting case is a duplicate slug:
+snip's layers ([chapter 5.4](../apis/structuring-a-real-service.mdx)) mean the domain speaks in its own errors — `ErrSlugTaken`, `ErrNotFound` — and the store translates. The most interesting case is a duplicate slug:
 
 ```go
 // uniqueViolation is Postgres's error code for a duplicate key.
@@ -191,10 +191,10 @@ func (s *Store) Create(ctx context.Context, l links.Link) (links.Link, error) {
 ```
 
 - **`RETURNING clicks, created_at`** asks Postgres to send back values it filled in (the default `0`, the stored timestamp) in the same round trip — no second query needed.
-- Every Postgres error carries a five-character **SQLSTATE code**. `23505` means *unique violation*. `errors.As` (chapter 5.3) checks whether the error is a `*pgconn.PgError` and gives access to its fields.
-- The race-free "is the slug free?" check from chapter 6.5 lives right here: insert, and let the `PRIMARY KEY` decide. The loser gets `ErrSlugTaken`, which the HTTP layer turns into `409 Conflict`, and which the `Service` uses to retry with a fresh random slug (chapter 4.2).
+- Every Postgres error carries a five-character **SQLSTATE code**. `23505` means *unique violation*. `errors.As` ([chapter 5.3](../apis/validation-errors-status-codes.mdx)) checks whether the error is a `*pgconn.PgError` and gives access to its fields.
+- The race-free "is the slug free?" check from [chapter 6.5](./transactions.mdx) lives right here: insert, and let the `PRIMARY KEY` decide. The loser gets `ErrSlugTaken`, which the HTTP layer turns into `409 Conflict`, and which the `Service` uses to retry with a fresh random slug ([chapter 4.2](../go/types-structs-errors.mdx)).
 
-A few codes worth recognising: `23505` unique violation, `23503` foreign key violation, `23514` check violation, `40P01` deadlock, `40001` serialization failure (retry it — chapter 6.5).
+A few codes worth recognising: `23505` unique violation, `23503` foreign key violation, `23514` check violation, `40P01` deadlock, `40001` serialization failure (retry it — [chapter 6.5](./transactions.mdx)).
 
 ---
 
@@ -210,7 +210,7 @@ var migrationFiles embed.FS
 `Migrate` then (simplified):
 
 1. creates the bookkeeping table `schema_migrations (version, applied_at)` if missing;
-2. takes the **advisory lock** (chapter 6.5), so concurrent copies of snip don't collide;
+2. takes the **advisory lock** ([chapter 6.5](./transactions.mdx)), so concurrent copies of snip don't collide;
 3. lists the embedded `.sql` files **in order** (`0001_init.sql`, `0002_…`);
 4. for each version not yet in `schema_migrations`: runs the file and records the version — **in one transaction**, so a failing migration leaves nothing half-applied;
 5. releases the lock.
@@ -223,10 +223,10 @@ flowchart TB
     C -->|"done"| U["release lock, start serving"]
 ```
 
-It runs on every `snip serve` start, and it's also available as `snip migrate` for teams that prefer migrating as a separate step of a deployment (chapter 11.3). Many teams use a dedicated migration tool instead (golang-migrate, goose, Atlas, Flyway); snip's hand-rolled version is small enough to read in full and shows exactly what those tools do.
+It runs on every `snip serve` start, and it's also available as `snip migrate` for teams that prefer migrating as a separate step of a deployment ([chapter 11.3](../shipping/delivery-and-deployment.mdx)). Many teams use a dedicated migration tool instead (golang-migrate, goose, Atlas, Flyway); snip's hand-rolled version is small enough to read in full and shows exactly what those tools do.
 
 :::info[If you've written code]
-Many languages lean on an **ORM** (object-relational mapper) such as Prisma, SQLAlchemy, Hibernate or GORM, which generates SQL from objects. ORMs speed up simple CRUD, but hide what SQL runs — which is how N+1 queries (chapter 6.4) sneak in. Go culture leans towards writing SQL directly (as snip does) or generating type-safe Go from SQL with tools like **sqlc**. Whatever you use, learn to read the SQL it produces.
+Many languages lean on an **ORM** (object-relational mapper) such as Prisma, SQLAlchemy, Hibernate or GORM, which generates SQL from objects. ORMs speed up simple CRUD, but hide what SQL runs — which is how N+1 queries ([chapter 6.4](./indexes-and-performance.mdx)) sneak in. Go culture leans towards writing SQL directly (as snip does) or generating type-safe Go from SQL with tools like **sqlc**. Whatever you use, learn to read the SQL it produces.
 :::
 
 :::warning[What can go wrong]
@@ -272,7 +272,7 @@ Free, on your own computer, using Docker.
    sleep 3
    curl -si localhost:8080/godoc | head -2   # 302 — the link SURVIVED the restart
    ```
-   That's snip v1. Compare with chapter 5.1's lab, where a restart wiped everything.
+   That's snip v1. Compare with [chapter 5.1](../apis/first-http-server.mdx)'s lab, where a restart wiped everything.
 
 4. **Look inside the database.**
    ```bash
@@ -280,7 +280,7 @@ Free, on your own computer, using Docker.
    docker exec -it snip-pg psql -U snip -c 'SELECT slug, url, owner_id, clicks FROM links;'
    docker exec -it snip-pg psql -U snip -c 'SELECT id, name, left(key_hash, 12) AS hash FROM api_keys;'
    ```
-   Notice `api_keys` stores only a hash, never your actual key (chapter 7.2 explains why).
+   Notice `api_keys` stores only a hash, never your actual key ([chapter 7.2](../security/authentication.mdx) explains why).
 
 5. **Try SQL injection — and watch it fail.**
    ```bash
@@ -288,7 +288,7 @@ Free, on your own computer, using Docker.
    ```
    The placeholder made the attack harmless.
 
-6. **Run the integration tests** (chapter 4.4) against your database, then clean up:
+6. **Run the integration tests** ([chapter 4.4](../go/testing.mdx)) against your database, then clean up:
    ```bash
    SNIP_TEST_DATABASE_URL="$SNIP_DATABASE_URL" go test ./internal/store/postgres/ -v
    kill %1; docker rm -f snip-pg
@@ -349,7 +349,7 @@ Free, on your own computer, using Docker.
 <details>
 <summary>Walk through what happens, step by step, when snip handles <code>DELETE /api/links/godoc</code> from a user who doesn't own it.</summary>
 
-1. The `requireKey` middleware authenticates the key and puts the owner (say ID 7) into the request context (chapter 5.4).
+1. The `requireKey` middleware authenticates the key and puts the owner (say ID 7) into the request context ([chapter 5.4](../apis/structuring-a-real-service.mdx)).
 2. The handler calls `Service.Delete(ctx, 7, "godoc")`.
 3. The Postgres store runs `DELETE FROM links WHERE slug = $1 AND owner_id = $2` with `godoc` and `7`, borrowing a connection from the pool.
 4. The row belongs to another owner, so **zero rows** match; `RowsAffected()` is 0.
@@ -362,6 +362,6 @@ The ownership check and the delete are one atomic statement, so there's no momen
 <details>
 <summary>Why does snip embed its migration files in the binary instead of reading them from disk at runtime?</summary>
 
-So the program and its schema **can never get out of sync**. The binary that expects the `links` table carries exactly the SQL that creates it. There's no separate folder to forget to copy onto the server or into the container (chapter 9.2), no risk of running version 12 of the code against version 11's files, and the container image stays a single self-contained file.
+So the program and its schema **can never get out of sync**. The binary that expects the `links` table carries exactly the SQL that creates it. There's no separate folder to forget to copy onto the server or into the container ([chapter 9.2](../containers/writing-dockerfiles.mdx)), no risk of running version 12 of the code against version 11's files, and the container image stays a single self-contained file.
 
 </details>

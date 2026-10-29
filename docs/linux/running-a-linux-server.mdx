@@ -20,7 +20,7 @@ So far you've started programs by typing a command and watching them run. That's
 
 ## Installing software: packages
 
-On Ubuntu and Debian servers, software is installed with **`apt`** — the package manager from chapter 0.2. A **package** is a program bundled with information about what it depends on, so installing one pulls in everything it needs.
+On Ubuntu and Debian servers, software is installed with **`apt`** — the package manager from [chapter 0.2](../start/set-up-your-machine.mdx). A **package** is a program bundled with information about what it depends on, so installing one pulls in everything it needs.
 
 ```bash
 sudo apt update                    # refresh the list of available packages and versions
@@ -35,7 +35,7 @@ sudo apt remove nginx              # uninstall
 **Keeping a server patched** means regularly applying updates, especially security updates. Most real break-ins exploit problems that were fixed months earlier and simply never installed. Ubuntu can do this automatically with the `unattended-upgrades` package — worth enabling on any server you run.
 
 :::info[In the real world]
-In modern setups you rarely install your *own* application with `apt`. Your app ships as a container image (Part 9), and the server just needs a container runtime. But the machine itself — its kernel, SSH, libraries — is still patched with the package manager, whether by you or by your cloud provider.
+In modern setups you rarely install your *own* application with `apt`. Your app ships as a container image ([Part 9](../containers/what-a-container-is.mdx)), and the server just needs a container runtime. But the machine itself — its kernel, SSH, libraries — is still patched with the package manager, whether by you or by your cloud provider.
 :::
 
 ---
@@ -44,7 +44,7 @@ In modern setups you rarely install your *own* application with `apt`. Your app 
 
 A **service** (also called a **daemon**) is a program that runs in the background, without a terminal, usually from boot until shutdown: a web server, a database, snip.
 
-On almost every modern Linux system, services are managed by **systemd**. It's the first program the kernel starts at boot (it has process ID 1 — chapter 1.2), and its job is to start everything else, in the right order, and keep it running.
+On almost every modern Linux system, services are managed by **systemd**. It's the first program the kernel starts at boot (it has process ID 1 — [chapter 1.2](../foundations/programs-processes-threads.mdx)), and its job is to start everything else, in the right order, and keep it running.
 
 ```mermaid
 flowchart LR
@@ -117,9 +117,9 @@ In systemd unit files, comments must be on **their own line**, starting with `#`
 Every line maps to something you've already learned:
 
 - **`User=snip`** — least privilege. If snip had a security bug, the attacker would get only what the `snip` user can touch.
-- **`EnvironmentFile=`** — configuration through environment variables (chapter 2.2), kept in a file readable only by root and the `snip` group, so the database password isn't visible to other users.
+- **`EnvironmentFile=`** — configuration through environment variables ([chapter 2.2](./users-permissions-processes.mdx)), kept in a file readable only by root and the `snip` group, so the database password isn't visible to other users.
 - **`Restart=on-failure`** — a crash at 3 a.m. becomes a two-second blip instead of an outage.
-- **`TimeoutStopSec=15`** — graceful shutdown: systemd sends **SIGTERM** (chapter 1.2), snip finishes in-flight requests, and only if it hangs does systemd send SIGKILL.
+- **`TimeoutStopSec=15`** — graceful shutdown: systemd sends **SIGTERM** ([chapter 1.2](../foundations/programs-processes-threads.mdx)), snip finishes in-flight requests, and only if it hangs does systemd send SIGKILL.
 
 After adding or changing a unit file:
 
@@ -130,7 +130,7 @@ systemctl status snip               # check it
 ```
 
 :::info[If you've written code]
-If you've used `pm2`, `nodemon` or `forever` to keep a Node app alive, systemd is the operating system's built-in version of that — and in Kubernetes (Part 10), the same responsibilities (start, restart on failure, graceful stop, resource limits) move into the Pod spec.
+If you've used `pm2`, `nodemon` or `forever` to keep a Node app alive, systemd is the operating system's built-in version of that — and in Kubernetes ([Part 10](../kubernetes/why-orchestration.mdx)), the same responsibilities (start, restart on failure, graceful stop, resource limits) move into the Pod spec.
 :::
 
 ---
@@ -141,7 +141,7 @@ Services don't have a terminal to print to, so their output goes to logs. On a s
 
 ### The journal (journalctl)
 
-systemd captures everything a service writes to stdout and stderr (chapter 2.3) in the **journal**:
+systemd captures everything a service writes to stdout and stderr ([chapter 2.3](./pipes-and-text-tools.mdx)) in the **journal**:
 
 ```bash
 journalctl -u snip                  # all logs for the snip service
@@ -152,11 +152,11 @@ journalctl -b -p warning            # warnings or worse since this boot
 journalctl -u snip -o cat | jq .    # just the messages; snip logs JSON, so jq works (chapter 2.3)
 ```
 
-This is one reason snip simply writes JSON logs to stdout rather than managing its own log files: the platform — systemd here, Docker or Kubernetes later — collects them. (It's one of the "Twelve-Factor App" principles you'll meet in chapter 5.4.)
+This is one reason snip simply writes JSON logs to stdout rather than managing its own log files: the platform — systemd here, Docker or Kubernetes later — collects them. (It's one of the "Twelve-Factor App" principles you'll meet in [chapter 5.4](../apis/structuring-a-real-service.mdx).)
 
 ### /var/log
 
-Many programs still write their own files under `/var/log` (chapter 2.1):
+Many programs still write their own files under `/var/log` ([chapter 2.1](./shell-and-filesystem.mdx)):
 
 ```bash
 ls /var/log                          # the log folder
@@ -189,16 +189,16 @@ journalctl --disk-usage                   # how much space the journal uses
 sudo journalctl --vacuum-size=500M        # shrink the journal to 500 MB
 ```
 
-`du` ("disk usage") plus `sort -h` (sort human-readable sizes) and the pipeline skills from chapter 2.3 will find the culprit in a minute.
+`du` ("disk usage") plus `sort -h` (sort human-readable sizes) and the pipeline skills from [chapter 2.3](./pipes-and-text-tools.mdx) will find the culprit in a minute.
 
 ### Log rotation
 
 Logs grow forever unless something trims them. **logrotate** runs daily on most distributions and, per its config in `/etc/logrotate.d/`, renames `app.log` to `app.log.1`, compresses older ones, and deletes the oldest. The journal has its own size limits (`SystemMaxUse=` in `/etc/systemd/journald.conf`).
 
 :::warning[What can go wrong]
-- **The slow disk fill.** Logs, old container images, database files and temporary files grow a little every day. Months later the disk hits 100%, and *everything* fails at once — the database can't write, logs stop, even SSH can struggle. Monitor disk usage and alert well before it's full (chapter 13.4).
+- **The slow disk fill.** Logs, old container images, database files and temporary files grow a little every day. Months later the disk hits 100%, and *everything* fails at once — the database can't write, logs stop, even SSH can struggle. Monitor disk usage and alert well before it's full ([chapter 13.4](../observability/slos-alerting-on-call.mdx)).
 - **Deleted but not freed.** If you `rm` a huge log file that a running process still has open, the space isn't freed until that process closes it. `df` still shows the disk as full. Restart the process (or truncate the file with `: > file.log` instead of deleting it).
-- **The silent OOM kill.** When memory runs out, the kernel's out-of-memory killer stops a process (chapter 1.1). The service "just died". Check for it with `sudo dmesg -T | grep -i -E "killed process|out of memory"` or `journalctl -k | grep -i oom`.
+- **The silent OOM kill.** When memory runs out, the kernel's out-of-memory killer stops a process ([chapter 1.1](../foundations/what-a-computer-does.mdx)). The service "just died". Check for it with `sudo dmesg -T | grep -i -E "killed process|out of memory"` or `journalctl -k | grep -i oom`.
 :::
 
 ### Memory and load
@@ -239,7 +239,7 @@ Each line is five time fields and a command:
 
 (`crontab.guru` is a handy website that translates these into plain English.)
 
-Two classic cron traps: jobs run with an almost **empty environment** (so commands that work in your terminal fail with "command not found" — use absolute paths), and jobs run in the server's **time zone** (set servers to UTC — chapter 1.3). systemd also offers **timers**, which do the same job with proper logging in the journal; you'll see both in the wild. And in Kubernetes, the equivalent is a **CronJob** (chapter 10.2).
+Two classic cron traps: jobs run with an almost **empty environment** (so commands that work in your terminal fail with "command not found" — use absolute paths), and jobs run in the server's **time zone** (set servers to UTC — [chapter 1.3](../foundations/bits-bytes-text-formats.mdx)). systemd also offers **timers**, which do the same job with proper logging in the journal; you'll see both in the wild. And in Kubernetes, the equivalent is a **CronJob** ([chapter 10.2](../kubernetes/core-objects.mdx)).
 
 ---
 
@@ -259,7 +259,7 @@ sudo ufw status verbose
 ```
 
 :::danger[Don't lock yourself out]
-If you enable a firewall that blocks SSH on a remote server, your SSH session drops and you can't get back in. Always allow SSH first, and on a cloud server, know how to reach the provider's emergency console before touching firewall rules. In the cloud you'll usually do this with **security groups** instead (chapter 12.2) — same principle, managed by the provider.
+If you enable a firewall that blocks SSH on a remote server, your SSH session drops and you can't get back in. Always allow SSH first, and on a cloud server, know how to reach the provider's emergency console before touching firewall rules. In the cloud you'll usually do this with **security groups** instead ([chapter 12.2](../cloud/cloud-networking.mdx)) — same principle, managed by the provider.
 :::
 
 ---
@@ -268,14 +268,14 @@ If you enable a firewall that blocks SSH on a remote server, your SSH session dr
 
 When you get a fresh Linux server, the basics look like this. Each item is covered in this part of the handbook:
 
-- [ ] Log in with an **SSH key**, not a password; disable password login (chapter 2.6).
-- [ ] Create a normal user with `sudo`; don't work as root (chapter 2.2).
+- [ ] Log in with an **SSH key**, not a password; disable password login ([chapter 2.6](./ssh-and-remote-machines.mdx)).
+- [ ] Create a normal user with `sudo`; don't work as root ([chapter 2.2](./users-permissions-processes.mdx)).
 - [ ] `sudo apt update && sudo apt upgrade`; enable **unattended security upgrades**.
 - [ ] Set the time zone to **UTC** (`sudo timedatectl set-timezone UTC`).
 - [ ] Enable a **firewall**: SSH and the ports you actually serve, nothing else.
 - [ ] Run each app as a **systemd service** under its own **unprivileged user**.
 - [ ] Make sure logs are **rotated** and disk usage is **monitored**.
-- [ ] Have **backups** — and test restoring them (chapter 12.3).
+- [ ] Have **backups** — and test restoring them ([chapter 12.3](../cloud/compute-storage-databases.mdx)).
 
 ---
 
@@ -283,7 +283,7 @@ When you get a fresh Linux server, the basics look like this. Each item is cover
 
 Free, on your own computer. You'll practise in a throwaway Linux container, so nothing on your machine changes.
 
-1. **Get a disposable Ubuntu server.** Docker (chapter 0.2) can give you a fresh Ubuntu shell in seconds:
+1. **Get a disposable Ubuntu server.** Docker ([chapter 0.2](../start/set-up-your-machine.mdx)) can give you a fresh Ubuntu shell in seconds:
    ```bash
    docker run --rm -it ubuntu:24.04 bash    # --rm: delete it on exit; -it: interactive terminal
    ```
@@ -375,13 +375,13 @@ Free, on your own computer. You'll practise in a throwaway Linux container, so n
 4. It starts `/usr/local/bin/snip serve` again, as user `snip`, with the variables from `/etc/snip/snip.env`.
 5. snip connects to the database and starts serving; the outage lasted a few seconds.
 
-Nobody woke up — but the crash is still in `journalctl -u snip`, and the *cause* still needs fixing. If snip keeps crashing, systemd eventually gives up (its "start limit"), which is why you also need monitoring and alerts (chapter 13.4).
+Nobody woke up — but the crash is still in `journalctl -u snip`, and the *cause* still needs fixing. If snip keeps crashing, systemd eventually gives up (its "start limit"), which is why you also need monitoring and alerts ([chapter 13.4](../observability/slos-alerting-on-call.mdx)).
 
 </details>
 
 <details>
 <summary>Why should the database port (5432) not be open to the internet, even if the database has a strong password?</summary>
 
-Because **defence in depth**: every exposed port is a door attackers can knock on — trying passwords, exploiting bugs in the database software itself, or overwhelming it. Only the programs that need the database (snip, on the same machine or private network) should be able to reach it. A firewall that allows only SSH and HTTPS from the internet means that even a weak password or an unpatched bug in Postgres isn't directly reachable. You'll apply the same principle with cloud security groups in chapter 12.2.
+Because **defence in depth**: every exposed port is a door attackers can knock on — trying passwords, exploiting bugs in the database software itself, or overwhelming it. Only the programs that need the database (snip, on the same machine or private network) should be able to reach it. A firewall that allows only SSH and HTTPS from the internet means that even a weak password or an unpatched bug in Postgres isn't directly reachable. You'll apply the same principle with cloud security groups in [chapter 12.2](../cloud/cloud-networking.mdx).
 
 </details>

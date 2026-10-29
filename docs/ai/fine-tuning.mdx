@@ -27,7 +27,7 @@ In this chapter you'll learn what fine-tuning actually changes inside a model, w
 A chef who trained for years at culinary school joins your restaurant. You don't teach them to cook: you show them your menu, your plating, your portion sizes, twenty times each, until they do it your way without thinking. They can still cook everything they could before. But if all you ever show them is your menu, they may start to forget the dishes they never make any more.
 :::
 
-Chapter 14.3 described how a chat model is made: **pretraining** on an enormous amount of text (where the knowledge and fluency come from), then **instruction tuning** and **preference training** on example conversations (where the helpful-assistant behaviour comes from). **Fine-tuning** is the same kind of training, continued on a much smaller dataset of *your* examples: inputs paired with the outputs you want. Gradient descent (chapter 14.2) nudges the model's weights so that, given inputs like yours, it produces outputs like yours.
+[Chapter 14.3](./how-llms-work.mdx) described how a chat model is made: **pretraining** on an enormous amount of text (where the knowledge and fluency come from), then **instruction tuning** and **preference training** on example conversations (where the helpful-assistant behaviour comes from). **Fine-tuning** is the same kind of training, continued on a much smaller dataset of *your* examples: inputs paired with the outputs you want. Gradient descent ([chapter 14.2](./ml-foundations.mdx)) nudges the model's weights so that, given inputs like yours, it produces outputs like yours.
 
 ```mermaid
 flowchart LR
@@ -38,11 +38,11 @@ What does it change well?
 
 - **Format and style.** Always answer in your JSON shape, your tone, your length, without long instructions in every prompt.
 - **A narrow, repeated task.** Classify support tickets into your 30 categories; extract the fields from your invoices.
-- **Making a small model good enough** at one task that previously needed a big one, which cuts cost and latency (chapter 14.11).
+- **Making a small model good enough** at one task that previously needed a big one, which cuts cost and latency ([chapter 14.11](./serving-open-models.mdx)).
 
 What does it change badly?
 
-- **Knowledge.** Fine-tuning on your documentation does *not* reliably teach the model your documentation. It learns the style of the answers, and it may learn some facts, unevenly, and it will then state them with the same confidence as the facts it doesn't have. For "answer from our documents", use **RAG** (chapter 14.8): the facts arrive fresh in the prompt, can be updated in seconds, and can be cited.
+- **Knowledge.** Fine-tuning on your documentation does *not* reliably teach the model your documentation. It learns the style of the answers, and it may learn some facts, unevenly, and it will then state them with the same confidence as the facts it doesn't have. For "answer from our documents", use **RAG** ([chapter 14.8](./rag.mdx)): the facts arrive fresh in the prompt, can be updated in seconds, and can be cited.
 - **Anything that changes.** A fine-tuned model is frozen at the moment of training. New products, new prices, new policies mean training again.
 
 :::warning[What can go wrong]
@@ -53,19 +53,19 @@ The classic failure: a team fine-tunes a model on their help-centre articles, ho
 
 ## The ladder: cheapest first
 
-Before fine-tuning, climb the ladder, and stop at the first step that passes your evals (chapter 14.10):
+Before fine-tuning, climb the ladder, and stop at the first step that passes your evals ([chapter 14.10](./evals.mdx)):
 
 | Step | Effort | What it fixes |
 |---|---|---|
-| 1. A better prompt (chapter 14.5) | Hours | Unclear instructions, missing context, wrong format |
+| 1. A better prompt ([chapter 14.5](./prompt-engineering.mdx)) | Hours | Unclear instructions, missing context, wrong format |
 | 2. Examples in the prompt (few-shot) | Hours | Style and format that are easier to show than describe |
-| 3. Structured output (chapter 14.6) | Hours | Output that code must parse |
-| 4. RAG (chapter 14.8) | Days | Missing or changing knowledge |
+| 3. Structured output ([chapter 14.6](./structured-output-and-tools.mdx)) | Hours | Output that code must parse |
+| 4. RAG ([chapter 14.8](./rag.mdx)) | Days | Missing or changing knowledge |
 | 5. A bigger model | Minutes (and money) | Reasoning the small model can't do |
 | 6. A small model trained on your data | Days | A narrow classification or scoring task with plenty of labels |
 | 7. Fine-tuning a language model | Days to weeks | Behaviour you can't get by prompting, or a small model that must match a big one on one task |
 
-Two things about that list. Step 5 comes *before* the training steps: trying a more capable model costs almost nothing, and if it passes, you can decide later whether a cheaper model trained on its outputs is worth the effort. And step 6 is easy to forget. Plenty of "AI" tasks are classification: which category, which team, spam or not. For those, the tools of chapter 14.2 (a small model trained on labelled examples) are often faster, cheaper and more accurate than any language model, as the experiment below shows.
+Two things about that list. Step 5 comes *before* the training steps: trying a more capable model costs almost nothing, and if it passes, you can decide later whether a cheaper model trained on its outputs is worth the effort. And step 6 is easy to forget. Plenty of "AI" tasks are classification: which category, which team, spam or not. For those, the tools of [chapter 14.2](./ml-foundations.mdx) (a small model trained on labelled examples) are often faster, cheaper and more accurate than any language model, as the experiment below shows.
 
 ---
 
@@ -83,7 +83,7 @@ flowchart LR
 
 What that buys you:
 
-- **Much less memory to train**, so a mid-sized model can be fine-tuned on one GPU. **QLoRA** goes further: the frozen base model is loaded quantized to 4 bits (chapter 14.11), and only the small LoRA matrices are trained at full precision.
+- **Much less memory to train**, so a mid-sized model can be fine-tuned on one GPU. **QLoRA** goes further: the frozen base model is loaded quantized to 4 bits ([chapter 14.11](./serving-open-models.mdx)), and only the small LoRA matrices are trained at full precision.
 - **Tiny results.** The trained **adapter** is a few megabytes, not gigabytes. You can keep one base model and swap adapters per task or per customer; some serving engines load many adapters on one base model at once.
 - **Less forgetting.** The original weights never change, so the model keeps more of what it knew.
 
@@ -104,7 +104,7 @@ Every fine-tuning project is really a data project. What good training data look
 
 And the risks that come with the data:
 
-- **Memorisation.** Models can reproduce training examples word for word. If your examples contain customer data, personal information or secrets, the fine-tuned model can leak them to anyone who asks the right question. Clean the data first (chapter 7.6's rules about secrets apply to training data too).
+- **Memorisation.** Models can reproduce training examples word for word. If your examples contain customer data, personal information or secrets, the fine-tuned model can leak them to anyone who asks the right question. Clean the data first ([chapter 7.6](../security/secrets-management.mdx)'s rules about secrets apply to training data too).
 - **Catastrophic forgetting.** Train too hard on a narrow task and the model gets worse at everything else, including following instructions and refusing harmful requests. Evaluate general behaviour too, not just the new task.
 - **Maintenance.** When the base model gets a new version, your fine-tune doesn't come along. Every upgrade means training and evaluating again, so the data and the training script must be kept like code.
 - **Licences.** Open-weights models come with licences that differ in what they allow commercially and in what you must pass on. Read the one for the model you fine-tune.
@@ -117,8 +117,8 @@ Here's a task with free labels. Given a passage from this handbook, **which part
 
 snipai's `finetune.py` compares two approaches on the same test passages:
 
-1. **A zero-shot prompt.** `qwen2.5:1.5b` gets the list of parts and the passage, and answers with structured output (chapter 14.6) restricted to the 15 part names.
-2. **A trained head.** The embedding model from chapter 14.7 turns every passage into a vector. The embedding model is **frozen** (not changed at all); on top of it, we train a small **softmax regression**, chapter 14.2's logistic regression extended to many classes, using the training passages' labels:
+1. **A zero-shot prompt.** `qwen2.5:1.5b` gets the list of parts and the passage, and answers with structured output ([chapter 14.6](./structured-output-and-tools.mdx)) restricted to the 15 part names.
+2. **A trained head.** The embedding model from [chapter 14.7](./embeddings-and-vector-search.mdx) turns every passage into a vector. The embedding model is **frozen** (not changed at all); on top of it, we train a small **softmax regression**, [chapter 14.2](./ml-foundations.mdx)'s logistic regression extended to many classes, using the training passages' labels:
 
 ```python
 def fit(self, x: Floats, y: Ints, classes: int) -> SoftmaxRegression:
@@ -139,7 +139,7 @@ Training a small model on top of a frozen, pretrained one is the simplest form o
 Two details decide whether the result means anything:
 
 - **Only the passage text goes in.** Every chunk's heading contains the chapter number ("10.5 Operating & debugging Kubernetes"), which gives the answer away. Leaving it in would test whether the model can read a number.
-- **The test set is whole chapters.** A quarter of each part's chapters are held out entirely. Passages from one chapter share vocabulary, examples and cross-references, so if some passages of a chapter were in training and others in testing, the test would partly measure memory. That's **leakage** (chapter 14.2), and the lab measures exactly how much it would flatter the score.
+- **The test set is whole chapters.** A quarter of each part's chapters are held out entirely. Passages from one chapter share vocabulary, examples and cross-references, so if some passages of a chapter were in training and others in testing, the test would partly measure memory. That's **leakage** ([chapter 14.2](./ml-foundations.mdx)), and the lab measures exactly how much it would flatter the score.
 
 CI runs it with `all-minilm` for the embeddings and `qwen2.5:1.5b` for the prompt, at temperature 0, on a CPU-only machine:
 
@@ -180,7 +180,7 @@ What to notice:
 - **The leaky split would have lied by 22 points.** Tested on randomly held-out passages, the same head scores 83%. That's the number a hurried team would have reported, and it measures memory of neighbouring passages, not the ability to place new material.
 - **More data stopped helping.** Doubling from 315 to 631 examples gained nothing. The limit is now the frozen embeddings themselves, not the amount of data. The next step up the ladder would be fine-tuning the embedding model, or a language model with LoRA, on this task, and a capable hosted model with a better prompt might do well without any training. We haven't measured either, so they're experiments for you, not results.
 
-And a caution about the numbers themselves: 275 test passages from 25 chapters is a small test set, and the same head scored 54% in the earlier run, on a slightly different corpus. Chapter 14.10's confidence intervals apply here too.
+And a caution about the numbers themselves: 275 test passages from 25 chapters is a small test set, and the same head scored 54% in the earlier run, on a slightly different corpus. [Chapter 14.10](./evals.mdx)'s confidence intervals apply here too.
 
 :::info[Honesty label]
 **Exists today:** the experiment above, run in CI on every push with a real embedding model and a 1.5B language model, plus an offline version. **Not built:** a LoRA fine-tune of a language model. It needs a GPU (or a lot of patience on a CPU) and a training library, which is beyond a free, local lab. The LoRA arithmetic above is computed from `qwen2.5:1.5b`'s published dimensions, not measured.
@@ -225,7 +225,7 @@ Free, local. Steps 1–3 run offline; step 4 uses free local models through Olla
    ```
    Compare the prompt's accuracy, the trained head's accuracy on the same passages, and the seconds each takes per passage.
 
-5. **Optional, with your own key:** `SNIPAI_PROVIDER=anthropic` for the prompt side. A capable model may well beat the trained head. Then compare the cost of 10,000 classifications each way, using the token counts from chapter 14.4.
+5. **Optional, with your own key:** `SNIPAI_PROVIDER=anthropic` for the prompt side. A capable model may well beat the trained head. Then compare the cost of 10,000 classifications each way, using the token counts from [chapter 14.4](./calling-models-from-code.mdx).
 
 ---
 
@@ -299,7 +299,7 @@ The test set, before the model:
 
 - **Leakage.** Were the 300 examples split randomly? Invoices from the same supplier look almost identical, so a random split puts near-copies in training and test. Split by **supplier** (like this chapter's split by chapter) and re-measure. That's likely where the 96% came from.
 - **Representativeness.** Are the test invoices like production ones? Scans versus PDFs, new suppliers, other languages, handwritten notes. A test set drawn from the first 300 customers measures the first 300 customers.
-- **Size.** 300 examples split 80/20 is 60 test cases: the confidence interval around 96% is wide (chapter 14.10).
+- **Size.** 300 examples split 80/20 is 60 test cases: the confidence interval around 96% is wide ([chapter 14.10](./evals.mdx)).
 - **Drift.** Were the production failures from formats that appeared after training?
 
 Then the fixes: collect a few hundred real production failures, label them, add most to training and some to a new test set split by supplier, and compare against the ladder's cheaper steps (a capable model with structured output may do as well without any training).

@@ -69,7 +69,7 @@ rm $file        # the shell splits it: rm "my" "report.txt" — deletes the wron
 rm "$file"      # one argument: "my report.txt" — correct
 ```
 
-Unquoted variables are split on spaces and have wildcards expanded (chapter 2.1). Quoted, they're passed as exactly one piece. **Quote every variable unless you have a specific reason not to.**
+Unquoted variables are split on spaces and have wildcards expanded ([chapter 2.1](./shell-and-filesystem.mdx)). Quoted, they're passed as exactly one piece. **Quote every variable unless you have a specific reason not to.**
 
 ### Arguments
 
@@ -97,7 +97,7 @@ echo "Hello, $name"
 
 ### Exit codes are the scripting language of success
 
-Every command returns an exit code (chapter 1.2): `0` for success, anything else for failure. `if` doesn't test "true or false" — it tests **whether a command succeeded**:
+Every command returns an exit code ([chapter 1.2](../foundations/programs-processes-threads.mdx)): `0` for success, anything else for failure. `if` doesn't test "true or false" — it tests **whether a command succeeded**:
 
 ```bash
 if grep -q "ERROR" app.log; then        # -q = quiet: just set the exit code
@@ -217,7 +217,7 @@ In 2015 a bug in the installer script of Valve's Steam client for Linux ran `rm 
 :::
 
 :::tip[Let a linter read your scripts]
-**ShellCheck** (`brew install shellcheck` or `sudo apt install -y shellcheck`) reads a script and warns about unquoted variables, typos and dozens of classic mistakes before you run it. Run `shellcheck myscript.sh` on every script you write. Many teams run it automatically in CI (Part 11).
+**ShellCheck** (`brew install shellcheck` or `sudo apt install -y shellcheck`) reads a script and warns about unquoted variables, typos and dozens of classic mistakes before you run it. Run `shellcheck myscript.sh` on every script you write. Many teams run it automatically in CI ([Part 11](../shipping/how-software-ships.mdx)).
 :::
 
 ---
@@ -270,7 +270,7 @@ log "PASS"
 Things worth noticing:
 
 - `: "${SNIP_API_KEY:?message}"` stops the script with `message` if the variable is unset — a one-line guard for required configuration.
-- Every check compares the **actual result** against what we expected. It doesn't trust exit codes alone (chapter 1.2's lesson).
+- Every check compares the **actual result** against what we expected. It doesn't trust exit codes alone ([chapter 1.2](../foundations/programs-processes-threads.mdx)'s lesson).
 - Error messages go to **stderr** (`>&2`) and the script exits non-zero, so anything that runs it — you, CI, a deploy pipeline — knows it failed.
 - It cleans up the link it created, so it's safe to run against a real environment.
 
@@ -285,13 +285,13 @@ Shell scripts are brilliant glue: running commands in order, checking results, m
 - anything longer than roughly **100–200 lines**,
 - code other people will maintain and **test**.
 
-At that point, reach for a real language — Go (Part 4) or Python (chapter 14.1). A good rule: *if you're fighting bash's syntax more than your actual problem, switch.*
+At that point, reach for a real language — Go ([Part 4](../go/why-go-first-program.mdx)) or Python ([chapter 14.1](../ai/python-for-ai-engineers.mdx)). A good rule: *if you're fighting bash's syntax more than your actual problem, switch.*
 
 :::warning[What can go wrong]
 - **No `set -euo pipefail`.** The script "succeeds" after half its steps failed.
 - **Unquoted variables.** Filenames with spaces, empty variables, and wildcards turn into wrong arguments — sometimes destructive ones.
 - **Scripts that only work from one folder.** Relative paths resolve from wherever the script is *run*, not where it *lives*. Use absolute paths, or compute the script's own folder: `cd "$(dirname "$0")"`.
-- **Secrets in scripts.** Never write an API key or password into a script file that gets committed. Read it from an environment variable, as the smoke test does (chapter 7.6).
+- **Secrets in scripts.** Never write an API key or password into a script file that gets committed. Read it from an environment variable, as the smoke test does ([chapter 7.6](../security/secrets-management.mdx)).
 :::
 
 ---
@@ -326,7 +326,7 @@ Free, on your own computer. You'll write two scripts, then run snip's real smoke
    bash safe.sh; echo "exit code: $?"   # stops at the failed cd, non-zero exit code
    ```
 
-3. **Run snip's real smoke test.** In one terminal, start snip in memory mode from the repository you cloned in chapter 1.6:
+3. **Run snip's real smoke test.** In one terminal, start snip in memory mode from the repository you cloned in [chapter 1.6](../foundations/what-a-server-is.mdx):
    ```bash
    cd ~/code/zero-to-prod/snip
    go run ./cmd/snip

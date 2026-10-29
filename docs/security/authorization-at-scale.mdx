@@ -6,9 +6,9 @@ description: "What happens to authorization when a product grows teams, sharing,
 
 # 7.10 Authorization at scale: policies & relationships
 
-In chapter 7.4, snip's authorization fit in one line of SQL: `WHERE owner_id = $1`. Each API key owns its links, and nobody else can see them. That's correct, and for a product with one kind of user, it's enough.
+In [chapter 7.4](./authorization-multi-tenancy.mdx), snip's authorization fit in one line of SQL: `WHERE owner_id = $1`. Each API key owns its links, and nobody else can see them. That's correct, and for a product with one kind of user, it's enough.
 
-Now imagine snip succeeds. Customers want **teams**, where colleagues edit each other's links. They want to **share** a folder of campaign links with an agency. Enterprise customers want roles from their identity provider to decide who's an admin (chapter 7.9). Your **support staff** need to look at a customer's links to fix a problem, but only when that customer asked. And deleting links should require a recent second factor (chapter 7.7). Each rule is simple. Written as `if` statements scattered through the handlers, together they become the part of the code nobody dares change, and the source of the most damaging bugs: one user reading another's data.
+Now imagine snip succeeds. Customers want **teams**, where colleagues edit each other's links. They want to **share** a folder of campaign links with an agency. Enterprise customers want roles from their identity provider to decide who's an admin ([chapter 7.9](./single-sign-on.mdx)). Your **support staff** need to look at a customer's links to fix a problem, but only when that customer asked. And deleting links should require a recent second factor ([chapter 7.7](./mfa-and-passkeys.mdx)). Each rule is simple. Written as `if` statements scattered through the handlers, together they become the part of the code nobody dares change, and the source of the most damaging bugs: one user reading another's data.
 
 This chapter is about keeping authorization **correct as it grows**: separating decisions from code, writing policies you can test, and modelling sharing with relationships.
 
@@ -45,13 +45,13 @@ flowchart LR
 
 Separating them means the rules live in one place, written in one style, reviewable and testable on their own, instead of being spread across 40 handlers. The decision point can be a library in the same process, a sidecar next to it, or a central service: the trade-off is latency and availability (every request waits for the answer, and if the decision point is down, the safe answer is **deny**) against having one source of truth.
 
-There's also a question of **where** to enforce. A gateway can enforce coarse rules ("is this a valid token with the `links:write` scope?", chapter 7.3), but only the service knows who owns link `q3-launch`. **Object-level decisions belong in the service**, and chapter 7.4's most common API vulnerability, broken object-level authorization, is what happens when they're left to the gateway.
+There's also a question of **where** to enforce. A gateway can enforce coarse rules ("is this a valid token with the `links:write` scope?", [chapter 7.3](./oauth-and-oidc.mdx)), but only the service knows who owns link `q3-launch`. **Object-level decisions belong in the service**, and [chapter 7.4](./authorization-multi-tenancy.mdx)'s most common API vulnerability, broken object-level authorization, is what happens when they're left to the gateway.
 
 ---
 
 ## Roles, attributes, and where each breaks
 
-Chapter 7.4 introduced the basic models. Here's how they behave as a product grows:
+[Chapter 7.4](./authorization-multi-tenancy.mdx) introduced the basic models. Here's how they behave as a product grows:
 
 - **Role-based** (**RBAC**): permissions attach to roles (`link-editor`), and people get roles. Easy to understand and to audit. It breaks down through **role explosion**: as soon as permissions depend on *which* thing, you need `editor-of-folder-launch`, `editor-of-folder-q3`, and so on, until there are more roles than people.
 - **Attribute-based** (**ABAC**): decisions use attributes of the subject, resource and context: "support staff may *read* links in a tenant *while* they have an open ticket for that tenant". Very expressive, and exactly right for context such as time, tickets or MFA age. It can become hard to answer "who can access this?", because the answer depends on attribute values at request time.
@@ -108,7 +108,7 @@ allow if {
 }
 ```
 
-How to read it: `allow` is true if **any** of the `allow if { … }` blocks is true, and each block is true only if **every** line inside it is. `default allow := false` is **deny by default** (chapter 7.4): if no rule matches, the answer is no, including for actions nobody thought of (the tests check that `export` is denied).
+How to read it: `allow` is true if **any** of the `allow if { … }` blocks is true, and each block is true only if **every** line inside it is. `default allow := false` is **deny by default** ([chapter 7.4](./authorization-multi-tenancy.mdx)): if no rule matches, the answer is no, including for actions nobody thought of (the tests check that `export` is denied).
 
 The policy also explains itself. Denials come with reasons, for the audit log:
 
@@ -192,7 +192,7 @@ What real systems add on top: a schema language, storage built for billions of t
 
 "Can Ada read link X?" is one question. "Show Ada all the links she can read" is millions of questions, if you check each link one by one. Two workable approaches:
 
-- **Push the rule into the query.** Chapter 7.4's rule, "scope the query, not the result": `WHERE tenant_id = $1 AND (owner_id = $2 OR ...)`, or Postgres **row-level security**. Fast, but only practical for rules that translate into SQL.
+- **Push the rule into the query.** [Chapter 7.4](./authorization-multi-tenancy.mdx)'s rule, "scope the query, not the result": `WHERE tenant_id = $1 AND (owner_id = $2 OR ...)`, or Postgres **row-level security**. Fast, but only practical for rules that translate into SQL.
 - **Ask the authorization system for the list.** ReBAC systems offer "lookup resources": which objects does this user have `viewer` on? They're built to answer it efficiently.
 
 What you must **not** do: fetch 50 rows, filter out the ones the user can't see, and return 12. Pagination breaks, counts leak ("page 1 of 9"), and one forgotten filter becomes a data leak.
@@ -203,11 +203,11 @@ What you must **not** do: fetch 50 rows, filter out the ones the user can't see,
 
 The most powerful permissions are the ones most likely to be abused or stolen, so they deserve the most structure:
 
-- **Least privilege for staff** (chapter 12.4's idea, applied to your product): support gets read-only access, scoped by a ticket, as in snip's policy.
+- **Least privilege for staff** ([chapter 12.4](../cloud/iam.mdx)'s idea, applied to your product): support gets read-only access, scoped by a ticket, as in snip's policy.
 - **Impersonation** ("log in as this customer" to reproduce a bug) should be explicit and visible: a banner on every page, read-only by default, time-limited, recorded in the audit log with who, whom and why, and ideally announced to the customer.
 - **Break-glass access**: an emergency path to full access (the SSO provider is down, the only admin left), sealed, heavily logged, alerting everyone when used, and reviewed afterwards.
 - **Separation of duties**: for the riskiest actions (granting admin, deleting a tenant), require a second person to approve.
-- **Audit logs** (chapter 7.4) for every authorization decision that matters, with the policy's reasons. When a customer asks "who accessed our data last month?", the answer should be a query, not an investigation.
+- **Audit logs** ([chapter 7.4](./authorization-multi-tenancy.mdx)) for every authorization decision that matters, with the policy's reasons. When a customer asks "who accessed our data last month?", the answer should be a query, not an investigation.
 
 ---
 
@@ -221,7 +221,7 @@ Authorization bugs are rarely clever. They're a missing check in one new endpoin
 - **Review policy changes like code changes**, because they are.
 
 :::info[Honesty label]
-**Exists today:** snip enforces ownership in SQL (chapter 7.4); the OPA links policy with 8 tests, checked in CI; and the relationship checker with tests. **Not built:** snip's API doesn't call OPA or the relationship checker. snip has no teams, folders, sharing or support access: the policy and tuples model the product it would become. Wiring the policy in means building an input (subject from the API key or ID token, action, resource from the database) in each handler and calling OPA, which is a good exercise.
+**Exists today:** snip enforces ownership in SQL ([chapter 7.4](./authorization-multi-tenancy.mdx)); the OPA links policy with 8 tests, checked in CI; and the relationship checker with tests. **Not built:** snip's API doesn't call OPA or the relationship checker. snip has no teams, folders, sharing or support access: the policy and tuples model the product it would become. Wiring the policy in means building an input (subject from the API key or ID token, action, resource from the database) in each handler and calling OPA, which is a good exercise.
 :::
 
 ---
@@ -332,7 +332,7 @@ Problems:
 
 Better options:
 
-- For rules that translate into SQL (tenant, owner, role-based visibility), **put them in the query**: `WHERE tenant_id = $tenant AND (...)`, or enforce with Postgres row-level security (chapter 7.4), and keep OPA for per-object actions like delete.
+- For rules that translate into SQL (tenant, owner, role-based visibility), **put them in the query**: `WHERE tenant_id = $tenant AND (...)`, or enforce with Postgres row-level security ([chapter 7.4](./authorization-multi-tenancy.mdx)), and keep OPA for per-object actions like delete.
 - For sharing-based access, use a ReBAC system's **lookup** operation to get the IDs the user can see, then query those.
 - OPA also supports **partial evaluation**: it can turn a policy into conditions on unknown values, which can be translated into a query filter. Powerful, but more complex; worth it when the same rules must drive both checks and lists.
 
@@ -346,7 +346,7 @@ Whatever you choose, test it with a user from another tenant and assert that the
 The answer should be "only under these conditions, and you can see every time it happened":
 
 - Support access is **read-only** and **scoped to an open ticket** for that customer (as in snip's policy), not a blanket admin role.
-- Access is **time-limited** and requires the support person's own strong authentication (phishing-resistant MFA, chapter 7.7).
+- Access is **time-limited** and requires the support person's own strong authentication (phishing-resistant MFA, [chapter 7.7](./mfa-and-passkeys.mdx)).
 - Optionally, the customer must **approve** access per ticket, or can turn support access off.
 - Every access is written to an **audit log** with who, when, which ticket and what was viewed, and the customer can see their own audit log.
 - **Impersonation**, if it exists, is visible (banner), read-only by default and logged the same way.

@@ -46,7 +46,7 @@ A **percentile** says "this fraction of requests were at least this fast":
 In the example: p50 = 10 ms, p99 = 10 ms, max = 5 s. That tells the real story.
 
 :::info[If you've written code]
-To compute p99 from raw samples: sort them and take the value 99% of the way along. That's exactly what this chapter's load generator does. Monitoring systems can't keep every sample, so they use **histograms** (counts per latency bucket) and estimate percentiles from those. snip's Prometheus metrics do this, and chapter 13.2 covers them. Note that you **can't average percentiles**: the average of each server's p99 is not the fleet's p99.
+To compute p99 from raw samples: sort them and take the value 99% of the way along. That's exactly what this chapter's load generator does. Monitoring systems can't keep every sample, so they use **histograms** (counts per latency bucket) and estimate percentiles from those. snip's Prometheus metrics do this, and [chapter 13.2](../observability/metrics.mdx) covers them. Note that you **can't average percentiles**: the average of each server's p99 is not the fleet's p99.
 :::
 
 ### Why the tail matters more as you grow
@@ -58,7 +58,7 @@ chance that all 100 calls are fast = 0.99 ^ 100 ≈ 0.37
 so ≈ 63% of page loads hit at least one p99-slow call
 ```
 
-Your p99 becomes your users' **typical** experience. This is **tail latency amplification**, and it's why large companies obsess over p99 and p99.9 rather than averages. The more services a request touches (chapter 8.1), the more the tail matters.
+Your p99 becomes your users' **typical** experience. This is **tail latency amplification**, and it's why large companies obsess over p99 and p99.9 rather than averages. The more services a request touches ([chapter 8.1](./distributed-survival-kit.mdx)), the more the tail matters.
 
 ---
 
@@ -97,7 +97,7 @@ It holds for supermarkets, coffee shops and servers alike, over any stable perio
 
 - A service handles **500 req/s** with **20 ms** latency → on average `500 × 0.020 =` **10 requests** are in flight at once. So a pool of 10 database connections is just barely enough, and 20 gives headroom.
 - A load test keeps **40 requests** in flight and the server finishes **375 per second** → each must be taking `40 ÷ 375 ≈` **107 ms**. You'll confirm this exact number in the lab.
-- Latency doubles at the same traffic → twice as many requests in flight → twice as many goroutines, connections and buffers held. **Slowness costs memory**, which is how a slow dependency can crash a service (chapter 8.4).
+- Latency doubles at the same traffic → twice as many requests in flight → twice as many goroutines, connections and buffers held. **Slowness costs memory**, which is how a slow dependency can crash a service ([chapter 8.4](./rate-limiting-and-resilience.mdx)).
 
 ---
 
@@ -111,7 +111,7 @@ A **load test** sends controlled, realistic traffic at a system and measures lat
 |---|---|---|
 | **Smoke** | A tiny load for a minute | "Does the test itself work?" Always start here |
 | **Load** | Expected peak traffic, for 10–30 min | Does it meet its latency goals at normal peak? |
-| **Stress** | Keep raising load past the expected peak | Where's the limit, and **how** does it fail: gracefully, with 429s and 503s (chapter 8.4), or by falling over? |
+| **Stress** | Keep raising load past the expected peak | Where's the limit, and **how** does it fail: gracefully, with 429s and 503s ([chapter 8.4](./rate-limiting-and-resilience.mdx)), or by falling over? |
 | **Spike** | Jump from low to very high traffic suddenly | Do autoscaling, caches and connection pools cope with a sudden burst? |
 | **Soak** | Moderate load for hours | Slow problems: memory leaks, filling disks, connection leaks, growing queues |
 
@@ -152,7 +152,7 @@ export default function () { http.get('https://staging.example.com/healthz'); }
 
 ### Rules for honest load tests
 
-- **Test something production-like.** A laptop, an empty database, or a tiny staging box gives numbers that don't transfer. Data volume matters: a query that's instant on 100 rows may crawl on 10 million (chapter 6.4).
+- **Test something production-like.** A laptop, an empty database, or a tiny staging box gives numbers that don't transfer. Data volume matters: a query that's instant on 100 rows may crawl on 10 million ([chapter 6.4](../data/indexes-and-performance.mdx)).
 - **Test realistic traffic.** For snip, that's mostly redirects (reads), some creations (writes), a mix of popular and rare slugs (so caches behave realistically), and a few bad requests.
 - **Warm up first**, then measure. Cold caches, fresh connection pools and a just-started runtime make the first seconds unrepresentative.
 - **Watch the load generator too.** If *it* runs out of CPU, connections or ports, you're measuring the tool, not the server. Run it on a separate machine for serious tests.
@@ -170,9 +170,9 @@ When something is slow, the tempting move is to guess and start "optimising". Re
 
 A good order of investigation:
 
-1. **Where does the time go across the system?** Which service, which dependency? Tracing (chapter 13.3) and per-route latency metrics answer this. In web services the answer is usually **the database or another network call**, not your code.
+1. **Where does the time go across the system?** Which service, which dependency? Tracing ([chapter 13.3](../observability/tracing.mdx)) and per-route latency metrics answer this. In web services the answer is usually **the database or another network call**, not your code.
 2. **Is a resource saturated?** Use the **USE method** for every resource (CPU, memory, disk, network, connection pools): its **U**tilisation (how busy?), **S**aturation (is work queueing for it?) and **E**rrors. A connection pool with 20 of 20 connections busy and 300 requests waiting is your bottleneck, however idle the CPU looks.
-3. **Is the database doing too much work?** `EXPLAIN ANALYZE` the slow queries (chapter 6.4). Look for missing indexes, and for the **N+1 pattern**: one query to fetch a list, then one more query *per item*, in a loop. A page with 100 items making 101 queries is a classic.
+3. **Is the database doing too much work?** `EXPLAIN ANALYZE` the slow queries ([chapter 6.4](../data/indexes-and-performance.mdx)). Look for missing indexes, and for the **N+1 pattern**: one query to fetch a list, then one more query *per item*, in a loop. A page with 100 items making 101 queries is a classic.
 4. **Only then, profile the code.** A **profiler** samples what the CPU is doing, many times a second, and reports which functions it's in most. Go has one built in (`pprof`), and so does almost every language.
 
 :::info[If you've written code]

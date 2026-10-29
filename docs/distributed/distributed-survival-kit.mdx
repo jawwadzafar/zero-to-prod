@@ -54,7 +54,7 @@ In the 1990s, engineers at Sun Microsystems listed eight assumptions that newcom
 7. Transport cost is zero.
 8. The network is homogeneous.
 
-Chapters 1.1 and 1.4 already busted the first two: network calls are *weeks* in CPU time, and packets get lost. Keep this list in mind every time you draw an arrow between two boxes.
+Chapters [1.1](../foundations/what-a-computer-does.mdx) and [1.4](../foundations/networks-from-zero.mdx) already busted the first two: network calls are *weeks* in CPU time, and packets get lost. Keep this list in mind every time you draw an arrow between two boxes.
 
 ---
 
@@ -62,14 +62,14 @@ Chapters 1.1 and 1.4 already busted the first two: network calls are *weeks* in 
 
 The first rule of distributed systems: **every network call gets a timeout.** Without one, a hung dependency makes your code hang too — holding a goroutine, a connection, memory. Enough hung calls and your service runs out of resources and fails as well. That's how one slow component takes down a whole system: a **cascading failure**.
 
-snip applies timeouts everywhere (chapters 4.5 and 5.4):
+snip applies timeouts everywhere (chapters [4.5](../go/concurrency.mdx) and [5.4](../apis/structuring-a-real-service.mdx)):
 
 - the HTTP server's read/write timeouts (slow clients can't hold connections),
 - the request's context flowing down to Postgres and Redis (the database call is abandoned if the client leaves),
 - `/readyz`'s 2-second limit on each dependency ping,
 - the 10-second graceful-shutdown deadline.
 
-**Choosing a timeout**: base it on what the dependency *normally* takes. If a query usually takes 5 ms and occasionally 50 ms, a 30-second timeout is useless — by then the user has given up. A common starting point is a few times the normal slow case (the 99th percentile, chapter 13.2), and always less than the timeout of whoever is calling *you*, so you can still answer them properly.
+**Choosing a timeout**: base it on what the dependency *normally* takes. If a query usually takes 5 ms and occasionally 50 ms, a 30-second timeout is useless — by then the user has given up. A common starting point is a few times the normal slow case (the 99th percentile, [chapter 13.2](../observability/metrics.mdx)), and always less than the timeout of whoever is calling *you*, so you can still answer them properly.
 
 ---
 
@@ -100,7 +100,7 @@ And one rule overrides everything: **only retry operations that are safe to repe
 
 ## Idempotency: making retries safe
 
-Recall from chapter 5.2: an operation is **idempotent** if doing it twice has the same effect as doing it once. `GET` and `DELETE` are naturally idempotent; "charge £10" or "create a link" are not.
+Recall from [chapter 5.2](../apis/designing-rest-apis.mdx): an operation is **idempotent** if doing it twice has the same effect as doing it once. `GET` and `DELETE` are naturally idempotent; "charge £10" or "create a link" are not.
 
 Combine that with the ambiguous failure above, and you get a real dilemma. The response to "charge £10" was lost. Retry, and you might charge twice. Don't retry, and you might not charge at all.
 
@@ -145,7 +145,7 @@ func process(key string) {
 }
 ```
 
-In a real service, the processed keys live in the database (a table with a `UNIQUE` key column — chapter 6.5's "let a constraint decide"), recorded in the **same transaction** as the work itself, so the two can never disagree.
+In a real service, the processed keys live in the database (a table with a `UNIQUE` key column — [chapter 6.5](../data/transactions.mdx)'s "let a constraint decide"), recorded in the **same transaction** as the work itself, so the two can never disagree.
 
 :::tip
 Before adding a retry anywhere, ask: *"If this operation already happened and I do it again, what breaks?"* If the answer isn't "nothing", make it idempotent first.
@@ -165,7 +165,7 @@ When one part of a system sends messages to another — events to a queue, reque
 
 True exactly-once *delivery* over an unreliable network is impossible in general; what systems achieve is exactly-once *effect*: deliver at least once, and make processing idempotent so duplicates do no harm.
 
-snip's click counting is **at-least-once** (chapter 8.2): the worker acknowledges click events only after adding them to Postgres. If it crashes in between, those events are delivered again and counted twice. For click counts, a rare small overcount is an accepted trade-off — and the code says so in a comment. For payments it wouldn't be, and the processing would need idempotency.
+snip's click counting is **at-least-once** ([chapter 8.2](./queues-and-background-work.mdx)): the worker acknowledges click events only after adding them to Postgres. If it crashes in between, those events are delivered again and counted twice. For click counts, a rare small overcount is an accepted trade-off — and the code says so in a comment. For payments it wouldn't be, and the processing would need idempotency.
 
 ---
 
@@ -176,7 +176,7 @@ snip's click counting is **at-least-once** (chapter 8.2): the worker acknowledge
 - **Clocks drift.** Every machine's clock is slightly wrong, and they're corrected periodically (by NTP, the network time protocol), sometimes jumping backwards. Two servers can disagree by milliseconds or more.
 - **Messages arrive out of order.** Event A sent before event B can arrive after it.
 
-So never use timestamps from different machines to decide the order of events that matters (who bought the last ticket, which update wins). Use the database's own ordering (a single primary with transactions, chapter 6.5), sequence numbers from one source, or explicit version numbers ("update this row only if its version is still 7" — **optimistic concurrency**). Within one machine, Go's `time.Since` uses a monotonic clock that never jumps backwards, which is why it's safe for measuring durations.
+So never use timestamps from different machines to decide the order of events that matters (who bought the last ticket, which update wins). Use the database's own ordering (a single primary with transactions, [chapter 6.5](../data/transactions.mdx)), sequence numbers from one source, or explicit version numbers ("update this row only if its version is still 7" — **optimistic concurrency**). Within one machine, Go's `time.Since` uses a monotonic clock that never jumps backwards, which is why it's safe for measuring durations.
 
 ---
 
@@ -184,8 +184,8 @@ So never use timestamps from different machines to decide the order of events th
 
 Two broad ways for parts of a system to communicate:
 
-- **Synchronous** — call and wait for the answer: HTTP, gRPC (chapter 5.5). Simple and immediate, but the caller is **coupled** to the callee: if it's slow or down, so is the caller.
-- **Asynchronous** — drop a message in a queue and move on; someone processes it later (chapter 8.2). The caller isn't blocked, the callee can be down for a while, and bursts are absorbed — at the cost of more moving parts and eventual (not immediate) results.
+- **Synchronous** — call and wait for the answer: HTTP, gRPC ([chapter 5.5](../apis/api-contracts.mdx)). Simple and immediate, but the caller is **coupled** to the callee: if it's slow or down, so is the caller.
+- **Asynchronous** — drop a message in a queue and move on; someone processes it later ([chapter 8.2](./queues-and-background-work.mdx)). The caller isn't blocked, the callee can be down for a while, and bursts are absorbed — at the cost of more moving parts and eventual (not immediate) results.
 
 ```mermaid
 flowchart LR
@@ -198,7 +198,7 @@ flowchart LR
     end
 ```
 
-snip uses **both**, deliberately: looking up where a link points is synchronous (the visitor needs the answer now), while counting the click is asynchronous (nobody is waiting for it). Choosing which interactions *must* be synchronous is one of the most important design decisions in any system (chapter 15.1).
+snip uses **both**, deliberately: looking up where a link points is synchronous (the visitor needs the answer now), while counting the click is asynchronous (nobody is waiting for it). Choosing which interactions *must* be synchronous is one of the most important design decisions in any system ([chapter 15.1](../architecture/system-design-method.mdx)).
 
 :::warning[What can go wrong]
 - **No timeouts.** One slow dependency cascades into a system-wide outage.
@@ -290,6 +290,6 @@ Over an unreliable network, a sender can never be sure a message arrived unless 
 <details>
 <summary>How would you choose the timeout for snip's call to Postgres when resolving a redirect?</summary>
 
-Start from what the query **normally** takes: an indexed primary-key lookup is typically a millisecond or two, with rare slow cases at tens of milliseconds. A timeout of a few hundred milliseconds covers genuine slow cases while failing fast when the database is truly in trouble — so the visitor gets an answer (even an error) quickly, and snip doesn't pile up blocked requests. It must also sit **within** the budget of whoever is calling snip: if the load balancer gives up after 5 seconds, snip's internal timeouts should be well below that so snip can still return a proper error. Then **measure** in production (chapter 13.2) and adjust.
+Start from what the query **normally** takes: an indexed primary-key lookup is typically a millisecond or two, with rare slow cases at tens of milliseconds. A timeout of a few hundred milliseconds covers genuine slow cases while failing fast when the database is truly in trouble — so the visitor gets an answer (even an error) quickly, and snip doesn't pile up blocked requests. It must also sit **within** the budget of whoever is calling snip: if the load balancer gives up after 5 seconds, snip's internal timeouts should be well below that so snip can still return a proper error. Then **measure** in production ([chapter 13.2](../observability/metrics.mdx)) and adjust.
 
 </details>

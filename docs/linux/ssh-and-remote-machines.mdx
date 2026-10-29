@@ -20,7 +20,7 @@ Servers live in data centres you'll never visit. They have no screen and no keyb
 
 ## SSH: your terminal, on another machine
 
-**SSH** gives you a shell on a remote machine over an encrypted connection. You type on your laptop; the commands run over there; the output comes back. Everything in between is encrypted, so nobody on the network can read or tamper with it — the same guarantees HTTPS gives the web (chapter 1.5).
+**SSH** gives you a shell on a remote machine over an encrypted connection. You type on your laptop; the commands run over there; the output comes back. Everything in between is encrypted, so nobody on the network can read or tamper with it — the same guarantees HTTPS gives the web ([chapter 1.5](../foundations/http-from-zero.mdx)).
 
 ```mermaid
 flowchart LR
@@ -28,7 +28,7 @@ flowchart LR
     S --> SH["A shell on the server,<br/>running as your user"]
 ```
 
-The SSH **client** (`ssh`) is on your laptop. The SSH **server** (`sshd`, the "SSH daemon") is a service on the remote machine, listening on port 22 (chapter 1.4).
+The SSH **client** (`ssh`) is on your laptop. The SSH **server** (`sshd`, the "SSH daemon") is a service on the remote machine, listening on port 22 ([chapter 1.4](../foundations/networks-from-zero.mdx)).
 
 ```bash
 ssh alice@203.0.113.10                     # open an interactive shell as alice on that machine
@@ -48,7 +48,7 @@ SSH is a secure phone line to a colleague sitting at the server's desk. You say 
 
 You *can* log in with a password, but that's the weak way: passwords can be guessed, and every server on the internet with SSH open is hammered by bots trying common passwords around the clock.
 
-The right way is a **key pair**, your first encounter with the public-key cryptography chapter 7.1 explains properly:
+The right way is a **key pair**, your first encounter with the public-key cryptography [chapter 7.1](../security/security-literacy.mdx) explains properly:
 
 - A **private key** — a secret file on your laptop, usually `~/.ssh/id_ed25519`. **It never leaves your machine.** Anyone who has it can log in as you.
 - A **public key** — `~/.ssh/id_ed25519.pub` — a matching file that's **safe to share**. You put it on every server (and on GitHub) that should let you in.
@@ -85,10 +85,10 @@ To let yourself into a server, your public key must be in that server's `~/.ssh/
 ssh-copy-id alice@203.0.113.10               # appends your public key to the server's authorized_keys
 ```
 
-On cloud servers, you usually give the provider your public key when you create the machine, and it's installed for you (chapter 12.3). For GitHub, you paste the contents of `~/.ssh/id_ed25519.pub` into **Settings → SSH and GPG keys**.
+On cloud servers, you usually give the provider your public key when you create the machine, and it's installed for you ([chapter 12.3](../cloud/compute-storage-databases.mdx)). For GitHub, you paste the contents of `~/.ssh/id_ed25519.pub` into **Settings → SSH and GPG keys**.
 
 :::danger[Guard the private key]
-Never paste, email, commit or upload your **private** key (`id_ed25519` — the file *without* `.pub`). If it ever leaks, remove the matching public key from every server and GitHub immediately and create a new pair. SSH also refuses to use a private key that other users can read: it must be `chmod 600` (chapter 2.2), and `~/.ssh` must be `chmod 700`.
+Never paste, email, commit or upload your **private** key (`id_ed25519` — the file *without* `.pub`). If it ever leaks, remove the matching public key from every server and GitHub immediately and create a new pair. SSH also refuses to use a private key that other users can read: it must be `chmod 600` ([chapter 2.2](./users-permissions-processes.mdx)), and `~/.ssh` must be `chmod 700`.
 :::
 
 ---
@@ -152,7 +152,7 @@ rsync -avz ./site/ snip-prod:/srv/site/       # sync a folder: only sends what c
 
 ## Tunnels: reaching things that aren't public
 
-Chapter 2.5 said the database should never be exposed to the internet. So how do *you* reach it to run a query? Through an **SSH tunnel** (also called **port forwarding**): SSH carries your traffic, encrypted, to the server, which forwards it on to the private service.
+[Chapter 2.5](./running-a-linux-server.mdx) said the database should never be exposed to the internet. So how do *you* reach it to run a query? Through an **SSH tunnel** (also called **port forwarding**): SSH carries your traffic, encrypted, to the server, which forwards it on to the private service.
 
 ```bash
 ssh -L 5433:localhost:5432 snip-prod
@@ -169,7 +169,7 @@ flowchart LR
     P["psql on laptop<br/>localhost:5433"] --> C["ssh client"] ==>|"encrypted tunnel"| D["sshd on server"] --> DB[("Postgres<br/>localhost:5432")]
 ```
 
-The database stays private; only people who can SSH in can reach it. You'll see exactly the same idea in Kubernetes as `kubectl port-forward` (chapter 10.5).
+The database stays private; only people who can SSH in can reach it. You'll see exactly the same idea in Kubernetes as `kubectl port-forward` ([chapter 10.5](../kubernetes/operating-and-debugging.mdx)).
 
 ### Jump hosts
 
@@ -182,7 +182,7 @@ ssh -J alice@bastion.example.com alice@10.0.1.25    # connect to a private serve
 Or in `~/.ssh/config`, add `ProxyJump bastion` to a host entry and forget about it.
 
 :::info[In the real world]
-Many teams now avoid SSH for day-to-day access entirely: servers are rebuilt from code rather than logged into and changed by hand (Parts 9–12), and when access is needed, cloud tools such as AWS Systems Manager Session Manager provide audited shell access without opening port 22 at all. But SSH is everywhere — Git, CI systems, emergency debugging — and understanding it is non-negotiable.
+Many teams now avoid SSH for day-to-day access entirely: servers are rebuilt from code rather than logged into and changed by hand (Parts [9](../containers/what-a-container-is.mdx)–[12](../cloud/cloud-from-zero.mdx)), and when access is needed, cloud tools such as AWS Systems Manager Session Manager provide audited shell access without opening port 22 at all. But SSH is everywhere — Git, CI systems, emergency debugging — and understanding it is non-negotiable.
 :::
 
 ---
@@ -197,7 +197,7 @@ PermitRootLogin no             # log in as a normal user, then sudo (chapter 2.2
 PubkeyAuthentication yes
 ```
 
-Then `sudo systemctl reload ssh` (chapter 2.5).
+Then `sudo systemctl reload ssh` ([chapter 2.5](./running-a-linux-server.mdx)).
 
 :::danger[Test before you close the door]
 Before disabling password login, **open a second terminal and confirm you can log in with your key**. Keep your existing session open while you test. If the key login doesn't work and you've disabled passwords, you've locked yourself out.
@@ -209,7 +209,7 @@ Beyond that: allow SSH only from known addresses in the firewall or security gro
 - **`Permission denied (publickey)`.** The server didn't accept any key you offered. Check: is your *public* key in the right user's `~/.ssh/authorized_keys` on the server? Are the permissions right (`~/.ssh` is 700, `authorized_keys` 600)? Are you using the right username? `ssh -v …` prints the whole negotiation and usually shows which step failed.
 - **`UNPROTECTED PRIVATE KEY FILE!`** Your private key is readable by others. `chmod 600 ~/.ssh/id_ed25519`.
 - **Blindly deleting known_hosts entries.** It makes the "host identification has changed" warning go away — and also removes the protection it gives. Confirm the change is expected first.
-- **Long-running work dying with the connection.** Close your laptop and your SSH session ends, killing whatever you started in it. Run long jobs as services (chapter 2.5), or inside a terminal multiplexer like `tmux` that keeps running on the server.
+- **Long-running work dying with the connection.** Close your laptop and your SSH session ends, killing whatever you started in it. Run long jobs as services ([chapter 2.5](./running-a-linux-server.mdx)), or inside a terminal multiplexer like `tmux` that keeps running on the server.
 :::
 
 ---

@@ -23,8 +23,8 @@ Two kinds of trouble arrive at every successful service. The first comes from **
 A **rate limit** caps how many requests a client may make in a period of time: *"60 link creations per API key per minute."* It protects:
 
 - **The service** — no single client can consume all capacity.
-- **Other customers** — one noisy client can't slow everyone else down (the "noisy neighbour", chapter 7.4).
-- **Costs and abuse** — spammers can't create a million links (chapter 7.5), and brute-force login attempts become impractically slow (chapter 7.2).
+- **Other customers** — one noisy client can't slow everyone else down (the "noisy neighbour", [chapter 7.4](../security/authorization-multi-tenancy.mdx)).
+- **Costs and abuse** — spammers can't create a million links ([chapter 7.5](../security/web-attacks.mdx)), and brute-force login attempts become impractically slow ([chapter 7.2](../security/authentication.mdx)).
 
 :::note[Everyday anchor]
 A rate limit is a nightclub bouncer with a clicker. Only so many people get in per hour; everyone else waits outside. Nobody's banned — they're just told "not yet, come back in ten minutes" — and the people already inside can still move and breathe.
@@ -45,7 +45,7 @@ snip uses a **fixed window** — simple, cheap, and good enough for link creatio
 
 ## snip's limiter: shared counters in Redis
 
-snip runs several copies behind a load balancer (chapter 8.3). A counter in one copy's memory would be useless: a client whose requests are spread over three copies would get three times the limit. The counters must be **shared** — in Redis. From `internal/ratelimit/ratelimit.go`:
+snip runs several copies behind a load balancer ([chapter 8.3](./reverse-proxies-and-nginx.mdx)). A counter in one copy's memory would be useless: a client whose requests are spread over three copies would get three times the limit. The counters must be **shared** — in Redis. From `internal/ratelimit/ratelimit.go`:
 
 ```go
 func (l *Redis) Allow(ctx context.Context, key string) (bool, time.Duration, error) {
@@ -67,7 +67,7 @@ func (l *Redis) Allow(ctx context.Context, key string) (bool, time.Duration, err
 ```
 
 - The Redis key names the **client** and the **window**: `snip:rl:create:7:1790284380` — "owner 7's creations in the minute starting at that Unix time".
-- **`INCR`** adds one and returns the new count, **atomically** (chapter 6.7) — no lost updates, however many copies of snip call it at once.
+- **`INCR`** adds one and returns the new count, **atomically** ([chapter 6.7](../data/redis-and-caching.mdx)) — no lost updates, however many copies of snip call it at once.
 - **`EXPIRE`** makes Redis delete the counter after the window, so memory never fills with old counters.
 - Both commands go in one **pipeline** — a single round trip.
 
@@ -81,9 +81,9 @@ if !allowed {
 }
 ```
 
-`Retry-After` turns a refusal into instructions: well-behaved clients wait exactly that long instead of hammering the server with immediate retries (chapter 8.1).
+`Retry-After` turns a refusal into instructions: well-behaved clients wait exactly that long instead of hammering the server with immediate retries ([chapter 8.1](./distributed-survival-kit.mdx)).
 
-**What to limit by.** snip limits by **API key** — an identity the client can't forge. Limiting by IP address is weaker: many users can share one IP (an office, a mobile network), and attackers can use many IPs or spoof `X-Forwarded-For` (chapter 8.3). Real systems often combine several: per key, per IP for unauthenticated endpoints like login, and a global limit to protect the service overall.
+**What to limit by.** snip limits by **API key** — an identity the client can't forge. Limiting by IP address is weaker: many users can share one IP (an office, a mobile network), and attackers can use many IPs or spoof `X-Forwarded-For` ([chapter 8.3](./reverse-proxies-and-nginx.mdx)). Real systems often combine several: per key, per IP for unauthenticated endpoints like login, and a global limit to protect the service overall.
 
 ### Fail open or fail closed?
 
@@ -98,7 +98,7 @@ snip **fails open** (`return true, 0, err`) and logs a warning: for link creatio
 
 ## Resilience: surviving your dependencies
 
-Chapter 8.1 introduced timeouts and retries. They're essential, but not enough. Picture snip calling a payment provider that's completely down. Each call waits for its timeout — say 2 seconds — then fails. Meanwhile, requests pile up, each holding a goroutine and a database connection for those 2 seconds; soon snip itself runs out of connections, and **snip's** users see errors on pages that don't even need payments. One dependency's failure has **cascaded**.
+[Chapter 8.1](./distributed-survival-kit.mdx) introduced timeouts and retries. They're essential, but not enough. Picture snip calling a payment provider that's completely down. Each call waits for its timeout — say 2 seconds — then fails. Meanwhile, requests pile up, each holding a goroutine and a database connection for those 2 seconds; soon snip itself runs out of connections, and **snip's** users see errors on pages that don't even need payments. One dependency's failure has **cascaded**.
 
 Four patterns stop that.
 
@@ -160,7 +160,7 @@ func (b *Breaker) Call(op func() error) error {
 }
 ```
 
-(The real file adds a mutex, because many goroutines share one breaker — chapter 4.5.) In production, use a maintained library (for Go, `sony/gobreaker`) or a service mesh that does this for every service automatically.
+(The real file adds a mutex, because many goroutines share one breaker — [chapter 4.5](../go/concurrency.mdx).) In production, use a maintained library (for Go, `sony/gobreaker`) or a service mesh that does this for every service automatically.
 
 ### 2. Bulkheads: contain the damage
 
@@ -180,8 +180,8 @@ Decide in advance what's **essential** and what's **nice to have**, and design s
 
 | When this fails… | snip… | Because… |
 |---|---|---|
-| Redis cache | reads from Postgres (slower) | the cache is an optimisation (chapter 6.7) |
-| Click recording | still redirects; logs a warning | counting is less important than the redirect (chapter 8.2) |
+| Redis cache | reads from Postgres (slower) | the cache is an optimisation ([chapter 6.7](../data/redis-and-caching.mdx)) |
+| Click recording | still redirects; logs a warning | counting is less important than the redirect ([chapter 8.2](./queues-and-background-work.mdx)) |
 | The rate limiter | allows requests (fails open) | link creation matters more than perfect limits |
 
 The redirect — the one thing users actually need — depends only on finding the link. Everything else degrades around it.
@@ -227,14 +227,14 @@ Free, on your own computer.
    ```
    Wait for the `Retry-After` seconds and try again: allowed.
 
-3. **See the shared counter in Redis** (with Postgres and Redis running, chapters 6.6–6.7). Run snip with `SNIP_REDIS_ADDR=localhost:6379`, create a few links, then:
+3. **See the shared counter in Redis** (with Postgres and Redis running, chapters [6.6](../data/postgres-from-go.mdx)–[6.7](../data/redis-and-caching.mdx)). Run snip with `SNIP_REDIS_ADDR=localhost:6379`, create a few links, then:
    ```bash
    docker exec snip-redis redis-cli KEYS 'snip:rl:*'          # one counter per key per minute
    docker exec snip-redis redis-cli TTL "$(docker exec snip-redis redis-cli KEYS 'snip:rl:*' | head -1)"
    ```
    Then stop Redis and create a link: it succeeds (fail open), and snip logs `rate limiter unavailable`.
 
-4. **Design exercise.** snip adds link-preview fetching (chapter 7.5's SSRF discussion). The fetcher calls arbitrary websites, which are often slow or down. Which of this chapter's patterns would you apply, and how? (Hint: all four.)
+4. **Design exercise.** snip adds link-preview fetching ([chapter 7.5](../security/web-attacks.mdx)'s SSRF discussion). The fetcher calls arbitrary websites, which are often slow or down. Which of this chapter's patterns would you apply, and how? (Hint: all four.)
 
 ## Self-check
 
@@ -298,10 +298,10 @@ With a limit of 60 per minute in fixed windows, a client can send **60 requests 
 <details>
 <summary>Answer lab step 4: how would you protect snip from a slow, unreliable link-preview fetcher?</summary>
 
-- **Timeouts** on every fetch (chapter 8.1), short enough that a hung website can't hold resources long.
+- **Timeouts** on every fetch ([chapter 8.1](./distributed-survival-kit.mdx)), short enough that a hung website can't hold resources long.
 - **A circuit breaker per destination** (or per domain), so a site that's down fails fast instead of being hammered.
-- **A bulkhead**: run fetching in its own worker process (or a separate, limited pool), off the request path, via a queue (chapter 8.2) — so slow websites can never affect redirects or the API.
+- **A bulkhead**: run fetching in its own worker process (or a separate, limited pool), off the request path, via a queue ([chapter 8.2](./queues-and-background-work.mdx)) — so slow websites can never affect redirects or the API.
 - **Load shedding and rate limits** on the fetch queue, so a flood of new links can't overwhelm the fetcher, plus per-domain limits to be polite to other people's sites.
-- **Graceful degradation**: links work perfectly without a preview; the preview simply appears later or never. And, per chapter 7.5, the fetcher must refuse private addresses (SSRF).
+- **Graceful degradation**: links work perfectly without a preview; the preview simply appears later or never. And, per [chapter 7.5](../security/web-attacks.mdx), the fetcher must refuse private addresses (SSRF).
 
 </details>

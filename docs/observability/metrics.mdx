@@ -6,7 +6,7 @@ description: "Numbers over time: counters, gauges and histograms, how Prometheus
 
 # 13.2 Metrics with Prometheus & Grafana
 
-Logs record each event (chapter 13.1). **Metrics** record **numbers over time**: how many requests per second, what fraction failed, how long the slowest 1% took, how many clicks are waiting in the queue. A metric costs the same whether snip serves ten requests or ten million. It's just a counter going up, sampled every few seconds. That makes metrics the signal for **dashboards** ("how are we doing right now?") and **alerts** ("wake someone up if this crosses a line", chapter 13.4). This chapter covers the metric types, how **Prometheus** collects and stores them, how to ask questions in **PromQL**, which questions to ask (the RED and USE methods), and how **Grafana** turns the answers into dashboards. It's all run against snip's real metrics.
+Logs record each event ([chapter 13.1](./logs.mdx)). **Metrics** record **numbers over time**: how many requests per second, what fraction failed, how long the slowest 1% took, how many clicks are waiting in the queue. A metric costs the same whether snip serves ten requests or ten million. It's just a counter going up, sampled every few seconds. That makes metrics the signal for **dashboards** ("how are we doing right now?") and **alerts** ("wake someone up if this crosses a line", [chapter 13.4](./slos-alerting-on-call.mdx)). This chapter covers the metric types, how **Prometheus** collects and stores them, how to ask questions in **PromQL**, which questions to ask (the RED and USE methods), and how **Grafana** turns the answers into dashboards. It's all run against snip's real metrics.
 
 ## What you'll learn
 
@@ -43,9 +43,9 @@ RequestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 }, []string{"route"}),
 ```
 
-The logging middleware (chapter 13.1) updates them for every request: one counter increment and one histogram observation, which costs nanoseconds.
+The logging middleware ([chapter 13.1](./logs.mdx)) updates them for every request: one counter increment and one histogram observation, which costs nanoseconds.
 
-A **histogram** doesn't store every duration. It counts how many observations fell at or under each **bucket** boundary (1 ms, 2.5 ms, 5 ms…). Percentiles (chapter 8.5) are then *estimated* from the bucket counts. That's why the buckets are chosen around the latencies you care about: snip's go from 1 ms to 2.5 s. Histograms can be added across copies, which averaged percentiles can't (chapter 8.5).
+A **histogram** doesn't store every duration. It counts how many observations fell at or under each **bucket** boundary (1 ms, 2.5 ms, 5 ms…). Percentiles ([chapter 8.5](../distributed/performance-and-load-testing.mdx)) are then *estimated* from the bucket counts. That's why the buckets are chosen around the latencies you care about: snip's go from 1 ms to 2.5 s. Histograms can be added across copies, which averaged percentiles can't ([chapter 8.5](../distributed/performance-and-load-testing.mdx)).
 
 ---
 
@@ -70,7 +70,7 @@ flowchart LR
   P --> R["Alert rules<br/>(chapter 13.4)"]
 ```
 
-Prometheus **discovers** targets rather than using a fixed list: snip's Compose config asks Docker's DNS for every copy of `api` and `worker` (chapter 9.3), and in Kubernetes it asks the API server for Pods. Copies that come and go are found automatically. The worker has its own small HTTP server on port 9091 just for this. (Until it did, the worker counted processed clicks and nobody could see the number, a gap found while writing this chapter.)
+Prometheus **discovers** targets rather than using a fixed list: snip's Compose config asks Docker's DNS for every copy of `api` and `worker` ([chapter 9.3](../containers/docker-compose.mdx)), and in Kubernetes it asks the API server for Pods. Copies that come and go are found automatically. The worker has its own small HTTP server on port 9091 just for this. (Until it did, the worker counted processed clicks and nobody could see the number, a gap found while writing this chapter.)
 
 ### Labels, and the cardinality trap
 
@@ -123,7 +123,7 @@ Two subtleties trip everyone up. First, `rate()` and `increase()` **extrapolate*
 Two checklists cover most needs:
 
 - **RED**, for every **service** (things that handle requests): **R**ate (requests per second), **E**rrors (failed requests per second, or the error ratio), **D**uration (latency percentiles). snip's first three dashboard panels are exactly these. They're what users feel.
-- **USE**, for every **resource** (CPU, memory, disks, connection pools, queues): **U**tilisation (how busy), **S**aturation (how much is waiting), **E**rrors (chapter 8.5). snip's worker lag is a saturation metric for the click queue: if it keeps growing, the workers can't keep up.
+- **USE**, for every **resource** (CPU, memory, disks, connection pools, queues): **U**tilisation (how busy), **S**aturation (how much is waiting), **E**rrors ([chapter 8.5](../distributed/performance-and-load-testing.mdx)). snip's worker lag is a saturation metric for the click queue: if it keeps growing, the workers can't keep up.
 
 Add a few **business metrics** (links created, redirects served, cache hit ratio), because "the system is healthy" and "the product is working" aren't the same question.
 
@@ -145,11 +145,11 @@ The **snip overview** dashboard has six panels: requests per second by route, er
 Good dashboards follow a few habits: **RED at the top** (is it broken for users?), then resources and dependencies (why?); one dashboard per service with the same layout everywhere; units on every axis; and no panel nobody would act on. A dashboard with sixty panels is a place where signals hide.
 
 :::warning[What can go wrong]
-- **Averages instead of percentiles**: the mean latency hides the slow tail (chapter 8.5).
+- **Averages instead of percentiles**: the mean latency hides the slow tail ([chapter 8.5](../distributed/performance-and-load-testing.mdx)).
 - **High-cardinality labels**: user IDs or URLs as labels, and Prometheus runs out of memory.
 - **Graphing raw counters**: a line that only goes up tells you nothing. Use `rate()`.
 - **No metrics from the components that fail**: snip's worker counted processed clicks without exposing the number anywhere until this chapter was written. Every process needs a `/metrics` endpoint, or an agent that reads its data.
-- **Dashboards as the alerting system**: nobody watches dashboards at 3 a.m. Alerts (chapter 13.4) do.
+- **Dashboards as the alerting system**: nobody watches dashboards at 3 a.m. Alerts ([chapter 13.4](./slos-alerting-on-call.mdx)) do.
 :::
 
 :::info[In the real world]
@@ -160,7 +160,7 @@ Prometheus's data model and PromQL are a de facto standard: Kubernetes component
 
 ## Lab
 
-Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Every query below runs in snip's CI on every push.
+Free, on your computer with Docker, using snip's Compose stack ([chapter 9.3](../containers/docker-compose.mdx)). Every query below runs in snip's CI on every push.
 
 1. **Start the stack with monitoring.**
    ```bash
@@ -172,12 +172,12 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
    for i in $(seq 1 30);  do curl -s -o /dev/null localhost:8080/nope;  done      # some 404s
    ```
 
-2. **Read raw metrics** from one API copy, from inside the network (nginx blocks `/metrics` at the edge, chapter 8.3):
+2. **Read raw metrics** from one API copy, from inside the network (nginx blocks `/metrics` at the edge, [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)):
    ```bash
    docker run --rm --network snip_default alpine:3.22 wget -qO- api:8080/metrics | grep '^snip_'
    docker run --rm --network snip_default alpine:3.22 wget -qO- worker:9091/metrics | grep '^snip_worker'
    ```
-   snip's own image has no `wget` (chapter 9.2), so this uses a throwaway Alpine container on the stack's network. You'll notice the API also exposes the worker's two metrics, as zeros: both processes register the same set, and plain counters and gauges are exported even when unused (labelled ones appear only once something is recorded). It's harmless, and a good reason for dashboard queries to filter by `job` when it matters.
+   snip's own image has no `wget` ([chapter 9.2](../containers/writing-dockerfiles.mdx)), so this uses a throwaway Alpine container on the stack's network. You'll notice the API also exposes the worker's two metrics, as zeros: both processes register the same set, and plain counters and gauges are exported even when unused (labelled ones appear only once something is recorded). It's harmless, and a good reason for dashboard queries to filter by `job` when it matters.
 
 3. **Query Prometheus.** Open [localhost:9090](http://localhost:9090), or use the API:
    ```bash
@@ -190,7 +190,7 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
    ```
    Compare the `increase` result for code 302 with the 300 redirects you sent. Why isn't it exactly 300? (Extrapolation.)
 
-4. **Open the dashboard.** Browse to [localhost:3000](http://localhost:3000) → Dashboards → snip → **snip overview**. Run the redirect loop again and watch the panels move. Then stop Redis (`docker compose stop redis`), send some redirects, and watch the cache hit ratio: what happens, and why do redirects still work? (Hits drop to zero; snip falls back to Postgres, because a broken cache makes snip slower, not broken, chapter 6.7.) Start Redis again.
+4. **Open the dashboard.** Browse to [localhost:3000](http://localhost:3000) → Dashboards → snip → **snip overview**. Run the redirect loop again and watch the panels move. Then stop Redis (`docker compose stop redis`), send some redirects, and watch the cache hit ratio: what happens, and why do redirects still work? (Hits drop to zero; snip falls back to Postgres, because a broken cache makes snip slower, not broken, [chapter 6.7](../data/redis-and-caching.mdx).) Start Redis again.
 
 5. **Spot a cardinality bomb.** Which of these would be a safe label for `snip_http_requests_total`: `route`, `path`, `owner_id`, `code`? (`route` and `code`: small, fixed sets. `path` and `owner_id` grow without limit.)
 
@@ -269,8 +269,8 @@ Free, on your computer with Docker, using snip's Compose stack (chapter 9.3). Ev
 - A **counter** `snip_preview_fetches_total{result="ok|timeout|error|blocked"}`: rate and error ratio (RED). `result` is a small, fixed set, never the URL or domain.
 - A **histogram** `snip_preview_fetch_duration_seconds` with buckets from ~50 ms to ~10 s (web pages are much slower than snip's own requests).
 - A **gauge** `snip_preview_queue_lag_events` if fetches go through a queue (saturation, USE).
-- A **counter** for SSRF refusals (`result="blocked"` above) as a security signal (chapter 7.5).
-- Dashboard: fetch rate, error ratio by result, p99 duration, queue lag. Alert candidates: error ratio sustained high, lag growing for 15 minutes (chapter 13.4).
+- A **counter** for SSRF refusals (`result="blocked"` above) as a security signal ([chapter 7.5](../security/web-attacks.mdx)).
+- Dashboard: fetch rate, error ratio by result, p99 duration, queue lag. Alert candidates: error ratio sustained high, lag growing for 15 minutes ([chapter 13.4](./slos-alerting-on-call.mdx)).
 - Not metrics: the URL and domain of each failure. Those go in logs and traces.
 
 </details>

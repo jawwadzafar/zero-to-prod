@@ -8,7 +8,7 @@ description: "The ideas underneath every AI system, built from scratch in 100 li
 
 Every link someone shortens with snip could be a **phishing** link: a page pretending to be your bank, hidden behind an innocent-looking short URL. That's why link shorteners are a favourite tool of scammers, and why real shorteners check the links people create. You could write rules ("block anything with an IP address in it"), and you should, for the obvious cases. But attackers change their patterns every week, and nobody can write down every warning sign by hand. **Machine learning** is the other approach: show a program thousands of examples labelled "phishing" or "safe", and let it work out the patterns itself.
 
-In this chapter you'll build exactly that, from scratch, in about 100 lines of Python and NumPy, with no machine learning library hiding anything. You'll train it, measure it honestly, watch it fail in instructive ways, and pick where to draw the line between "block" and "allow". The same ideas, scaled up enormously, are what large language models are made of. So this is the foundation for everything else in Part 14.
+In this chapter you'll build exactly that, from scratch, in about 100 lines of Python and NumPy, with no machine learning library hiding anything. You'll train it, measure it honestly, watch it fail in instructive ways, and pick where to draw the line between "block" and "allow". The same ideas, scaled up enormously, are what large language models are made of. So this is the foundation for everything else in [Part 14](./python-for-ai-engineers.mdx).
 
 ## What you'll learn
 
@@ -27,7 +27,7 @@ In this chapter you'll build exactly that, from scratch, in about 100 lines of P
 You didn't learn what a dog is from a rulebook ("four legs, fur, barks"). A cat has four legs and fur; some dogs don't bark. You saw hundreds of dogs, someone said "dog" each time, and your brain worked out the pattern, well enough to recognise a breed you'd never seen before.
 :::
 
-Normal programming is writing **rules**: snip's slug validator (chapter 14.1) is a rule, and it's exactly right, forever. **Machine learning** (ML) is different. You don't write the rules. You collect **examples** with the right answers, called **labels**, and a training algorithm finds rules that reproduce those answers. The result is a **model**: a function that takes a new input and returns a **prediction**.
+Normal programming is writing **rules**: snip's slug validator ([chapter 14.1](./python-for-ai-engineers.mdx)) is a rule, and it's exactly right, forever. **Machine learning** (ML) is different. You don't write the rules. You collect **examples** with the right answers, called **labels**, and a training algorithm finds rules that reproduce those answers. The result is a **model**: a function that takes a new input and returns a **prediction**.
 
 ```mermaid
 flowchart LR
@@ -158,7 +158,7 @@ The **learning rate** is the step size. Too small and training takes forever; to
    loss: start 0.693 -> end 0.233
 ```
 
-Notice the start: **0.693**. That's the natural logarithm of 2, the loss of a model that says "50%" about everything, which is what all-zero weights do. A clue worth recognising (chapter 13.6): if your loss is stuck at 0.693, your model hasn't learned anything.
+Notice the start: **0.693**. That's the natural logarithm of 2, the loss of a model that says "50%" about everything, which is what all-zero weights do. A clue worth recognising ([chapter 13.6](../observability/debugging-playbook.mdx)): if your loss is stuck at 0.693, your model hasn't learned anything.
 
 ---
 
@@ -282,7 +282,7 @@ Everything in this chapter scales up, almost unchanged, to the models behind mod
 
 - A **neural network** stacks many layers of weighted sums like ours, with a simple non-linear function between them. Instead of us hand-making features, the early layers **learn their own features** from raw input. Our trigram experiment was a small step in that direction.
 - They're trained with the **same gradient descent** on the **same kind of loss**. Frameworks like **PyTorch** compute the gradients automatically for millions or billions of weights, on GPUs.
-- A **large language model** (chapter 14.3) is, at its core, a classifier: given the text so far, predict which of roughly 100,000 possible next pieces of text comes next. Its "labels" come free from existing text, so it can be trained on a vast amount of it. Overfitting, leakage, evaluation on unseen data, and "look at your errors" all still apply (chapter 14.10 is all about that last one).
+- A **large language model** ([chapter 14.3](./how-llms-work.mdx)) is, at its core, a classifier: given the text so far, predict which of roughly 100,000 possible next pieces of text comes next. Its "labels" come free from existing text, so it can be trained on a vast amount of it. Overfitting, leakage, evaluation on unseen data, and "look at your errors" all still apply ([chapter 14.10](./evals.mdx) is all about that last one).
 
 For classic ML on tables of features, most people use **scikit-learn** instead of writing their own: `LogisticRegression().fit(x, y)` is one line. We wrote it by hand so you can see that there's no magic inside, just arithmetic, repeated.
 
@@ -292,7 +292,7 @@ For classic ML on tables of features, most people use **scikit-learn** instead o
 
 Free, on your own computer, in a few seconds of CPU time. You'll train the detector, then change the data and the model and see what happens.
 
-1. **Train it.** From the `ai` folder (chapter 14.1 set it up):
+1. **Train it.** From the `ai` folder ([chapter 14.1](./python-for-ai-engineers.mdx) set it up):
    ```bash
    cd ~/code/zero-to-prod/ai
    uv run python -m snipai.abuse
@@ -390,7 +390,7 @@ Most likely the world changed, not the model. This is called **drift**: the data
 - **Attackers adapted.** They noticed links with cheap TLDs and IPs were getting blocked, and moved to `.com` lookalikes and hacked sites, which this model's features barely see. Phishing is **adversarial**: the other side is actively working against your model.
 - **Check it:** do error analysis on recent missed phishing (from user reports and blocklist hits). Which groups dominate now?
 - **Respond:** add features that capture the new patterns (brand lookalikes, domain age, page content), gather fresh labels from the review queue, **retrain regularly**, and keep the blocklist and rules layers, which react faster than retraining.
-- **Monitor** precision and recall continuously (chapter 13.2 metrics, with an alert), so the next drop is noticed in days, not a month.
+- **Monitor** precision and recall continuously ([chapter 13.2](../observability/metrics.mdx) metrics, with an alert), so the next drop is noticed in days, not a month.
 
 </details>
 
@@ -401,6 +401,6 @@ Most likely the world changed, not the model. This is called **drift**: the data
 2. **Is there leakage?** Are the same URLs, domains or users in both train and test? Is any feature computed using the label (e.g. "was this link ever reported", when reports *are* the label)? With a random split of one year's data, the test set also contains the same campaigns the model trained on. A fairer test trains on January–October and tests on November–December: **split by time**, so the model is tested on the future, as it will be in production.
 3. **How good are the labels?** Who labelled them, how, and how many are wrong? Look at a sample of the "errors": some may be label errors, and some "correct" predictions may be the model agreeing with wrong labels.
 
-A result that looks too good is usually a bug. Treat it like any surprising measurement (chapter 13.6): try to break it before celebrating.
+A result that looks too good is usually a bug. Treat it like any surprising measurement ([chapter 13.6](../observability/debugging-playbook.mdx)): try to break it before celebrating.
 
 </details>

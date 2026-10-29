@@ -37,7 +37,7 @@ Most teams grade incidents by **severity level** (often written **SEV1**, **SEV2
 | **SEV2** | Core function degraded, or a minor function down | Redirects slow (the latency SLO burning); link creation failing | Page the on-call, updates every 30–60 minutes |
 | **SEV3** | Minor impact, a workaround exists | Click counts delayed by an hour; one dashboard broken | Fix in working hours; no page |
 
-The exact definitions matter less than having them **written down in advance**, so nobody debates severity at 3 a.m. Tie them to your SLOs where you can (chapter 13.4): "the fast-burn alert fired" is already a SEV2.
+The exact definitions matter less than having them **written down in advance**, so nobody debates severity at 3 a.m. Tie them to your SLOs where you can ([chapter 13.4](./slos-alerting-on-call.mdx)): "the fast-burn alert fired" is already a SEV2.
 
 ---
 
@@ -82,7 +82,7 @@ Engineers find this hard, because the puzzle is right there and it's interesting
 Two numbers teams often track: **MTTD** (mean time to detect: how long until you noticed) and **MTTR** (mean time to recover or restore: how long until users were fine). They're useful for spotting trends ("we detect late because we have no alert for X"). But treat them with care: averages of a few very different incidents mean little, and chasing them as targets leads to people declaring things resolved too early.
 
 :::warning[What can go wrong]
-- **Making it worse.** Changes during an incident are riskier: people are tired and stressed, and the system is already unhealthy. The IC approves each change, one at a time, and the scribe records it. "Restart everything" can turn a partial outage into a full one (every client reconnecting and retrying at once: a retry storm, chapter 8.1).
+- **Making it worse.** Changes during an incident are riskier: people are tired and stressed, and the system is already unhealthy. The IC approves each change, one at a time, and the scribe records it. "Restart everything" can turn a partial outage into a full one (every client reconnecting and retrying at once: a retry storm, [chapter 8.1](../distributed/distributed-survival-kit.mdx)).
 - **Hero mode.** One person silently fixes it at 4 a.m. and tells no one. Users got no updates, nobody else learned anything, and the next person to hit it starts from zero.
 - **Declaring victory early.** The graph looks fine for two minutes and everyone leaves. Watch for at least one full cycle of whatever triggered it (a cron job, a traffic peak) before closing.
 :::
@@ -185,7 +185,7 @@ So a cache outage, which the code comments promised was harmless, would have mad
 
 ### Contributing factor 1: readiness treated a soft dependency as hard
 
-snip's `/readyz` (chapter 10.2) pinged Postgres *and* Redis, and returned 503 if either failed. In Kubernetes, a failing **readiness probe** removes the Pod from the Service's endpoints. With Redis down, **every** API Pod fails readiness at the same moment, so the Service has no endpoints and **every request fails**, even though every Pod could have served redirects from Postgres.
+snip's `/readyz` ([chapter 10.2](../kubernetes/core-objects.mdx)) pinged Postgres *and* Redis, and returned 503 if either failed. In Kubernetes, a failing **readiness probe** removes the Pod from the Service's endpoints. With Redis down, **every** API Pod fails readiness at the same moment, so the Service has no endpoints and **every request fails**, even though every Pod could have served redirects from Postgres.
 
 The distinction that was missing is between a **hard dependency** (without it, you can't do your job: Postgres, the source of truth) and a **soft dependency** (without it, you do your job worse: Redis, a cache). Readiness should only fail for hard ones. The fix, in `internal/httpapi/server.go`, splits them:
 
@@ -221,17 +221,17 @@ rdb := redis.NewClient(&redis.Options{
 
 Look at those comments. They're the kind of detail you only learn by measuring. The first attempt (only `MaxRetries: -1` and short timeouts) still took 1.2 seconds per redirect. Reading the library's source showed a *second*, newer retry loop for opening connections, whose setting is called `DialerRetries` but actually counts **attempts**, and where `0` means "use the default of 5". The number 1.2 seconds was the clue: 3 calls × 4 pauses × 100 ms.
 
-A third, smaller change: if reading the cache just failed, `Resolve` no longer tries to *write* to it on the way out (`internal/links/service.go`), because that would wait for another timeout. That took the frozen case from 300 ms to 200 ms, under snip's 250 ms latency target (chapter 13.4).
+A third, smaller change: if reading the cache just failed, `Resolve` no longer tries to *write* to it on the way out (`internal/links/service.go`), because that would wait for another timeout. That took the frozen case from 300 ms to 200 ms, under snip's 250 ms latency target ([chapter 13.4](./slos-alerting-on-call.mdx)).
 
 :::info[If you've written code]
-**Every network client has defaults, and they were chosen for someone else's use case.** Retries, timeouts, pool sizes and connection attempts are the usual suspects. For every dependency, decide: is this hard or soft? How long is the *whole* request allowed to take (its budget), and how much of that can this call use? Then set the values explicitly, with a comment saying why. The next step up from what snip does is a **circuit breaker** (chapter 8.4): after a few failures, stop calling Redis at all for a few seconds, so even the 100 ms timeouts disappear. That's a reasonable exercise, and it isn't built in snip yet.
+**Every network client has defaults, and they were chosen for someone else's use case.** Retries, timeouts, pool sizes and connection attempts are the usual suspects. For every dependency, decide: is this hard or soft? How long is the *whole* request allowed to take (its budget), and how much of that can this call use? Then set the values explicitly, with a comment saying why. The next step up from what snip does is a **circuit breaker** ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)): after a few failures, stop calling Redis at all for a few seconds, so even the 100 ms timeouts disappear. That's a reasonable exercise, and it isn't built in snip yet.
 :::
 
 ### What we didn't change: clicks during a Redis outage are lost
 
-Clicks travel through a Redis stream to the worker (chapter 8.2). With Redis down, the click can't be queued, so the redirect logs `click not recorded` and bumps `snip_click_record_errors_total`, and that click is **gone**. That's an acceptable trade-off for snip (a missed click count beats a failed redirect), but it must be a **decision**, written down, not a surprise. The runbook now has a `redis-down` section saying so, and that the outage window should be noted as a data gap.
+Clicks travel through a Redis stream to the worker ([chapter 8.2](../distributed/queues-and-background-work.mdx)). With Redis down, the click can't be queued, so the redirect logs `click not recorded` and bumps `snip_click_record_errors_total`, and that click is **gone**. That's an acceptable trade-off for snip (a missed click count beats a failed redirect), but it must be a **decision**, written down, not a surprise. The runbook now has a `redis-down` section saying so, and that the outage window should be noted as a data gap.
 
-One subtle thing we checked: when Redis is *frozen* rather than stopped, a request that times out might still have reached Redis and run once Redis wakes up. **A timeout means "I don't know", not "it didn't happen"** (chapter 8.1). In our tests, none of those clicks landed after Redis resumed, because the client throws away a connection that timed out before the command is sent. But don't rely on that in general. It's exactly the kind of case where idempotency keys earn their keep.
+One subtle thing we checked: when Redis is *frozen* rather than stopped, a request that times out might still have reached Redis and run once Redis wakes up. **A timeout means "I don't know", not "it didn't happen"** ([chapter 8.1](../distributed/distributed-survival-kit.mdx)). In our tests, none of those clicks landed after Redis resumed, because the client throws away a connection that timed out before the command is sent. But don't rely on that in general. It's exactly the kind of case where idempotency keys earn their keep.
 
 ### The postmortem
 
@@ -288,7 +288,7 @@ Big outages very often follow this shape: a component everyone considered option
 
 ## Lab
 
-Free, on your own computer, with the Compose stack from chapter 9.3. You'll run the game day yourself: form a hypothesis, break Redis two ways, measure, and write it up. These exact steps also run in snip's CI on every push (the `snip-stack` job).
+Free, on your own computer, with the Compose stack from [chapter 9.3](../containers/docker-compose.mdx). You'll run the game day yourself: form a hypothesis, break Redis two ways, measure, and write it up. These exact steps also run in snip's CI on every push (the `snip-stack` job).
 
 1. **Start the stack and make a link.**
    ```bash
@@ -405,7 +405,7 @@ Free, on your own computer, with the Compose stack from chapter 9.3. You'll run 
 
 The first story blames a person. The second story asks why a reasonable action caused harm:
 
-- **Contributing factors:** the migration took an exclusive lock on the `links` table while rewriting it, so every redirect's lookup waited (chapter 6.5); nothing in review or CI flagged migrations that lock big tables; the migration ran in the same deploy as a code change, so the rollback button didn't undo it; the latency alert fired, but the runbook had no "check for running migrations" step, so it took 12 minutes to connect the two.
+- **Contributing factors:** the migration took an exclusive lock on the `links` table while rewriting it, so every redirect's lookup waited ([chapter 6.5](../data/transactions.mdx)); nothing in review or CI flagged migrations that lock big tables; the migration ran in the same deploy as a code change, so the rollback button didn't undo it; the latency alert fired, but the runbook had no "check for running migrations" step, so it took 12 minutes to connect the two.
 - **Action items (owned, dated):** a CI check that fails migrations using locking operations on large tables without an explicit override; document the safe patterns (add the column as nullable, backfill in batches, create indexes `CONCURRENTLY`); run migrations as a separate, announced step; add "long-running queries and locks" (`pg_stat_activity`) to the high-error-rate runbook.
 - **What went well:** the alert fired within 3 minutes, so detection was quick.
 

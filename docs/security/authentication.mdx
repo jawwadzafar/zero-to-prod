@@ -6,7 +6,7 @@ description: "Proving who someone is — authentication vs authorization, passwo
 
 # 7.2 Authentication: passwords, sessions & tokens
 
-Every request that reaches snip's management API carries a claim: *"I'm the owner of these links."* Before snip does anything, it must check that claim — and because HTTP forgets everything between requests (chapter 1.5), it has to check it **on every single request**. That's **authentication**: proving who someone is. It's also where many of the worst real-world breaches start: weak passwords, stolen session cookies, leaked API keys, tokens that never expire. This chapter covers the main ways systems authenticate people and programs — passwords, sessions, tokens and API keys — with snip's real API-key code as the worked example.
+Every request that reaches snip's management API carries a claim: *"I'm the owner of these links."* Before snip does anything, it must check that claim — and because HTTP forgets everything between requests ([chapter 1.5](../foundations/http-from-zero.mdx)), it has to check it **on every single request**. That's **authentication**: proving who someone is. It's also where many of the worst real-world breaches start: weak passwords, stolen session cookies, leaked API keys, tokens that never expire. This chapter covers the main ways systems authenticate people and programs — passwords, sessions, tokens and API keys — with snip's real API-key code as the worked example.
 
 ## What you'll learn
 
@@ -34,7 +34,7 @@ flowchart LR
     Z -->|"yes"| OK["Do it"]
 ```
 
-They map onto HTTP status codes you met in chapter 1.5: **401** means authentication failed (despite its name, "Unauthorized"); **403** means authenticated but not permitted. This chapter is about the first box; chapter 7.4 is about the second.
+They map onto HTTP status codes you met in [chapter 1.5](../foundations/http-from-zero.mdx): **401** means authentication failed (despite its name, "Unauthorized"); **403** means authenticated but not permitted. This chapter is about the first box; [chapter 7.4](./authorization-multi-tenancy.mdx) is about the second.
 
 :::note[Everyday anchor]
 At an airport, showing your passport is **authentication** — it proves you are who you say. Your boarding pass is **authorization** — it says which flight you may board. A valid passport doesn't get you onto every plane.
@@ -52,7 +52,7 @@ Ways to prove identity come in three kinds, called **factors**:
 | Something you **have** | phone app codes, a security key, a device | Lost or stolen |
 | Something you **are** | fingerprint, face | Can't be changed if leaked |
 
-**Multi-factor authentication (MFA)** requires two or more *different* factors — typically a password plus a code from an app, or a hardware security key. It's the single most effective protection for accounts: a stolen password alone is no longer enough. The strongest option today is **passkeys** / **FIDO2** security keys, which use public-key cryptography (chapter 7.1) and can't be phished, because the key only ever signs challenges for the real site's domain. Chapter 7.7 ranks every kind of second factor, builds one from its specification, and explains passkeys in depth.
+**Multi-factor authentication (MFA)** requires two or more *different* factors — typically a password plus a code from an app, or a hardware security key. It's the single most effective protection for accounts: a stolen password alone is no longer enough. The strongest option today is **passkeys** / **FIDO2** security keys, which use public-key cryptography ([chapter 7.1](./security-literacy.mdx)) and can't be phished, because the key only ever signs challenges for the real site's domain. [Chapter 7.7](./mfa-and-passkeys.mdx) ranks every kind of second factor, builds one from its specification, and explains passkeys in depth.
 
 ---
 
@@ -60,12 +60,12 @@ Ways to prove identity come in three kinds, called **factors**:
 
 If your product has passwords, the essentials are:
 
-1. **Store only slow, salted hashes** — Argon2id or bcrypt (chapter 7.1). Never plain text, never encryption, never a fast hash.
+1. **Store only slow, salted hashes** — Argon2id or bcrypt ([chapter 7.1](./security-literacy.mdx)). Never plain text, never encryption, never a fast hash.
 2. **Prefer length over complexity.** Current guidance (NIST SP 800-63B) says: require a reasonable minimum length (at least 8, better 12–15+), allow long passphrases and all characters, **check new passwords against lists of breached passwords**, and **don't** force arbitrary complexity rules or periodic rotation — they push people towards `Password1!`, `Password2!`…
-3. **Limit login attempts** per account and per IP address (chapter 8.4), so guessing is slow.
+3. **Limit login attempts** per account and per IP address ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)), so guessing is slow.
 4. **Give the same error for "no such user" and "wrong password"** — *"Invalid email or password"* — so attackers can't use your login form to discover which emails have accounts.
 5. **Offer MFA**, and require it for administrators.
-6. **Make password resets safe**: a random, single-use, short-lived token (from `crypto/rand`, chapter 7.1), sent to the verified email, stored only as a hash.
+6. **Make password resets safe**: a random, single-use, short-lived token (from `crypto/rand`, [chapter 7.1](./security-literacy.mdx)), sent to the verified email, stored only as a hash.
 
 :::info[In the real world]
 **Credential stuffing** — taking usernames and passwords leaked from one site and trying them on thousands of others — is one of the most common attacks on the internet, because people reuse passwords. Breached-password checks, rate limits and MFA are the defences. Services like "Have I Been Pwned" publish collections of breached passwords (safely, as hashes) precisely so sites can refuse them.
@@ -91,8 +91,8 @@ sequenceDiagram
     S->>B: 200 OK (user 7's dashboard)
 ```
 
-1. The server generates a **session ID** — long and random (`crypto/rand`) — and stores `session ID → user` in a database or Redis (chapter 6.7), with an expiry.
-2. It sends the ID to the browser in a **cookie** (chapter 1.5).
+1. The server generates a **session ID** — long and random (`crypto/rand`) — and stores `session ID → user` in a database or Redis ([chapter 6.7](../data/redis-and-caching.mdx)), with an expiry.
+2. It sends the ID to the browser in a **cookie** ([chapter 1.5](../foundations/http-from-zero.mdx)).
 3. The browser automatically sends the cookie back on every request; the server looks the ID up.
 4. **Logout** deletes the session on the server — it's instantly invalid everywhere.
 
@@ -100,9 +100,9 @@ The session ID is effectively a temporary password, so the cookie carrying it ne
 
 | Flag | Effect | Protects against |
 |---|---|---|
-| **`HttpOnly`** | JavaScript on the page can't read the cookie | Stealing the session via injected scripts (XSS, chapter 7.5) |
+| **`HttpOnly`** | JavaScript on the page can't read the cookie | Stealing the session via injected scripts (XSS, [chapter 7.5](./web-attacks.mdx)) |
 | **`Secure`** | Only sent over HTTPS | Eavesdropping on unencrypted connections |
-| **`SameSite=Lax`** (or `Strict`) | Not sent on most requests initiated by other sites | Cross-site request forgery (CSRF, chapter 7.5) |
+| **`SameSite=Lax`** (or `Strict`) | Not sent on most requests initiated by other sites | Cross-site request forgery (CSRF, [chapter 7.5](./web-attacks.mdx)) |
 
 ---
 
@@ -118,23 +118,23 @@ Authorization: Bearer snip_9fQ2k…
 
 ### JWTs: tokens that carry their own claims
 
-A **JWT** (JSON Web Token, pronounced "jot") is a popular token format that contains information *inside* the token, **signed** by the server (chapter 7.1):
+A **JWT** (JSON Web Token, pronounced "jot") is a popular token format that contains information *inside* the token, **signed** by the server ([chapter 7.1](./security-literacy.mdx)):
 
 ```text
 eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI3IiwiZXhwIjoxNzkwMDAwMDAwfQ.qUw4…
 └──── header ──────┘ └────────── payload ──────────────────┘ └ signature ┘
 ```
 
-Each part is Base64 (chapter 1.3) — **readable by anyone**. Decoded, the payload might be `{"sub": "7", "exp": 1790000000}`: "this is user 7, valid until this Unix time". The **signature** proves the server issued it and nobody changed it.
+Each part is Base64 ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)) — **readable by anyone**. Decoded, the payload might be `{"sub": "7", "exp": 1790000000}`: "this is user 7, valid until this Unix time". The **signature** proves the server issued it and nobody changed it.
 
 | | Server-side sessions / opaque tokens | JWTs |
 |---|---|---|
 | How the server checks it | Looks the ID up in a store | Verifies the signature — no lookup |
 | Revoke immediately? | ✅ Delete it from the store | ❌ Valid until it expires (unless you add a deny-list — a lookup again) |
 | Contents visible to the client? | No — just a random ID | Yes — anyone can decode the payload |
-| Good for | Most web apps and APIs | Passing identity between many services without a shared store (chapter 7.3) |
+| Good for | Most web apps and APIs | Passing identity between many services without a shared store ([chapter 7.3](./oauth-and-oidc.mdx)) |
 
-The standard way to live with the revocation problem is **short-lived access tokens** (minutes) plus a longer-lived **refresh token** that the client exchanges for new access tokens — and which *can* be revoked. You'll see this in OAuth and OpenID Connect (chapter 7.3).
+The standard way to live with the revocation problem is **short-lived access tokens** (minutes) plus a longer-lived **refresh token** that the client exchanges for new access tokens — and which *can* be revoked. You'll see this in OAuth and OpenID Connect ([chapter 7.3](./oauth-and-oidc.mdx)).
 
 :::warning
 JWTs are **signed, not encrypted**: never put secrets in the payload. And always verify the signature with a known algorithm — historic library bugs accepted tokens with `"alg": "none"` (no signature at all).
@@ -146,7 +146,7 @@ JWTs are **signed, not encrypted**: never put secrets in the payload. And always
 
 snip's API is used by programs and scripts, not browsers, so it uses **API keys**: long-lived bearer tokens tied to an owner. Here's the whole lifecycle, in snip's real code.
 
-**1. Generate** — 32 random characters from `crypto/rand`, with a recognisable `snip_` prefix (chapter 7.1).
+**1. Generate** — 32 random characters from `crypto/rand`, with a recognisable `snip_` prefix ([chapter 7.1](./security-literacy.mdx)).
 
 **2. Store only a hash, show the key once.** From `internal/auth/keys.go`:
 
@@ -185,7 +185,7 @@ func (s *Server) requireKey(next http.HandlerFunc) http.HandlerFunc {
 }
 ```
 
-`Authenticate` hashes the presented key and looks the hash up — `SELECT id, name FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL`. On success, the **owner** is attached to the request's context (chapter 4.5), and every handler after it knows exactly who is asking. Every failure — no header, wrong format, unknown key, revoked key — gives the **same** `401 unauthorized`, revealing nothing about *why*.
+`Authenticate` hashes the presented key and looks the hash up — `SELECT id, name FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL`. On success, the **owner** is attached to the request's context ([chapter 4.5](../go/concurrency.mdx)), and every handler after it knows exactly who is asking. Every failure — no header, wrong format, unknown key, revoked key — gives the **same** `401 unauthorized`, revealing nothing about *why*.
 
 **4. Revoke** — keys leak (pasted into a chat, committed to Git, left in a laptop backup). Revocation must be instant:
 
@@ -196,7 +196,7 @@ snip keys revoke 7        # sets revoked_at = now() for owner 7's key
 The row stays (so ownership history is intact), but `revoked_at IS NOT NULL` makes the lookup fail from the very next request. Because snip checks keys against the database on every request — rather than trusting a self-contained token — revocation is immediate, which is exactly the trade-off in the table above.
 
 :::tip[API key hygiene]
-Give each integration **its own key** (so revoking one doesn't break the others), rotate keys periodically by creating a new one before revoking the old, store them in a secrets manager rather than code (chapter 7.6), and add the prefix to your secret-scanning rules so leaks are caught automatically.
+Give each integration **its own key** (so revoking one doesn't break the others), rotate keys periodically by creating a new one before revoking the old, store them in a secrets manager rather than code ([chapter 7.6](./secrets-management.mdx)), and add the prefix to your secret-scanning rules so leaks are caught automatically.
 :::
 
 ---
@@ -205,10 +205,10 @@ Give each integration **its own key** (so revoking one doesn't break the others)
 
 | Who is calling | Typical choice |
 |---|---|
-| A person in a browser | Login (password + MFA, or "Sign in with…", chapter 7.3) → **server-side session cookie** |
-| A mobile or single-page app | OAuth/OIDC login → **short-lived access token + refresh token** (chapter 7.3) |
+| A person in a browser | Login (password + MFA, or "Sign in with…", [chapter 7.3](./oauth-and-oidc.mdx)) → **server-side session cookie** |
+| A mobile or single-page app | OAuth/OIDC login → **short-lived access token + refresh token** ([chapter 7.3](./oauth-and-oidc.mdx)) |
 | A script or partner integration calling your API | **API key** (like snip) or OAuth client credentials |
-| One of your services calling another | Workload identity: mTLS or signed tokens from your platform (chapters 7.3, 12.4) |
+| One of your services calling another | Workload identity: mTLS or signed tokens from your platform (chapters [7.3](./oauth-and-oidc.mdx), [12.4](../cloud/iam.mdx)) |
 
 :::warning[What can go wrong]
 - **Plain-text or fast-hashed passwords.** A database leak becomes an account-takeover disaster.
@@ -217,7 +217,7 @@ Give each integration **its own key** (so revoking one doesn't break the others)
 - **Session cookies without HttpOnly/Secure/SameSite.** Stolen by scripts, sniffed, or ridden by forged requests.
 - **Long-lived JWTs with no way to revoke them.** A stolen token works for weeks.
 - **Tokens in URLs or logs.** `?api_key=…` ends up in server logs, proxies and browser history.
-- **Keys in Git.** Treat as leaked: revoke and replace (chapter 3.1).
+- **Keys in Git.** Treat as leaked: revoke and replace ([chapter 3.1](../git/git-mental-model.mdx)).
 :::
 
 ---
@@ -234,7 +234,7 @@ Free, on your own computer.
    ```
    (Base64 in JWTs is the URL-safe variant without padding, so for some tokens `base64 -d` needs `=` added to the end. Sites like jwt.io decode them for you — but never paste a real production token into a website.)
 
-2. **Walk snip's key lifecycle** with Postgres (chapter 6.6's lab setup):
+2. **Walk snip's key lifecycle** with Postgres ([chapter 6.6](../data/postgres-from-go.mdx)'s lab setup):
    ```bash
    cd ~/code/zero-to-prod/snip
    export SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable"
@@ -318,6 +318,6 @@ Because the specific message turns the login form into an **account-discovery to
 <details>
 <summary>snip checks API keys against the database on every request. What does it gain, and what does it cost?</summary>
 
-**Gains:** **instant revocation** (the next request after `snip keys revoke` fails), and the key can be a meaningless random string, so it reveals nothing. **Costs:** a database lookup (an indexed one, via the `UNIQUE` index on `key_hash`) on every API request — cheap, but not free. At very high scale you could cache recent lookups in Redis for a few seconds, accepting that revocation might take that long to take effect. It's the same freshness-versus-load trade-off as any cache (chapter 6.7).
+**Gains:** **instant revocation** (the next request after `snip keys revoke` fails), and the key can be a meaningless random string, so it reveals nothing. **Costs:** a database lookup (an indexed one, via the `UNIQUE` index on `key_hash`) on every API request — cheap, but not free. At very high scale you could cache recent lookups in Redis for a few seconds, accepting that revocation might take that long to take effect. It's the same freshness-versus-load trade-off as any cache ([chapter 6.7](../data/redis-and-caching.mdx)).
 
 </details>

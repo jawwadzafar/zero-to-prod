@@ -8,7 +8,7 @@ description: "Search by meaning instead of words: what an embedding is, cosine s
 
 Type "how do I undo a bad release?" into a normal search box over this handbook and you'll get pages containing the words "undo", "bad" and "release". The chapter you actually need talks about **rolling back a deployment**, and doesn't contain your words at all. Keyword search finds words; people search for **meanings**.
 
-**Embeddings** are how AI systems search by meaning. They're also the foundation of the next chapter's RAG (chapter 14.8), where a model answers questions from *your* documents: first you have to find the right documents. In this chapter you'll build semantic search over this very handbook, compare it with a word-counting baseline on questions real readers might ask, and learn where the pitfalls are.
+**Embeddings** are how AI systems search by meaning. They're also the foundation of the next chapter's RAG ([chapter 14.8](./rag.mdx)), where a model answers questions from *your* documents: first you have to find the right documents. In this chapter you'll build semantic search over this very handbook, compare it with a word-counting baseline on questions real readers might ask, and learn where the pitfalls are.
 
 ## What you'll learn
 
@@ -28,7 +28,7 @@ Imagine a huge library where books aren't shelved alphabetically but by topic, o
 
 An **embedding model** turns a piece of text into a list of numbers, a **vector**: `all-minilm`, the small model used here, produces 384 numbers for any text, from one word to a few paragraphs. Those numbers are a position in a 384-dimensional "map", learned so that **texts with similar meaning land close together**. "Roll back the deployment" and "undo a bad release" end up near each other, although they share no words; "roll back the deployment" and "roll the dice" end up far apart, although they share one.
 
-How does a model learn that? Roughly like chapter 14.2's training, with a different goal. It's shown enormous numbers of text pairs that belong together (a question and its answer, a title and its article, two paraphrases) and pairs that don't, and gradient descent adjusts it until related texts get nearby vectors and unrelated ones get distant vectors. Nobody tells it what the 384 numbers mean; the meaning is spread across all of them.
+How does a model learn that? Roughly like [chapter 14.2](./ml-foundations.mdx)'s training, with a different goal. It's shown enormous numbers of text pairs that belong together (a question and its answer, a title and its article, two paraphrases) and pairs that don't, and gradient descent adjusts it until related texts get nearby vectors and unrelated ones get distant vectors. Nobody tells it what the 384 numbers mean; the meaning is spread across all of them.
 
 ### Closeness: cosine similarity
 
@@ -83,7 +83,7 @@ query: my program keeps restarting in kubernetes
 
 ## Chunking: what exactly do you store?
 
-You could embed each chapter as one vector. Don't. A chapter covers many topics, and a single vector for all of it is a blurry average of all of them. And when you retrieve it for a question (chapter 14.8), you'd have to hand the model 40,000 characters to find one relevant paragraph. So documents are split into **chunks**, and each chunk gets its own vector.
+You could embed each chapter as one vector. Don't. A chapter covers many topics, and a single vector for all of it is a blurry average of all of them. And when you retrieve it for a question ([chapter 14.8](./rag.mdx)), you'd have to hand the model 40,000 characters to find one relevant paragraph. So documents are split into **chunks**, and each chunk gets its own vector.
 
 snipai's `chunk_handbook()` splits each chapter at its `##` section headings (sections are written to be about one thing), splits long sections into pieces of at most 1,500 characters at paragraph boundaries, strips code, quizzes and markup, and skips the "What you'll learn" and "Self-check" sections, which only list topics. And it embeds each chunk **with its headings**:
 
@@ -110,7 +110,7 @@ A few hundred to a couple of thousand characters, split at natural boundaries (s
 
 ## Measure retrieval with questions you've labelled
 
-"The results look good" isn't a measurement (chapter 14.5). snipai keeps **14 questions a reader might ask**, phrased in everyday words rather than the handbook's own terms, each labelled with the chapters that actually answer it (`ai/data/search_eval.json`):
+"The results look good" isn't a measurement ([chapter 14.5](./prompt-engineering.mdx)). snipai keeps **14 questions a reader might ask**, phrased in everyday words rather than the handbook's own terms, each labelled with the chapters that actually answer it (`ai/data/search_eval.json`):
 
 ```json
 {"q": "how do I undo a bad release?", "docs": ["shipping/delivery-and-deployment", "kubernetes/core-objects", "kubernetes/helm", "observability/incidents-and-postmortems"]},
@@ -135,7 +135,7 @@ retrieval on search_eval.json (without Part 14): hit@1 36%, hit@5 64%
   missed: 'the monthly bill from the cloud provider is too high' -> distributed/rate-limiting-and-resilience
 ```
 
-Every miss is a paraphrase: "downtime acceptable each month" is an SLO and an error budget (chapter 13.4), "finish its current work before it exits" is graceful shutdown (chapter 5.4), but the questions don't use those words.
+Every miss is a paraphrase: "downtime acceptable each month" is an SLO and an error budget ([chapter 13.4](../observability/slos-alerting-on-call.mdx)), "finish its current work before it exits" is graceful shutdown ([chapter 5.4](../apis/structuring-a-real-service.mdx)), but the questions don't use those words.
 
 The same questions with `all-minilm`, a free 46 MB embedding model, on GitHub's CPU-only CI runner:
 
@@ -166,13 +166,13 @@ What to notice:
 - **The one miss is close.** The cloud-bill question retrieved 12.1, "The cloud from zero", which does talk about cloud costs; the label says only 12.7, "Cost control & free-tier safety", answers it. Is that a retrieval failure or a labelling choice? Looking at misses one by one, like this, is how you find out whether your *labels* need fixing too.
 - **It costs something.** The baseline indexes the handbook instantly; the model took 30 to 45 seconds on the CI machine (it varied between runs), for 857 chunks. That's once per change, thanks to the cache, and each question is one more embedding call.
 
-Those numbers come from 14 questions, so they're rough: one question is 7 percentage points. Chapter 14.10 shows how to put an honest error bar on a number like this.
+Those numbers come from 14 questions, so they're rough: one question is 7 percentage points. [Chapter 14.10](./evals.mdx) shows how to put an honest error bar on a number like this.
 
 ### Why "without Part 14"?
 
-The first time we measured, the embedding model scored hit@1 **36%**, and some of the "wrong" top results were in Part 14 itself. Of course they were: this chapter and the next ones *quote the test questions*, as examples. A search for "how do I undo a bad release?" finds the chapter that contains the sentence "how do I undo a bad release?".
+The first time we measured, the embedding model scored hit@1 **36%**, and some of the "wrong" top results were in [Part 14](./python-for-ai-engineers.mdx) itself. Of course they were: this chapter and the next ones *quote the test questions*, as examples. A search for "how do I undo a bad release?" finds the chapter that contains the sentence "how do I undo a bad release?".
 
-That's **leakage** (chapter 14.2) in a new form: the test questions leaked into the thing being searched. So `evaluate()` skips Part 14's chapters, the `exclude` in `search()`. Whenever your test questions could appear in your documents (a FAQ built from support tickets, say, tested on those same tickets), check for this, or your scores will be flattering and meaningless.
+That's **leakage** ([chapter 14.2](./ml-foundations.mdx)) in a new form: the test questions leaked into the thing being searched. So `evaluate()` skips [Part 14](./python-for-ai-engineers.mdx)'s chapters, the `exclude` in `search()`. Whenever your test questions could appear in your documents (a FAQ built from support tickets, say, tested on those same tickets), check for this, or your scores will be flattering and meaningless.
 
 ---
 
@@ -188,7 +188,7 @@ Where do the vectors live in production?
 - **A dedicated vector database** (there are several, open-source and hosted) when you have very large volumes, need advanced filtering and scaling, or want a managed service.
 
 :::info[Honesty label]
-**Exists today:** snipai's in-memory brute-force index over the handbook, with a cache, tests and the retrieval evaluation. **Not built:** a pgvector column on snip's `links` table. Adding one (an embedding computed in the background when a link is created, like chapter 14.4's descriptions) would enable "find links similar to this one", and it's a good exercise.
+**Exists today:** snipai's in-memory brute-force index over the handbook, with a cache, tests and the retrieval evaluation. **Not built:** a pgvector column on snip's `links` table. Adding one (an embedding computed in the background when a link is created, like [chapter 14.4](./calling-models-from-code.mdx)'s descriptions) would enable "find links similar to this one", and it's a good exercise.
 :::
 
 ---
@@ -300,9 +300,9 @@ Free. Steps 1–3 use the offline word-hashing baseline; step 4 uses a free loca
 <details>
 <summary>Design "find similar links" for snip: when viewing a link, show the five most similar links the same user has created. What would you store, where, and when?</summary>
 
-- **What:** for each link, an embedding of the text that best describes it: its title, description and tags (chapters 14.4 and 14.6), rather than the raw page, which is long and noisy. Store the **embedding model name** with it.
-- **Where:** a `vector` column on the `links` table with **pgvector** (with an HNSW index once there are many links), so the query can also filter by owner: `SELECT slug FROM links WHERE owner_id = $1 AND slug <> $2 ORDER BY embedding <=> $3 LIMIT 5`. The filter matters: similarity must never leak other users' links (chapter 7.4).
-- **When:** in the **background** after the link is created and described, by snip's worker (chapter 8.2), never in the request path. Links without an embedding yet simply don't show suggestions: graceful degradation.
+- **What:** for each link, an embedding of the text that best describes it: its title, description and tags (chapters [14.4](./calling-models-from-code.mdx) and [14.6](./structured-output-and-tools.mdx)), rather than the raw page, which is long and noisy. Store the **embedding model name** with it.
+- **Where:** a `vector` column on the `links` table with **pgvector** (with an HNSW index once there are many links), so the query can also filter by owner: `SELECT slug FROM links WHERE owner_id = $1 AND slug <> $2 ORDER BY embedding <=> $3 LIMIT 5`. The filter matters: similarity must never leak other users' links ([chapter 7.4](../security/authorization-multi-tenancy.mdx)).
+- **When:** in the **background** after the link is created and described, by snip's worker ([chapter 8.2](../distributed/queues-and-background-work.mdx)), never in the request path. Links without an embedding yet simply don't show suggestions: graceful degradation.
 - **Measure:** label a few dozen pairs of links as "similar" or "not" and check hit@5 before launching, and whenever the model changes.
 
 </details>
@@ -313,6 +313,6 @@ Free. Steps 1–3 use the offline word-hashing baseline; step 4 uses a free loca
 - **The questions don't look like real questions.** If you wrote them yourself, they probably use your documents' vocabulary. Collect real questions from logs, especially the ones users complained about, and label those.
 - **"Right chapter" isn't "right passage".** hit@k at the chapter level can pass while the retrieved chunk is a different section of that chapter. Label at the chunk level, or check the retrieved text contains the fact needed.
 - **Too few questions.** With 14 questions, one question is 7 percentage points. The number is a signal, not a certainty.
-- **Retrieval isn't the only step.** The model may receive the right passage and still answer badly (it ignores it, or the passage is cut off by a token limit). Measure retrieval *and* the final answers separately (chapter 14.10).
+- **Retrieval isn't the only step.** The model may receive the right passage and still answer badly (it ignores it, or the passage is cut off by a token limit). Measure retrieval *and* the final answers separately ([chapter 14.10](./evals.mdx)).
 
 </details>

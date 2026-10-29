@@ -36,21 +36,21 @@ go vet ./...
 go test -race ./...
 ```
 
-Read `README.md`, `docs/architecture.md` and the ADRs in `docs/adr/` (chapter 15.2) before you change anything. That's how a new team member should start, too.
+Read `README.md`, `docs/architecture.md` and the ADRs in `docs/adr/` ([chapter 15.2](./adrs-tradeoffs-c4.mdx)) before you change anything. That's how a new team member should start, too.
 
-**Done when:** vet is silent, all tests pass with the race detector (chapter 4.5), and you can explain snip's container diagram from memory in two minutes.
+**Done when:** vet is silent, all tests pass with the race detector ([chapter 4.5](../go/concurrency.mdx)), and you can explain snip's container diagram from memory in two minutes.
 
 ---
 
 ## Stage 2: one process, then the full stack
 
-The in-memory version first (chapter 5.4):
+The in-memory version first ([chapter 5.4](../apis/structuring-a-real-service.mdx)):
 
 ```bash
 go run ./cmd/snip          # prints a development API key in its log
 ```
 
-Then the real system, with Postgres, Redis and the worker, in containers (chapter 9.3):
+Then the real system, with Postgres, Redis and the worker, in containers ([chapter 9.3](../containers/docker-compose.mdx)):
 
 ```bash
 docker compose up -d --build --wait
@@ -59,7 +59,7 @@ SNIP_API_KEY="$KEY" ./scripts/smoke.sh http://localhost:8080
 docker compose --profile observability up -d --wait
 ```
 
-Open Grafana on http://localhost:3000, find the snip overview dashboard (chapter 13.2), and generate some traffic with a loop of `curl` requests to a short link. Watch the request rate, latency and the worker's click processing move.
+Open Grafana on http://localhost:3000, find the snip overview dashboard ([chapter 13.2](../observability/metrics.mdx)), and generate some traffic with a loop of `curl` requests to a short link. Watch the request rate, latency and the worker's click processing move.
 
 **Done when:** `smoke.sh` prints its success line, click counts go up a few seconds after redirects (the stream and worker from ADR 5), and you can point at each panel on the dashboard and say what it measures.
 
@@ -67,7 +67,7 @@ Open Grafana on http://localhost:3000, find the snip overview dashboard (chapter
 
 ## Stage 3: Kubernetes
 
-Build the image, load it into a local cluster, and apply snip's manifests (chapters 10.1 and 10.2):
+Build the image, load it into a local cluster, and apply snip's manifests (chapters [10.1](../kubernetes/why-orchestration.mdx) and [10.2](../kubernetes/core-objects.mdx)):
 
 ```bash
 kind create cluster --name z2p
@@ -80,9 +80,9 @@ KEY=$(kubectl -n snip exec deploy/api -- snip keys create me | grep -o 'snip_[A-
 SNIP_API_KEY="$KEY" ./scripts/smoke.sh http://localhost:8080
 ```
 
-Then do a rolling update while a probe runs, as in chapter 10.2's lab, and check that it drops no requests.
+Then do a rolling update while a probe runs, as in [chapter 10.2](../kubernetes/core-objects.mdx)'s lab, and check that it drops no requests.
 
-**Optional, and worth it:** install Argo CD and hand the deployment to GitOps (chapter 11.4), with `kubectl apply -f deploy/argocd/application.yaml` after installing Argo CD; or create the local stack with Terraform from `infra/local` (chapter 12.5).
+**Optional, and worth it:** install Argo CD and hand the deployment to GitOps ([chapter 11.4](../shipping/gitops.mdx)), with `kubectl apply -f deploy/argocd/application.yaml` after installing Argo CD; or create the local stack with Terraform from `infra/local` ([chapter 12.5](../cloud/terraform-from-zero.mdx)).
 
 **Done when:** the smoke test passes against the cluster, a rolling update completes with zero failed probe requests, and `kubectl -n snip describe` and `logs` hold no surprises for you.
 
@@ -90,7 +90,7 @@ Then do a rolling update while a probe runs, as in chapter 10.2's lab, and check
 
 ## Stage 4: a game day
 
-Repeat chapter 13.5's game day against your full stack, before you change anything, so you have a baseline:
+Repeat [chapter 13.5](../observability/incidents-and-postmortems.mdx)'s game day against your full stack, before you change anything, so you have a baseline:
 
 ```bash
 docker compose pause redis
@@ -107,9 +107,9 @@ docker compose unpause redis
 
 The feature: **a link can have an expiry time. After it, the short link stops redirecting.** Owners set it when creating a link, can see it, and expired links still appear in their list, marked as expired.
 
-Before writing code, do what chapters 15.1 and 15.2 describe. Write `docs/adr/0007-link-expiry.md`, with status **Proposed**, answering at least these questions:
+Before writing code, do what chapters [15.1](./system-design-method.mdx) and [15.2](./adrs-tradeoffs-c4.mdx) describe. Write `docs/adr/0007-link-expiry.md`, with status **Proposed**, answering at least these questions:
 
-- **What does a visitor get for an expired link?** `404 Not Found`, or `410 Gone` ("this existed and was removed on purpose")? Chapter 5.3's status codes, and what's kinder to the visitor.
+- **What does a visitor get for an expired link?** `404 Not Found`, or `410 Gone` ("this existed and was removed on purpose")? [Chapter 5.3](../apis/validation-errors-status-codes.mdx)'s status codes, and what's kinder to the visitor.
 - **How is expiry stored?** A nullable `expires_at` column (null means never)? What about existing links?
 - **What does the cache do?** Today, a cached slug → URL mapping lives for an hour (`SNIP_CACHE_TTL`). If a link expires in 5 minutes, the cache must not keep redirecting for another 55. Options: cap each cache entry's lifetime at the time left before expiry; store the expiry with the cached URL and check it on every hit; or don't cache links that expire soon. Pick one and say what it costs.
 - **Clock and time zones.** Whose clock decides? Store times in UTC (`TIMESTAMPTZ`), accept RFC 3339 timestamps in the API, and think about what happens when snip's servers disagree by a second.
@@ -123,13 +123,13 @@ Before writing code, do what chapters 15.1 and 15.2 describe. Write `docs/adr/00
 
 Work in small commits, each one leaving everything green. A sensible order:
 
-1. **The contract.** Add `expires_at` (optional, RFC 3339) to the create request and the link responses in `api/openapi.yaml`, and the new response for expired redirects. CI validates the contract (chapter 5.5).
-2. **The migration.** Add `internal/store/postgres/migrations/0002_link_expiry.sql`, adding the column. Migrations run in filename order, once each, recorded in `schema_migrations`. Adding a nullable column is safe for existing rows and old code: think about why (chapter 11.3's section on databases and rollbacks).
-3. **The domain and the store.** Carry the field through the `Link` type, the Postgres and in-memory stores, and validation (an expiry in the past is a `400`, chapter 5.3).
+1. **The contract.** Add `expires_at` (optional, RFC 3339) to the create request and the link responses in `api/openapi.yaml`, and the new response for expired redirects. CI validates the contract ([chapter 5.5](../apis/api-contracts.mdx)).
+2. **The migration.** Add `internal/store/postgres/migrations/0002_link_expiry.sql`, adding the column. Migrations run in filename order, once each, recorded in `schema_migrations`. Adding a nullable column is safe for existing rows and old code: think about why ([chapter 11.3](../shipping/delivery-and-deployment.mdx)'s section on databases and rollbacks).
+3. **The domain and the store.** Carry the field through the `Link` type, the Postgres and in-memory stores, and validation (an expiry in the past is a `400`, [chapter 5.3](../apis/validation-errors-status-codes.mdx)).
 4. **The redirect.** Refuse expired links with the status your ADR chose, and implement the cache decision. This is the hot path: no extra database query on a cache hit.
 5. **Tests first where it's subtle.** At least: a link that expires stops redirecting; a link without expiry never does; a cached link stops redirecting when it expires, not an hour later; an expiry in the past is rejected at creation. Inject the clock (a `now func() time.Time` field) rather than sleeping in tests.
-6. **Observability.** A counter for redirects refused because the link had expired (chapter 13.2), so you can see the feature working in production, and a line in the runbook about what a sudden jump in it would mean.
-7. **Ship it.** Push, get CI green (chapter 11.2), deploy to your kind cluster, and run the smoke test plus a manual check: create a link that expires in two minutes, follow it, wait, follow it again.
+6. **Observability.** A counter for redirects refused because the link had expired ([chapter 13.2](../observability/metrics.mdx)), so you can see the feature working in production, and a line in the runbook about what a sudden jump in it would mean.
+7. **Ship it.** Push, get CI green ([chapter 11.2](../shipping/ci-with-github-actions.mdx)), deploy to your kind cluster, and run the smoke test plus a manual check: create a link that expires in two minutes, follow it, wait, follow it again.
 
 **Done when:** all of this is merged into your copy with CI green, and the manual check shows the redirect working, then refused on time, with the counter going up.
 
@@ -138,8 +138,8 @@ Work in small commits, each one leaving everything green. A sensible order:
 ## Stage 7: prove it and write it up
 
 1. **Game day again.** Pause Redis and check that expiry still works when the cache is down (it should: Postgres is the source of truth, ADR 2). Unpause, and check that no stale cache entry redirects an expired link.
-2. **Load check.** Re-run chapter 8.5's load test on redirects before and after your change. The p99 shouldn't move measurably. If it does, find out why before you call it done.
-3. **The write-up.** A page in your repository's `docs/` (or your portfolio) with: what you built and why, the architecture diagram, your ADR, one thing that surprised you, one thing you'd do differently, and the numbers from the load check. Chapter 15.4 is your guide. This page is what you'll show in interviews.
+2. **Load check.** Re-run [chapter 8.5](../distributed/performance-and-load-testing.mdx)'s load test on redirects before and after your change. The p99 shouldn't move measurably. If it does, find out why before you call it done.
+3. **The write-up.** A page in your repository's `docs/` (or your portfolio) with: what you built and why, the architecture diagram, your ADR, one thing that surprised you, one thing you'd do differently, and the numbers from the load check. [Chapter 15.4](./communicating-your-work.mdx) is your guide. This page is what you'll show in interviews.
 
 ---
 
@@ -217,10 +217,10 @@ Twelve or more: you've done, end to end, what a working backend engineer does wi
 <details>
 <summary>Your load check shows redirect p99 went from 3 ms to 9 ms after adding expiry. What would you check, in order?</summary>
 
-1. **Is it real?** Run both versions again, several times, at the same load, on the same machine (chapter 8.5). Small numbers are noisy.
-2. **Is the hot path doing new work?** The most likely cause is an extra round trip: a Postgres query on every redirect (to check expiry) where there used to be only a cache hit. Check the traces (chapter 13.3): does a redirect now include a database span?
+1. **Is it real?** Run both versions again, several times, at the same load, on the same machine ([chapter 8.5](../distributed/performance-and-load-testing.mdx)). Small numbers are noisy.
+2. **Is the hot path doing new work?** The most likely cause is an extra round trip: a Postgres query on every redirect (to check expiry) where there used to be only a cache hit. Check the traces ([chapter 13.3](../observability/tracing.mdx)): does a redirect now include a database span?
 3. **Is the cache still being used?** If the new cache logic accidentally skips caching (for example, treating "no expiry" as "expires now"), every redirect goes to Postgres. Check the cache hit ratio panel.
-4. **Is time handling expensive?** Parsing a timestamp string on every cache hit, instead of storing a number, is measurable at high volume. A CPU profile (chapter 13.6) shows it.
+4. **Is time handling expensive?** Parsing a timestamp string on every cache hit, instead of storing a number, is measurable at high volume. A CPU profile ([chapter 13.6](../observability/debugging-playbook.mdx)) shows it.
 
 Fix the cause, re-measure, and put both numbers in the write-up: a regression you found and fixed is a better story than no measurement.
 

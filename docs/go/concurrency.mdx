@@ -6,7 +6,7 @@ description: How Go does many things at once — goroutines, WaitGroups, channel
 
 # 4.5 Concurrency: goroutines, channels & context
 
-A server's whole job is doing many things at once. While one visitor's request waits on the database, another's is being validated, a third's response is being written, and a background worker is counting clicks. In chapter 1.2 you learned that this needs threads — and that threads sharing memory lead to race conditions. Go was designed around making concurrency **easy and safe enough to use everywhere**, and it's a big reason Go powers so much of the cloud. This chapter teaches the handful of tools that cover nearly all real concurrent code — and shows each one at work inside snip.
+A server's whole job is doing many things at once. While one visitor's request waits on the database, another's is being validated, a third's response is being written, and a background worker is counting clicks. In [chapter 1.2](../foundations/programs-processes-threads.mdx) you learned that this needs threads — and that threads sharing memory lead to race conditions. Go was designed around making concurrency **easy and safe enough to use everywhere**, and it's a big reason Go powers so much of the cloud. This chapter teaches the handful of tools that cover nearly all real concurrent code — and shows each one at work inside snip.
 
 ## What you'll learn
 
@@ -27,7 +27,7 @@ go sendWelcomeEmail(user)   // runs in the background; this line returns immedia
 fmt.Println("carrying on")  // runs right away, without waiting for the email
 ```
 
-Goroutines are **cheap**: each starts with a few kilobytes of memory, and a program can run hundreds of thousands of them. The Go **runtime** (built into every Go program) spreads them across your CPU cores (chapter 1.2's threads) and switches between them whenever one waits — on the network, the disk, a timer.
+Goroutines are **cheap**: each starts with a few kilobytes of memory, and a program can run hundreds of thousands of them. The Go **runtime** (built into every Go program) spreads them across your CPU cores ([chapter 1.2](../foundations/programs-processes-threads.mdx)'s threads) and switches between them whenever one waits — on the network, the disk, a timer.
 
 This is how snip handles many visitors at once, without you writing any concurrency code at all: Go's HTTP server starts **a new goroutine for every incoming connection**. Each request runs its handler in its own goroutine; when one waits for Postgres, the others carry on.
 
@@ -70,7 +70,7 @@ fmt.Println("all checked")
 
 ## Sharing safely: Mutex
 
-Chapter 1.2's race condition happens when goroutines read and write the same memory at once. You watched it happen in chapter 4.4's lab: 1,000 goroutines each adding 1 to a counter ended up at 977, 986, 983…
+[Chapter 1.2](../foundations/programs-processes-threads.mdx)'s race condition happens when goroutines read and write the same memory at once. You watched it happen in [chapter 4.4](./testing.mdx)'s lab: 1,000 goroutines each adding 1 to a counter ended up at 977, 986, 983…
 
 The simplest fix is a **mutex** (mutual exclusion lock): only one goroutine may hold it at a time; the others wait their turn.
 
@@ -109,7 +109,7 @@ func (s *Store) AddClicks(_ context.Context, slug string, n int64) error {
 An **`RWMutex`** allows many readers at once but only one writer — useful when reads (redirects) vastly outnumber writes. And `defer s.mu.Unlock()` guarantees the lock is released however the function exits, even on an error path.
 
 :::tip
-Go's maps are **not** safe for concurrent writes. Two goroutines writing to the same map without a lock can crash the whole program with `fatal error: concurrent map writes`. Run your tests with `-race` (chapter 4.4) and Go will tell you.
+Go's maps are **not** safe for concurrent writes. Two goroutines writing to the same map without a lock can crash the whole program with `fatal error: concurrent map writes`. Run your tests with `-race` ([chapter 4.4](./testing.mdx)) and Go will tell you.
 :::
 
 ---
@@ -168,7 +168,7 @@ flowchart LR
 
 The handbook's `examples/workers/main.go` builds exactly this: a feeder sends ten jobs into a channel, three worker goroutines `range` over it, and results come back on a second channel. With 3 workers, ten 200–400 ms jobs take about one second; with 10 workers, about 0.4 seconds.
 
-snip's **click worker** (`cmd/snip-worker`) is the same idea at a larger scale: several worker *processes* share a queue of click events in Redis, each taking a batch at a time (chapter 8.2).
+snip's **click worker** (`cmd/snip-worker`) is the same idea at a larger scale: several worker *processes* share a queue of click events in Redis, each taking a batch at a time ([chapter 8.2](../distributed/queues-and-background-work.mdx)).
 
 ---
 
@@ -176,7 +176,7 @@ snip's **click worker** (`cmd/snip-worker`) is the same idea at a larger scale: 
 
 Here's a question every backend must answer: **how long should we wait?** If Postgres hangs, should a request wait forever? If a visitor closes their browser, should we keep working on a response nobody will read? If the server is shutting down, how do we tell hundreds of goroutines to stop?
 
-Go's answer is **`context.Context`**. A context carries a **deadline** and a **cancellation signal** down through every function involved in a piece of work. That's why so many functions in snip take `ctx context.Context` as their first parameter (chapter 4.3's `Store` interface):
+Go's answer is **`context.Context`**. A context carries a **deadline** and a **cancellation signal** down through every function involved in a piece of work. That's why so many functions in snip take `ctx context.Context` as their first parameter ([chapter 4.3](./packages-modules-interfaces.mdx)'s `Store` interface):
 
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -249,7 +249,7 @@ defer cancel()
 srv.Shutdown(shutdownCtx)              // stop accepting, finish in-flight requests (max 10s)
 ```
 
-Every concept in this chapter is in those lines: a **goroutine** runs the server, a **channel** carries its error, **`select`** waits for the first of two events, and **contexts** turn a SIGTERM (chapter 1.2) into a graceful stop with a deadline. This is exactly what systemd (chapter 2.5) and Kubernetes (Part 10) rely on when they stop a service.
+Every concept in this chapter is in those lines: a **goroutine** runs the server, a **channel** carries its error, **`select`** waits for the first of two events, and **contexts** turn a SIGTERM ([chapter 1.2](../foundations/programs-processes-threads.mdx)) into a graceful stop with a deadline. This is exactly what systemd ([chapter 2.5](../linux/running-a-linux-server.mdx)) and Kubernetes ([Part 10](../kubernetes/why-orchestration.mdx)) rely on when they stop a service.
 
 :::info[If you've written code]
 If you know JavaScript's `async`/`await`, Go feels different: there's no colouring of functions into async and sync. Any function can block; you get concurrency by running it in a goroutine. `context` plays the role of `AbortController`, and a channel plus `select` covers what `Promise.race` does. Python's `asyncio` has similar ideas with `asyncio.wait_for` and cancellation.
@@ -261,7 +261,7 @@ If you know JavaScript's `async`/`await`, Go feels different: there's no colouri
 
 :::warning[What can go wrong]
 - **Data races.** Unprotected shared variables. Use a mutex, a channel, or an atomic operation — and always test with `-race`.
-- **Goroutine leaks.** A goroutine blocked forever on a channel nobody will ever send to, or a request with no timeout, never exits. Leak enough and memory fills up (chapter 1.1). Give every wait a way out: a context, a timeout, or a closed channel.
+- **Goroutine leaks.** A goroutine blocked forever on a channel nobody will ever send to, or a request with no timeout, never exits. Leak enough and memory fills up ([chapter 1.1](../foundations/what-a-computer-does.mdx)). Give every wait a way out: a context, a timeout, or a closed channel.
 - **Deadlocks.** Goroutines waiting on each other in a circle, so none can proceed. If *every* goroutine is stuck, Go stops with `fatal error: all goroutines are asleep - deadlock!`.
 - **Forgetting to wait.** `main` returns and the program exits before background goroutines finish.
 - **Unbounded concurrency.** Starting a goroutine per item for a million items, each opening a database connection. Bound it with a worker pool.

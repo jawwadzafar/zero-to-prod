@@ -6,7 +6,7 @@ description: "The front door of every production system — what reverse proxies
 
 # 8.3 Reverse proxies, load balancers & nginx
 
-Type almost any big website's address and your request doesn't reach the application first. It reaches a **reverse proxy**: a single front door that decides which of many copies of the application should handle it, handles the encryption, protects the application from slow and malicious clients, and quietly routes around copies that have crashed. You've seen its fingerprints already — the `502 Bad Gateway` pages, the `X-Forwarded-For` header, the "front door" box in snip's architecture (chapter 0.3). This chapter opens that box, using snip's real nginx configuration, which runs two copies of snip behind one address.
+Type almost any big website's address and your request doesn't reach the application first. It reaches a **reverse proxy**: a single front door that decides which of many copies of the application should handle it, handles the encryption, protects the application from slow and malicious clients, and quietly routes around copies that have crashed. You've seen its fingerprints already — the `502 Bad Gateway` pages, the `X-Forwarded-For` header, the "front door" box in snip's architecture ([chapter 0.3](../start/meet-snip.mdx)). This chapter opens that box, using snip's real nginx configuration, which runs two copies of snip behind one address.
 
 ## What you'll learn
 
@@ -44,7 +44,7 @@ A reverse proxy is a hotel reception desk. Guests only ever deal with reception:
 | **Single entry point** | One address and port for the world | Backends can move, scale and restart invisibly |
 | **Load balancing** | Spread requests across copies | Capacity, and no single copy overwhelmed |
 | **Health checks & failover** | Stop sending traffic to dead copies | A crash doesn't become an outage |
-| **TLS termination** | Handle HTTPS, forward plain HTTP inside | One place for certificates (chapter 7.1) |
+| **TLS termination** | Handle HTTPS, forward plain HTTP inside | One place for certificates ([chapter 7.1](../security/security-literacy.mdx)) |
 | **Buffering** | Absorb slow clients, hand the app complete requests | Slow phones don't tie up app goroutines |
 | **Security edge** | Block paths, limit rates and sizes, add headers | Protection before requests reach your code |
 | **Compression and caching** | gzip responses; cache static files | Less bandwidth, less backend work |
@@ -86,10 +86,10 @@ server {
 
 Piece by piece:
 
-- **`upstream snip_api`** names a group of backends. With Docker Compose running two `api` replicas (chapter 9.3), the name `api` resolves to both. You can also list servers explicitly: `server 10.0.1.5:8080; server 10.0.1.6:8080;`.
-- **`listen 80`** — nginx is what claims the public port (chapter 1.4); snip itself isn't exposed.
+- **`upstream snip_api`** names a group of backends. With Docker Compose running two `api` replicas ([chapter 9.3](../containers/docker-compose.mdx)), the name `api` resolves to both. You can also list servers explicitly: `server 10.0.1.5:8080; server 10.0.1.6:8080;`.
+- **`listen 80`** — nginx is what claims the public port ([chapter 1.4](../foundations/networks-from-zero.mdx)); snip itself isn't exposed.
 - **`proxy_pass http://snip_api`** — forward every request to the group.
-- **`location = /metrics { deny all; }`** — snip's metrics are for internal monitoring (chapter 13.2), so the front door refuses them with `403` before they ever reach snip.
+- **`location = /metrics { deny all; }`** — snip's metrics are for internal monitoring ([chapter 13.2](../observability/metrics.mdx)), so the front door refuses them with `403` before they ever reach snip.
 
 ### Keep-alive to the backends
 
@@ -99,7 +99,7 @@ proxy_http_version 1.1;
 proxy_set_header Connection "";
 ```
 
-Opening a TCP connection costs a round trip (chapter 1.4). Without these three lines, nginx would open a **new** connection to snip for every request and close it afterwards. With them, it keeps up to 32 idle connections per worker open and reuses them — much faster and lighter under load. (HTTP/1.1 is needed for keep-alive; clearing the `Connection` header stops nginx forwarding the client's "close".)
+Opening a TCP connection costs a round trip ([chapter 1.4](../foundations/networks-from-zero.mdx)). Without these three lines, nginx would open a **new** connection to snip for every request and close it afterwards. With them, it keeps up to 32 idle connections per worker open and reuses them — much faster and lighter under load. (HTTP/1.1 is needed for keep-alive; clearing the `Connection` header stops nginx forwarding the client's "close".)
 
 ### Timeouts
 
@@ -108,7 +108,7 @@ proxy_connect_timeout 2s;   # give up connecting to a backend after 2 s
 proxy_read_timeout 15s;     # give up waiting for a response after 15 s
 ```
 
-Chapter 8.1's first rule, applied at the edge. Note `proxy_read_timeout` (15 s) is at least as long as snip's own `WriteTimeout` (15 s, chapter 5.4): the proxy should wait long enough for the app to answer — even with an error — and not a lot longer.
+[Chapter 8.1](./distributed-survival-kit.mdx)'s first rule, applied at the edge. Note `proxy_read_timeout` (15 s) is at least as long as snip's own `WriteTimeout` (15 s, [chapter 5.4](../apis/structuring-a-real-service.mdx)): the proxy should wait long enough for the app to answer — even with an error — and not a lot longer.
 
 ---
 
@@ -123,7 +123,7 @@ Chapter 8.1's first rule, applied at the edge. Note `proxy_read_timeout` (15 s) 
 | **Weighted** | Round robin, but some backends get more | Backends of different sizes |
 | **IP / key hash** | Same client (or key) → same backend | Per-backend caches; "sticky" behaviour |
 
-snip's backends are **stateless** (chapter 1.5): any copy can answer any request, because all state lives in Postgres and Redis. So plain round robin is perfect. Stateful backends — sessions stored in one copy's memory — need **sticky sessions** (always send a user to the same copy), which make scaling and failover harder. Keeping services stateless avoids the problem entirely.
+snip's backends are **stateless** ([chapter 1.5](../foundations/http-from-zero.mdx)): any copy can answer any request, because all state lives in Postgres and Redis. So plain round robin is perfect. Stateful backends — sessions stored in one copy's memory — need **sticky sessions** (always send a user to the same copy), which make scaling and failover harder. Keeping services stateless avoids the problem entirely.
 
 ### When a backend dies
 
@@ -135,7 +135,7 @@ copy 2 killed:               302 302 302 302           → every request still s
 both copies killed:          502                        → Bad Gateway
 ```
 
-When nginx can't connect to a backend, it logs the error, **retries the request on the next backend** (for requests that are safe to retry — chapter 8.1), and temporarily marks the failing one as unavailable. That's **passive health checking**: noticing failures from real traffic. Many load balancers also do **active health checks** — polling an endpoint like snip's `/readyz` every few seconds and removing backends that fail — which is how cloud load balancers and Kubernetes work (chapter 10.2). This is exactly why snip separates `/healthz` and `/readyz` (chapter 5.4).
+When nginx can't connect to a backend, it logs the error, **retries the request on the next backend** (for requests that are safe to retry — [chapter 8.1](./distributed-survival-kit.mdx)), and temporarily marks the failing one as unavailable. That's **passive health checking**: noticing failures from real traffic. Many load balancers also do **active health checks** — polling an endpoint like snip's `/readyz` every few seconds and removing backends that fail — which is how cloud load balancers and Kubernetes work ([chapter 10.2](../kubernetes/core-objects.mdx)). This is exactly why snip separates `/healthz` and `/readyz` ([chapter 5.4](../apis/structuring-a-real-service.mdx)).
 
 ---
 
@@ -149,13 +149,13 @@ Two status codes are almost always produced by the proxy, not your app:
 | **503 Service Unavailable** | "No backend is available / I'm refusing to forward" | All backends failing health checks; maintenance; rate or connection limits |
 | **504 Gateway Timeout** | "A backend accepted the request but didn't answer in time" | Slow database or dependency; timeout too short; deadlock |
 
-When users report 502s, look at the **backends** (are they running? crashing? listening on the right port and address — chapter 1.4?). For 504s, look at **what's slow** behind them (chapter 13.6).
+When users report 502s, look at the **backends** (are they running? crashing? listening on the right port and address — [chapter 1.4](../foundations/networks-from-zero.mdx)?). For 504s, look at **what's slow** behind them ([chapter 13.6](../observability/debugging-playbook.mdx)).
 
 ---
 
 ## TLS termination
 
-In production, clients connect with **HTTPS**. The proxy holds the certificate and private key (chapter 7.1), decrypts the traffic, and forwards plain HTTP to the backends over the private network. That's **TLS termination**:
+In production, clients connect with **HTTPS**. The proxy holds the certificate and private key ([chapter 7.1](../security/security-literacy.mdx)), decrypts the traffic, and forwards plain HTTP to the backends over the private network. That's **TLS termination**:
 
 ```nginx
 server {
@@ -192,7 +192,7 @@ proxy_set_header X-Forwarded-Proto $scheme;                        # was it http
 
 Here's the trap: **a client can send its own `X-Forwarded-For` header**, full of lies. If your app blindly takes the first address in the list, anyone can pretend to be any IP — bypassing per-IP rate limits, polluting logs, faking locations. The rule: **only trust the entries added by proxies you control.** Count from the *right*, skipping your own known proxies, and take the first address that isn't one of them — or configure the proxy (nginx's `real_ip` module) to rewrite the client address from trusted proxies only.
 
-snip sidesteps the problem for its most important limit: it rate-limits **per API key** (chapter 8.4), which the client can't forge, not per IP.
+snip sidesteps the problem for its most important limit: it rate-limits **per API key** ([chapter 8.4](./rate-limiting-and-resilience.mdx)), which the client can't forge, not per IP.
 
 ---
 
@@ -203,7 +203,7 @@ Load balancers work at one of two levels (named after layers of the networking m
 - **Layer 4 (transport)** — forwards **TCP/UDP connections** without looking inside. Very fast, works for any protocol (databases, gRPC, anything), but can't route by URL or header. Examples: AWS **Network Load Balancer**, HAProxy in TCP mode.
 - **Layer 7 (application)** — understands **HTTP**: routes by path or host (`/api/*` to one group, `admin.snip.example` to another), terminates TLS, adds headers, retries idempotent requests. Examples: nginx, Envoy, AWS **Application Load Balancer**, Google Cloud HTTP(S) Load Balancing.
 
-In the cloud, you usually don't run the outermost load balancer yourself: the provider's managed load balancer spreads traffic across availability zones (chapter 12.2) and scales automatically. In Kubernetes, an **Ingress controller** or **Gateway** (often nginx, Envoy or Traefik underneath) plays nginx's role (chapter 10.3). Same jobs, different packaging.
+In the cloud, you usually don't run the outermost load balancer yourself: the provider's managed load balancer spreads traffic across availability zones ([chapter 12.2](../cloud/cloud-networking.mdx)) and scales automatically. In Kubernetes, an **Ingress controller** or **Gateway** (often nginx, Envoy or Traefik underneath) plays nginx's role ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)). Same jobs, different packaging.
 
 :::warning[What can go wrong]
 - **Proxy and app timeouts that don't fit together** — a proxy that gives up before the app can answer produces confusing 504s; one that waits far longer ties up connections.
@@ -218,7 +218,7 @@ In the cloud, you usually don't run the outermost load balancer yourself: the pr
 
 ## Lab
 
-Free, on your own computer with Docker. You'll run the whole stack — two snip copies behind nginx — with Compose (chapter 9.3 explains Compose properly; here you just use it).
+Free, on your own computer with Docker. You'll run the whole stack — two snip copies behind nginx — with Compose ([chapter 9.3](../containers/docker-compose.mdx) explains Compose properly; here you just use it).
 
 1. **Start the stack.**
    ```bash
@@ -306,7 +306,7 @@ Free, on your own computer with Docker. You'll run the whole stack — two snip 
 <details>
 <summary>Explain passive vs active health checks, and why snip's <code>/readyz</code> matters for the second.</summary>
 
-**Passive** health checking learns from real traffic: when requests to a backend fail (connection refused, timeouts), the proxy marks it unhealthy for a while and routes elsewhere. It's automatic but only notices after some requests have failed. **Active** health checking polls a dedicated endpoint every few seconds and removes backends that fail *before* users hit them. snip's `/readyz` is designed for exactly that: it reports whether snip can reach Postgres and Redis, and fails only when a copy truly can't serve (say, it lost its database connection), so that copy is taken out of rotation instead of returning errors to users — while `/healthz`, used for restarts, stays green (chapter 5.4).
+**Passive** health checking learns from real traffic: when requests to a backend fail (connection refused, timeouts), the proxy marks it unhealthy for a while and routes elsewhere. It's automatic but only notices after some requests have failed. **Active** health checking polls a dedicated endpoint every few seconds and removes backends that fail *before* users hit them. snip's `/readyz` is designed for exactly that: it reports whether snip can reach Postgres and Redis, and fails only when a copy truly can't serve (say, it lost its database connection), so that copy is taken out of rotation instead of returning errors to users — while `/healthz`, used for restarts, stays green ([chapter 5.4](../apis/structuring-a-real-service.mdx)).
 
 </details>
 

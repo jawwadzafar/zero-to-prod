@@ -6,7 +6,7 @@ description: "How engineers make and record design decisions: thinking in trade-
 
 # 15.2 Decisions: ADRs, trade-offs & C4 diagrams
 
-Six months from now, someone new joins the team behind snip. They open the readiness check, notice that it doesn't fail when Redis is down, and think: "that's a bug, a dependency is down and we still say we're ready." They fix it, the tests pass, the review is quick. And the next time Redis freezes, every copy of snip is taken out of service at once, exactly the outage chapter 13.5's game day found and fixed.
+Six months from now, someone new joins the team behind snip. They open the readiness check, notice that it doesn't fail when Redis is down, and think: "that's a bug, a dependency is down and we still say we're ready." They fix it, the tests pass, the review is quick. And the next time Redis freezes, every copy of snip is taken out of service at once, exactly the outage [chapter 13.5](../observability/incidents-and-postmortems.mdx)'s game day found and fixed.
 
 Nothing in the code says *why* it's that way. The reasoning lived in a chapter, a commit message and a few people's heads. This chapter is about keeping it somewhere better: how to think about decisions as trade-offs, how to record them so they survive, and how to draw a system so people understand it.
 
@@ -126,10 +126,10 @@ ADRs fail in predictable ways. **Nobody reads them**: fix that by linking to the
 An ADR records a decision. For bigger changes (a new service, a migration, a feature touching several teams), the thinking happens first in a **design document** (some organisations call it an **RFC**, "request for comments"). A typical structure:
 
 1. **Problem and context**: what's wrong or missing, and why now. With numbers.
-2. **Goals and non-goals**: what success means, and what this deliberately won't do (chapter 15.1's "out of scope").
-3. **Proposal**: the design, at the level of chapter 15.1's steps 3 to 5: API, data, components, the hard parts.
+2. **Goals and non-goals**: what success means, and what this deliberately won't do ([chapter 15.1](./system-design-method.mdx)'s "out of scope").
+3. **Proposal**: the design, at the level of [chapter 15.1](./system-design-method.mdx)'s steps 3 to 5: API, data, components, the hard parts.
 4. **Alternatives considered**, each with why it lost. This section is where reviewers learn whether you really explored the problem.
-5. **Risks, rollout and rollback**: how it ships safely (Part 11), how you'd know it's failing (Part 13), how you'd undo it.
+5. **Risks, rollout and rollback**: how it ships safely ([Part 11](../shipping/how-software-ships.mdx)), how you'd know it's failing ([Part 13](../observability/logs.mdx)), how you'd undo it.
 6. **Open questions**: what you don't know yet. Being explicit here invites the right help.
 
 It's shared for review, people comment, the design improves, and the outcome is recorded, often as one or more ADRs. The document's real value is that disagreements happen on paper, cheaply, before anyone has written code they're attached to.
@@ -189,9 +189,9 @@ About an hour. You need your clone of the repository.
 
 1. **Read snip's decisions.** Open `snip/docs/adr/README.md` and read ADRs 3 to 6. For each, find the code it describes (for example, `http.StatusFound` in `internal/httpapi/server.go` for ADR 3). **What to notice:** none of that code links back to its ADR yet. Add a one-line comment to two of those places pointing at the ADR.
 
-2. **Write ADR 7.** Chapter 14.9 suggested that snip's delete should be a **soft delete** (hidden and recoverable for 30 days) instead of a permanent one. Write `0007-soft-delete-links.md` with status **Proposed**. In the context, list at least two alternatives (keep hard deletes; an audit log table; a `deleted_at` column). In the consequences, include the costs: every query must now exclude deleted links, the slug stays taken for 30 days, storage grows, and there's a privacy question (a user who deletes a link may expect it gone). Decide, and say why.
+2. **Write ADR 7.** [Chapter 14.9](../ai/agents.mdx) suggested that snip's delete should be a **soft delete** (hidden and recoverable for 30 days) instead of a permanent one. Write `0007-soft-delete-links.md` with status **Proposed**. In the context, list at least two alternatives (keep hard deletes; an audit log table; a `deleted_at` column). In the consequences, include the costs: every query must now exclude deleted links, the slug stays taken for 30 days, storage grows, and there's a privacy question (a user who deletes a link may expect it gone). Decide, and say why.
 
-3. **Classify doors.** For each of these snip changes, decide: one-way or two-way door? Changing the cache TTL; adding a `/api/v2`; changing the slug alphabet; switching the click stream from Redis to a dedicated message broker; renaming a Prometheus metric. Write one sentence of reasoning for each. (The metric one is sneakier than it looks: who depends on the name? Chapter 13.4's alerts do.)
+3. **Classify doors.** For each of these snip changes, decide: one-way or two-way door? Changing the cache TTL; adding a `/api/v2`; changing the slug alphabet; switching the click stream from Redis to a dedicated message broker; renaming a Prometheus metric. Write one sentence of reasoning for each. (The metric one is sneakier than it looks: who depends on the name? [Chapter 13.4](../observability/slos-alerting-on-call.mdx)'s alerts do.)
 
 4. **Draw a context diagram** for a system you use daily (your bank's app, a food-delivery app) at C4 level 1, in Mermaid. Paste it into a Mermaid live editor or a GitHub Markdown file to render it. Keep it to one box for the system, and label every arrow.
 
@@ -281,7 +281,7 @@ Propose something small: ADRs only for one-way doors and cross-cutting decisions
 - **Alternatives.** Did they consider cheaper fixes: Redis persistence or a replica, writing clicks to a local buffer when Redis is down, or accepting the loss? Each should have a fair hearing.
 - **Costs.** A new system to run, secure, monitor and upgrade; new failure modes; the team's experience with it.
 - **Rollout and rollback.** Can both paths run in parallel for a while (write to both, compare counts)? How is it undone?
-- **Operations.** Alerts, dashboards and runbook changes (Part 13).
+- **Operations.** Alerts, dashboards and runbook changes ([Part 13](../observability/logs.mdx)).
 - **The ADR.** If accepted, it supersedes ADR 5, and ADR 6's consequences change too.
 
 A good review asks questions more than it prescribes answers, and separates "must fix" from "consider".

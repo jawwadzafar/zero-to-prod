@@ -6,7 +6,7 @@ description: "Infrastructure as code with Terraform: why describe infrastructure
 
 # 12.5 Terraform from zero
 
-Parts 12.2–12.4 described snip's cloud setup: a VPC, subnets, security groups, a database, a cache, containers, roles. You could create all of that by clicking through a web console. Doing it once is tedious; doing it again for staging and production, identically, is error-prone; and six months later, nobody can say exactly what was clicked. **Infrastructure as code** (IaC) solves this the way everything else in this handbook has: describe the desired state in files, keep the files in Git, and let a tool make reality match (the same idea as Compose, Kubernetes and GitOps). **Terraform** is the most widely used IaC tool, and it works with every major cloud and hundreds of other services. This chapter teaches it from zero with snip's own stack on **your local Docker**: real Terraform, real state, real plans, at zero cost. Chapter 12.6 then applies the same skills to real clouds.
+Parts [12.2](./cloud-networking.mdx)–[12.4](./iam.mdx) described snip's cloud setup: a VPC, subnets, security groups, a database, a cache, containers, roles. You could create all of that by clicking through a web console. Doing it once is tedious; doing it again for staging and production, identically, is error-prone; and six months later, nobody can say exactly what was clicked. **Infrastructure as code** (IaC) solves this the way everything else in this handbook has: describe the desired state in files, keep the files in Git, and let a tool make reality match (the same idea as Compose, Kubernetes and GitOps). **Terraform** is the most widely used IaC tool, and it works with every major cloud and hundreds of other services. This chapter teaches it from zero with snip's own stack on **your local Docker**: real Terraform, real state, real plans, at zero cost. [Chapter 12.6](./terraform-in-real-life.mdx) then applies the same skills to real clouds.
 
 ## What you'll learn
 
@@ -39,7 +39,7 @@ A recipe versus cooking from memory. From memory, each attempt comes out a littl
 
 ## The building blocks, in snip's local stack
 
-snip's local stack (`snip/infra/local/`) runs Postgres, Redis, the API and the worker as Docker containers, like Compose did in chapter 9.3, but with Terraform. Four files:
+snip's local stack (`snip/infra/local/`) runs Postgres, Redis, the API and the worker as Docker containers, like Compose did in [chapter 9.3](../containers/docker-compose.mdx), but with Terraform. Four files:
 
 ### Providers: who Terraform talks to
 
@@ -55,7 +55,7 @@ terraform {
 provider "docker" {}   # talks to your local Docker daemon
 ```
 
-`version = "~> 3.9"` allows 3.9, 3.10 and so on, but not 4.0 (a new major version may break things, chapter 11.1). `terraform init` downloads the providers and records their exact versions and checksums in **`.terraform.lock.hcl`**, which you commit, so everyone and CI get identical providers.
+`version = "~> 3.9"` allows 3.9, 3.10 and so on, but not 4.0 (a new major version may break things, [chapter 11.1](../shipping/how-software-ships.mdx)). `terraform init` downloads the providers and records their exact versions and checksums in **`.terraform.lock.hcl`**, which you commit, so everyone and CI get identical providers.
 
 ### Resources: the things to create
 
@@ -153,7 +153,7 @@ Each resource in the plan is marked `+` create, `~` update in place, `-` destroy
 :::warning[What can go wrong]
 - **Applying without reading the plan**: the classic cause of Terraform disasters is a `-/+` on a database or a `-` on something important, approved on autopilot. In teams, CI posts the plan on the pull request so reviewers read it too.
 - **Changing things by hand after Terraform created them**: the next plan will "fix" your change back (drift, below), or fail confusingly.
-- **Two people applying at once** to the same state: without **state locking** (chapter 12.6), they can corrupt it.
+- **Two people applying at once** to the same state: without **state locking** ([chapter 12.6](./terraform-in-real-life.mdx)), they can corrupt it.
 - **Treating `destroy` casually**: it does what it says. For production, protect critical resources (`prevent_destroy`, deletion protection).
 :::
 
@@ -172,10 +172,10 @@ Two properties follow:
   ```text
   Plan: 1 to add, 0 to change, 0 to destroy.
   ```
-  An `apply` puts it back: the same reconciliation idea as Kubernetes (chapter 10.1), but run when you ask, not continuously.
+  An `apply` puts it back: the same reconciliation idea as Kubernetes ([chapter 10.1](../kubernetes/why-orchestration.mdx)), but run when you ask, not continuously.
 
 :::info[If you've written code]
-`terraform plan -detailed-exitcode` exits with **0** for no changes, **2** for changes, and **1** for errors. That makes drift detection scriptable: a scheduled CI job can run it nightly and alert when production has drifted from Git. snip's CI uses exactly this, and its first version had a classic shell bug: `terraform plan … | tee plan.txt; CODE=$?` stored **tee's** exit code (always 0), not Terraform's. In bash, a pipeline's status is its *last* command's. The fix is `${PIPESTATUS[0]}` (or `set -o pipefail`), a reminder that pipes hide failures (chapter 2.3).
+`terraform plan -detailed-exitcode` exits with **0** for no changes, **2** for changes, and **1** for errors. That makes drift detection scriptable: a scheduled CI job can run it nightly and alert when production has drifted from Git. snip's CI uses exactly this, and its first version had a classic shell bug: `terraform plan … | tee plan.txt; CODE=$?` stored **tee's** exit code (always 0), not Terraform's. In bash, a pipeline's status is its *last* command's. The fix is `${PIPESTATUS[0]}` (or `set -o pipefail`), a reminder that pipes hide failures ([chapter 2.3](../linux/pipes-and-text-tools.mdx)).
 :::
 
 ---
@@ -234,7 +234,7 @@ Step 6 runs `terraform destroy`, which deletes **everything this configuration m
    KEY=$(docker exec snip-tf-api snip keys create me | grep -o 'snip_[A-Za-z0-9]*')
    SNIP_API_KEY="$KEY" ../../scripts/smoke.sh http://localhost:8080          # [smoke] PASS
    ```
-   (If you still have the Compose stack from chapter 9.3 running, stop it first: both use port 8080. Or pass `-var api_port=9090`.)
+   (If you still have the Compose stack from [chapter 9.3](../containers/docker-compose.mdx) running, stop it first: both use port 8080. Or pass `-var api_port=9090`.)
 
 4. **Idempotency and drift.**
    ```bash

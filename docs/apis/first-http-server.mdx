@@ -6,7 +6,7 @@ description: Build snip v0 — a working link shortener in one Go file — and l
 
 # 5.1 Your first HTTP server
 
-Everything in the handbook so far has been leading here. You know what a server is (chapter 1.6), how HTTP requests and responses look (chapter 1.5), and enough Go to write real programs (Part 4). In this chapter you'll put them together and build **snip v0**: a link shortener that actually works, in about sixty lines of Go, with nothing but the standard library. Then — just as importantly — you'll poke at it until you find everything it *can't* do yet. That list becomes the roadmap for the rest of the handbook.
+Everything in the handbook so far has been leading here. You know what a server is ([chapter 1.6](../foundations/what-a-server-is.mdx)), how HTTP requests and responses look ([chapter 1.5](../foundations/http-from-zero.mdx)), and enough Go to write real programs ([Part 4](../go/why-go-first-program.mdx)). In this chapter you'll put them together and build **snip v0**: a link shortener that actually works, in about sixty lines of Go, with nothing but the standard library. Then — just as importantly — you'll poke at it until you find everything it *can't* do yet. That list becomes the roadmap for the rest of the handbook.
 
 ## What you'll learn
 
@@ -44,7 +44,7 @@ Three ideas are packed in there:
    - **`r *http.Request`** is everything the client sent: method, URL, headers, body.
    - **`w http.ResponseWriter`** is how you answer: you write the status code, headers and body into it.
 2. **`http.HandleFunc("GET /hello", …)`** registers the handler for a **route**: requests with method `GET` and path `/hello`.
-3. **`http.ListenAndServe(":8080", nil)`** claims port 8080 (chapter 1.4) and enters the wait-forever loop (chapter 1.6), starting a goroutine for each connection (chapter 4.5).
+3. **`http.ListenAndServe(":8080", nil)`** claims port 8080 ([chapter 1.4](../foundations/networks-from-zero.mdx)) and enters the wait-forever loop ([chapter 1.6](../foundations/what-a-server-is.mdx)), starting a goroutine for each connection ([chapter 4.5](../go/concurrency.mdx)).
 
 ```mermaid
 flowchart LR
@@ -125,7 +125,7 @@ var (
 )
 ```
 
-A **map** from short code to long URL (chapter 4.2), shared by every request. Because each request runs in its own goroutine (chapter 4.5), every access takes the **mutex** — otherwise two simultaneous `POST`s could corrupt the map.
+A **map** from short code to long URL ([chapter 4.2](../go/types-structs-errors.mdx)), shared by every request. Because each request runs in its own goroutine ([chapter 4.5](../go/concurrency.mdx)), every access takes the **mutex** — otherwise two simultaneous `POST`s could corrupt the map.
 
 ### Routing
 
@@ -143,7 +143,7 @@ body, _ := io.ReadAll(io.LimitReader(r.Body, 2048))
 long := strings.TrimSpace(string(body))
 ```
 
-The request **body** is a stream (chapter 2.3). `io.LimitReader` stops reading after 2,048 bytes, so nobody can make the server read a 10 GB upload into memory — the first of many "never trust the client" habits (chapter 7.5).
+The request **body** is a stream ([chapter 2.3](../linux/pipes-and-text-tools.mdx)). `io.LimitReader` stops reading after 2,048 bytes, so nobody can make the server read a 10 GB upload into memory — the first of many "never trust the client" habits ([chapter 7.5](../security/web-attacks.mdx)).
 
 ### Validating and answering with errors
 
@@ -154,7 +154,7 @@ if !strings.HasPrefix(long, "http://") && !strings.HasPrefix(long, "https://") {
 }
 ```
 
-`http.Error` writes a status code — here **400 Bad Request**, "the client made a mistake" (chapter 1.5) — and a message. The `return` matters: without it, the handler would carry on and also create a link.
+`http.Error` writes a status code — here **400 Bad Request**, "the client made a mistake" ([chapter 1.5](../foundations/http-from-zero.mdx)) — and a message. The `return` matters: without it, the handler would carry on and also create a link.
 
 ### Answering with a redirect
 
@@ -162,7 +162,7 @@ if !strings.HasPrefix(long, "http://") && !strings.HasPrefix(long, "https://") {
 http.Redirect(w, r, long, http.StatusFound)
 ```
 
-This writes status **302 Found** and a `Location` header — exactly what `curl -I http://github.com` showed you in chapter 0.3. The browser does the rest.
+This writes status **302 Found** and a `Location` header — exactly what `curl -I http://github.com` showed you in [chapter 0.3](../start/meet-snip.mdx). The browser does the rest.
 
 :::info[If you've written code]
 If you've used Express (Node), Flask (Python) or Sinatra (Ruby), this will feel familiar: `app.get("/:code", (req, res) => …)` is the same idea as `http.HandleFunc("GET /{code}", …)`. The difference is that Go's standard library is production-grade by itself — many Go services never add a web framework at all, and snip doesn't.
@@ -210,13 +210,13 @@ Now the honest part. snip v0 works in a demo and fails in real life in at least 
 
 | Problem with v0 | Why it matters | Fixed in |
 |---|---|---|
-| Links live in a map in memory | Restart the program and **every link is gone** (chapter 1.1) | 6.1, 6.6 — Postgres |
-| One program on one machine | If it crashes, snip is **down**; it can't handle more traffic than one machine | 8.3, 8.6, Part 10 |
+| Links live in a map in memory | Restart the program and **every link is gone** ([chapter 1.1](../foundations/what-a-computer-does.mdx)) | 6.1, 6.6 — Postgres |
+| One program on one machine | If it crashes, snip is **down**; it can't handle more traffic than one machine | 8.3, 8.6, [Part 10](../kubernetes/why-orchestration.mdx) |
 | Anyone can create links | Spammers can flood it; nobody owns any link, so nobody can delete one | 7.2, 7.4 — API keys, ownership |
 | Requests and responses are plain text | Programs calling snip must parse ad-hoc text; errors have no structure | 5.2, 5.3 — a JSON API |
 | URL validation is a prefix check | `https://` alone passes; there's no length limit on stored URLs | 5.3 |
 | Codes are 6 random characters with no collision check | Two links could get the **same code**, and the second silently replaces the first | 6.3, 6.5 |
-| No logs, no metrics, no health check | When something goes wrong, you're blind | 5.4, Part 13 |
+| No logs, no metrics, no health check | When something goes wrong, you're blind | 5.4, [Part 13](../observability/logs.mdx) |
 | No limits on how fast anyone calls it | One client can overwhelm it | 8.4 — rate limiting |
 
 The reference snip in `cmd/snip` fixes every one of these. The next chapters build those fixes one at a time, and each chapter shows the real code that does it.
@@ -224,8 +224,8 @@ The reference snip in `cmd/snip` fixes every one of these. The next chapters bui
 :::warning[What can go wrong]
 - **Forgetting `return` after writing an error.** The handler keeps running and may write a second response (Go logs `http: superfluous response.WriteHeader call`) or do work it shouldn't.
 - **Writing the body before the status.** Once you write any body, Go sends status 200 and the headers immediately. Set headers and call `WriteHeader` *before* writing the body.
-- **Using `http.ListenAndServe` directly in production.** It has no timeouts, so slow or malicious clients can hold connections open forever. The real snip configures an `http.Server` with timeouts (chapter 5.4).
-- **Port already in use.** `listen tcp :8080: bind: address already in use` — another copy (or the reference snip) is still running (chapter 1.4).
+- **Using `http.ListenAndServe` directly in production.** It has no timeouts, so slow or malicious clients can hold connections open forever. The real snip configures an `http.Server` with timeouts ([chapter 5.4](./structuring-a-real-service.mdx)).
+- **Port already in use.** `listen tcp :8080: bind: address already in use` — another copy (or the reference snip) is still running ([chapter 1.4](../foundations/networks-from-zero.mdx)).
 :::
 
 ---
@@ -242,7 +242,7 @@ Free, on your own computer.
    go mod init my-snip
    code main.go
    ```
-   Type snip v0 into `main.go` from the listing above, run it with `go run .`, and test it with curl. Fix every compile error by reading it (chapter 4.1). Typing it yourself is where the understanding happens.
+   Type snip v0 into `main.go` from the listing above, run it with `go run .`, and test it with curl. Fix every compile error by reading it ([chapter 4.1](../go/why-go-first-program.mdx)). Typing it yourself is where the understanding happens.
 
 3. **Add a feature: a stats page.** Add a route `GET /stats` that prints how many links exist. Hint:
    ```go
@@ -312,7 +312,7 @@ Free, on your own computer.
 <details>
 <summary>Why does snip v0 need a mutex around the map, even though it's such a small program?</summary>
 
-Because Go's HTTP server handles **each request in its own goroutine** (chapter 4.5). Two people creating links at the same moment means two goroutines writing to the same map at once — a data race that can corrupt the map or crash the program with `concurrent map writes`. Size doesn't matter; concurrency does. The mutex makes each read or write happen one at a time.
+Because Go's HTTP server handles **each request in its own goroutine** ([chapter 4.5](../go/concurrency.mdx)). Two people creating links at the same moment means two goroutines writing to the same map at once — a data race that can corrupt the map or crash the program with `concurrent map writes`. Size doesn't matter; concurrency does. The mutex makes each read or write happen one at a time.
 
 </details>
 

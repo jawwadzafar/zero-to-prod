@@ -6,7 +6,7 @@ description: "Git as the single source of truth for what runs: the GitOps princi
 
 # 11.4 GitOps with Argo CD
 
-So far, changes reached the cluster because someone, or some CI job, ran `kubectl apply` or `helm upgrade`. That works, but it leaves awkward questions. What exactly is running in production right now, and does it match what's in Git? Who changed that setting by hand last Tuesday? How do you rebuild the cluster from nothing after a disaster? **GitOps** answers all three with one rule: **Git is the single source of truth for what runs.** A controller inside the cluster continuously compares the cluster with a Git repository and makes them match, the same reconciliation loop as chapter 10.1, with Git as the desired state. To change production, you change Git, through a pull request, with review, history and one-command revert. This chapter explains the idea, then uses **Argo CD**, the most popular GitOps tool, to deploy snip from this very repository and watch it undo changes made behind its back.
+So far, changes reached the cluster because someone, or some CI job, ran `kubectl apply` or `helm upgrade`. That works, but it leaves awkward questions. What exactly is running in production right now, and does it match what's in Git? Who changed that setting by hand last Tuesday? How do you rebuild the cluster from nothing after a disaster? **GitOps** answers all three with one rule: **Git is the single source of truth for what runs.** A controller inside the cluster continuously compares the cluster with a Git repository and makes them match, the same reconciliation loop as [chapter 10.1](../kubernetes/why-orchestration.mdx), with Git as the desired state. To change production, you change Git, through a pull request, with review, history and one-command revert. This chapter explains the idea, then uses **Argo CD**, the most popular GitOps tool, to deploy snip from this very repository and watch it undo changes made behind its back.
 
 ## What you'll learn
 
@@ -45,7 +45,7 @@ flowchart LR
   end
 ```
 
-In **push** deployment, the CI system holds credentials to every cluster it deploys to. That's a powerful secret sitting in a system that also runs third-party code (chapter 11.2). In **pull** deployment, the agent runs **inside** the cluster and only needs **read** access to Git. The CI system never touches the cluster at all. It also works for clusters that the internet can't reach, because they reach out to Git, not the other way around.
+In **push** deployment, the CI system holds credentials to every cluster it deploys to. That's a powerful secret sitting in a system that also runs third-party code ([chapter 11.2](./ci-with-github-actions.mdx)). In **pull** deployment, the agent runs **inside** the cluster and only needs **read** access to Git. The CI system never touches the cluster at all. It also works for clusters that the internet can't reach, because they reach out to Git, not the other way around.
 
 ---
 
@@ -83,7 +83,7 @@ spec:
         - /spec/replicas
 ```
 
-Argo CD understands plain manifests, kustomize and Helm charts (chapter 10.6). It reports two things for every Application:
+Argo CD understands plain manifests, kustomize and Helm charts ([chapter 10.6](../kubernetes/helm.mdx)). It reports two things for every Application:
 
 | Status | Values | Meaning |
 |---|---|---|
@@ -107,7 +107,7 @@ That last switch changes team habits. Emergency fixes still happen by hand somet
 GitOps doesn't replace CI; it replaces the *deploy* step:
 
 1. A developer merges a change to snip's code.
-2. **CI** tests it and builds and publishes an image, `ghcr.io/…/snip:sha-9f3c2a1` (chapters 9.4 and 11.2).
+2. **CI** tests it and builds and publishes an image, `ghcr.io/…/snip:sha-9f3c2a1` (chapters [9.4](../containers/images-in-production.mdx) and [11.2](./ci-with-github-actions.mdx)).
 3. Something updates the **desired state in Git** to use the new tag. It's either a CI step that commits a one-line change to the environment's manifests (`kustomize edit set image …`), or a bot like **Argo CD Image Updater** or **Renovate** that opens a pull request.
 4. **Argo CD** notices the Git change and syncs the cluster.
 
@@ -131,7 +131,7 @@ One Argo CD Application per environment points at its directory. **Promotion is 
 
 ## Secrets in GitOps
 
-"Everything in Git" collides with "never put secrets in Git" (chapters 7.6 and 10.4). The answer is the same as chapter 10.4's: put **references** or **encrypted** values in Git, never the plaintext.
+"Everything in Git" collides with "never put secrets in Git" (chapters [7.6](../security/secrets-management.mdx) and [10.4](../kubernetes/config-secrets-storage.mdx)). The answer is the same as [chapter 10.4](../kubernetes/config-secrets-storage.mdx)'s: put **references** or **encrypted** values in Git, never the plaintext.
 
 - **External Secrets Operator**: Git holds an `ExternalSecret` naming the entry in the cloud secret manager; the operator creates the real Secret.
 - **Sealed Secrets** / **SOPS**: Git holds encrypted values that only the cluster, or a key in your cloud's KMS, can decrypt.
@@ -147,14 +147,14 @@ snip's base manifests contain a development-only password so the labs work anywh
 :::
 
 :::info[In the real world]
-GitOps with Argo CD or **Flux** is the default way many organisations run Kubernetes at scale. A platform team manages hundreds of Applications with **ApplicationSets**, which generate one Application per cluster or environment from a template. Progressive delivery (chapter 11.3) plugs in through Argo Rollouts, and the "deploy" button in the developer portal is really a pull request against a config repository. The main win isn't speed: it's that anyone can answer "what's running, who changed it, and how do we undo it?" by reading Git.
+GitOps with Argo CD or **Flux** is the default way many organisations run Kubernetes at scale. A platform team manages hundreds of Applications with **ApplicationSets**, which generate one Application per cluster or environment from a template. Progressive delivery ([chapter 11.3](./delivery-and-deployment.mdx)) plugs in through Argo Rollouts, and the "deploy" button in the developer portal is really a pull request against a config repository. The main win isn't speed: it's that anyone can answer "what's running, who changed it, and how do we undo it?" by reading Git.
 :::
 
 ---
 
 ## Lab
 
-Free, on a kind cluster. This lab runs in snip's CI on every push, on a fresh cluster, with Argo CD syncing the exact commit under test. Use a **new** cluster, so Argo CD's snip doesn't collide with the one from Part 10: `kind create cluster --name gitops`.
+Free, on a kind cluster. This lab runs in snip's CI on every push, on a fresh cluster, with Argo CD syncing the exact commit under test. Use a **new** cluster, so Argo CD's snip doesn't collide with the one from [Part 10](../kubernetes/why-orchestration.mdx): `kind create cluster --name gitops`.
 
 :::danger
 The clean-up deletes the `gitops` kind cluster and everything in it. Make sure your kubectl context is the lab cluster, not a real one, before you delete anything: `kubectl config current-context` should say `kind-gitops`.
@@ -175,7 +175,7 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
    kubectl apply -f deploy/argocd/application.yaml
    kubectl -n argocd get application snip -w          # OutOfSync/Missing → Synced/Progressing → Synced/Healthy
    ```
-   You didn't run `kubectl apply -k`: Argo CD fetched the manifests from GitHub and applied them. (If Health stays `Progressing` or `Degraded` because the HPA can't read metrics, install metrics-server as in chapter 10.5.)
+   You didn't run `kubectl apply -k`: Argo CD fetched the manifests from GitHub and applied them. (If Health stays `Progressing` or `Degraded` because the HPA can't read metrics, install metrics-server as in [chapter 10.5](../kubernetes/operating-and-debugging.mdx).)
 
 3. **Open the UI.**
    ```bash
@@ -272,10 +272,10 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
 <details>
 <summary>Walk through a code change to snip reaching production in a GitOps setup with separate staging and production.</summary>
 
-1. A developer opens a PR to snip's code. CI runs tests, builds, scans (chapter 11.2). It's reviewed and merged.
-2. On merge, CI builds and publishes `snip:sha-9f3c2a1` with its SBOM (chapter 9.4).
+1. A developer opens a PR to snip's code. CI runs tests, builds, scans ([chapter 11.2](./ci-with-github-actions.mdx)). It's reviewed and merged.
+2. On merge, CI builds and publishes `snip:sha-9f3c2a1` with its SBOM ([chapter 9.4](../containers/images-in-production.mdx)).
 3. An image-updater bot (or a CI step) opens a PR to the **config repository** changing `envs/staging` to `sha-9f3c2a1`. It's auto-merged for staging.
-4. Argo CD's **staging** Application sees the commit and syncs; a canary or rolling update runs (chapter 11.3); smoke tests and metrics confirm it's healthy.
+4. Argo CD's **staging** Application sees the commit and syncs; a canary or rolling update runs ([chapter 11.3](./delivery-and-deployment.mdx)); smoke tests and metrics confirm it's healthy.
 5. A **promotion PR** changes `envs/production` to the same `sha-9f3c2a1`. A human reviews and approves it.
 6. Argo CD's **production** Application syncs it, ideally through a progressive rollout that aborts on bad metrics.
 7. If something goes wrong later, **revert** the promotion commit; Argo CD syncs production back to the previous tag.
@@ -287,6 +287,6 @@ Every step is a visible commit or check. The CI system never holds production cl
 <details>
 <summary>During an incident, the on-call engineer needs to scale snip's API to 20 replicas immediately, but Argo CD keeps setting it back to 2. What should they do?</summary>
 
-The fast path: **pause automated sync** (or self-heal) for that Application in the Argo CD UI or CLI, then scale by hand. Argo CD will show `OutOfSync` but won't revert it. Then make it permanent the right way: a small PR changing the desired state (or the HPA's `maxReplicas`) in Git, merged, and re-enable automated sync. Better still, design it so this isn't needed: let the **HPA** own `replicas` (and tell Argo CD to ignore that field), with limits generous enough for spikes. And put "how to pause sync" in the on-call runbook (chapter 13.5) before the incident, not during it.
+The fast path: **pause automated sync** (or self-heal) for that Application in the Argo CD UI or CLI, then scale by hand. Argo CD will show `OutOfSync` but won't revert it. Then make it permanent the right way: a small PR changing the desired state (or the HPA's `maxReplicas`) in Git, merged, and re-enable automated sync. Better still, design it so this isn't needed: let the **HPA** own `replicas` (and tell Argo CD to ignore that field), with limits generous enough for spikes. And put "how to pause sync" in the on-call runbook ([chapter 13.5](../observability/incidents-and-postmortems.mdx)) before the incident, not during it.
 
 </details>

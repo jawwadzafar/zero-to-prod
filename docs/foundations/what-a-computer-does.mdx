@@ -67,8 +67,8 @@ Engineers have circulated a table like this — often called **"Latency Numbers 
 
 Now you can see why so many ideas in this handbook exist:
 
-- A **cache** (Part 6) keeps a copy of something in fast memory so you don't have to fetch it from slow storage or across the network. snip keeps recently used links in memory for exactly this reason.
-- A **database index** (chapter 6.4) exists to avoid reading lots of slow storage.
+- A **cache** ([Part 6](../data/why-databases.mdx)) keeps a copy of something in fast memory so you don't have to fetch it from slow storage or across the network. snip keeps recently used links in memory for exactly this reason.
+- A **database index** ([chapter 6.4](../data/indexes-and-performance.mdx)) exists to avoid reading lots of slow storage.
 - Backend engineers obsess about how many times a request **crosses the network**, because each crossing is "weeks" in CPU time.
 
 :::tip
@@ -83,7 +83,7 @@ The second big fact: **RAM is volatile** — it forgets everything when the powe
 
 That's why you lose unsaved work when an app crashes: your document was only in memory. Clicking "Save" copies it to storage.
 
-This matters enormously for servers. A server keeps lots of things in memory because memory is fast. But anything that must **survive a restart** — your users, their links, their money — must be written to storage. Much of Part 6 is about doing that safely.
+This matters enormously for servers. A server keeps lots of things in memory because memory is fast. But anything that must **survive a restart** — your users, their links, their money — must be written to storage. Much of [Part 6](../data/why-databases.mdx) is about doing that safely.
 
 ```mermaid
 flowchart LR
@@ -91,7 +91,7 @@ flowchart LR
     P -->|"saved to storage first"| S[("Storage")] -->|"after restart"| P2["Program reads it back"]
 ```
 
-You'll feel this directly in chapter 5.1: snip v0 keeps links in memory, and every time you restart it, **every link is gone**. That's not a bug in your code — it's this fact, and it's exactly why databases exist.
+You'll feel this directly in [chapter 5.1](../apis/first-http-server.mdx): snip v0 keeps links in memory, and every time you restart it, **every link is gone**. That's not a bug in your code — it's this fact, and it's exactly why databases exist.
 
 ---
 
@@ -112,7 +112,7 @@ Programs don't touch hardware directly. They **ask** the OS — "open this file"
 The OS is the kitchen manager. Cooks don't grab ovens or fight over counter space; they ask the manager, who schedules the ovens, assigns counter space, and makes sure one cook's mess never ends up in another's dish.
 :::
 
-Servers almost always run **Linux**, a free operating system. It's why Part 2 teaches Linux, and why Windows readers use WSL (chapter 0.2).
+Servers almost always run **Linux**, a free operating system. It's why [Part 2](../linux/shell-and-filesystem.mdx) teaches Linux, and why Windows readers use WSL ([chapter 0.2](../start/set-up-your-machine.mdx)).
 
 :::info[If you've written code]
 When your program calls something like `readFile` or `fetch`, the language's runtime eventually makes system calls (`open`, `read`, `connect`, `send`…) to the OS. That's the boundary where your code stops being "just computation" and starts waiting on the slow parts of the table above.
@@ -150,7 +150,7 @@ top -b -n 1 | head -15   # a snapshot of what's running right now
 What to look at:
 
 - **Cores** — how many cooks. A typical laptop has 8–12; big servers have 64 or more.
-- **Memory** — a laptop usually has 8–32 GB. A **gigabyte** (GB) is about a billion bytes (chapter 1.3 explains bytes).
+- **Memory** — a laptop usually has 8–32 GB. A **gigabyte** (GB) is about a billion bytes ([chapter 1.3](./bits-bytes-text-formats.mdx) explains bytes).
 - **Storage** — usually hundreds of GB to a few TB (terabytes, about a thousand GB). Notice it's roughly 10–100× bigger than memory. Big-but-slow and small-but-fast is the pattern everywhere.
 - **`top`** — the list of running programs, sorted by how much CPU or memory each is using. On a server, this is often the first thing an engineer looks at when something feels slow.
 
@@ -168,7 +168,7 @@ Every resource can run out, and each fails in its own recognisable way. Knowing 
 | **Network** | Messages are delayed or dropped. | Timeouts, slow pages, "connection reset". |
 
 :::warning[What can go wrong]
-- **A slow memory leak.** A program that keeps a little more memory for every request and never lets go will run fine for hours — then be killed by the OS. It looks random; it isn't. (You'll see how to spot it with metrics in Part 13.)
+- **A slow memory leak.** A program that keeps a little more memory for every request and never lets go will run fine for hours — then be killed by the OS. It looks random; it isn't. (You'll see how to spot it with metrics in [Part 13](../observability/logs.mdx).)
 - **A full disk from logs.** Programs write logs to storage continuously. Without cleanup, a disk fills up weeks later, and suddenly *everything* fails at once. It's one of the most common real outages.
 - **Assuming "the server is slow" means "the CPU is slow".** Usually the CPU is mostly idle, waiting on disk or network. Check before you buy a bigger machine.
 :::

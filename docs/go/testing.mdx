@@ -6,7 +6,7 @@ description: Why professionals test, and how in Go — go test, table-driven tes
 
 # 4.4 Testing
 
-How do you know your code works? You run it, try a few things, and it seems fine. Then you change one small thing next week — and something you didn't touch breaks, and a user finds it before you do. **Automated tests** are code that checks your code: small programs that run your functions with known inputs and complain if the outputs are wrong. They run in seconds, every time you change anything, and on every pull request (chapter 3.3). They're the reason professional teams can change code confidently many times a day. snip has a real test suite, and in this chapter you'll read it, run it, break it, and extend it.
+How do you know your code works? You run it, try a few things, and it seems fine. Then you change one small thing next week — and something you didn't touch breaks, and a user finds it before you do. **Automated tests** are code that checks your code: small programs that run your functions with known inputs and complain if the outputs are wrong. They run in seconds, every time you change anything, and on every pull request ([chapter 3.3](../git/pull-requests-and-review.mdx)). They're the reason professional teams can change code confidently many times a day. snip has a real test suite, and in this chapter you'll read it, run it, break it, and extend it.
 
 ## What you'll learn
 
@@ -46,7 +46,7 @@ Go has testing built in. The rules:
 - A test is a function named **`TestXxx`** that takes **`t *testing.T`**.
 - Inside, you run your code and report problems with **`t.Errorf`** (record a failure, keep going) or **`t.Fatalf`** (record a failure, stop this test now).
 
-Here's the simplest possible test, for the `combinations` function from chapter 4.1:
+Here's the simplest possible test, for the `combinations` function from [chapter 4.1](./why-go-first-program.mdx):
 
 ```go
 // combinations_test.go
@@ -111,7 +111,7 @@ func TestNormalizeURL(t *testing.T) {
 }
 ```
 
-- The **table** is a slice of anonymous structs (chapter 4.2): each row is one case, with the input and the expected result.
+- The **table** is a slice of anonymous structs ([chapter 4.2](./types-structs-errors.mdx)): each row is one case, with the input and the expected result.
 - **`t.Run`** makes each row a named **subtest**, so a failure reports exactly which input broke.
 - Adding a new case — say, a bug someone reported — is **one line**. The best habit in testing: *when you fix a bug, first add a failing test case for it.* Then it can never quietly come back.
 
@@ -121,7 +121,7 @@ Read the table itself and you have a precise specification of what snip accepts,
 
 ## Test doubles: faking the slow and the unpredictable
 
-snip's `Service` depends on a `Store`, a `Cache` and a `ClickRecorder` (chapter 4.3). Real ones need Postgres and Redis running. For most tests we don't want that: they'd be slow, need setup, and fail for reasons unrelated to the code under test.
+snip's `Service` depends on a `Store`, a `Cache` and a `ClickRecorder` ([chapter 4.3](./packages-modules-interfaces.mdx)). Real ones need Postgres and Redis running. For most tests we don't want that: they'd be slow, need setup, and fail for reasons unrelated to the code under test.
 
 Because those dependencies are **interfaces**, a test can pass in a **test double** — a stand-in that behaves just well enough. snip's service test uses the real in-memory store, plus a tiny hand-written fake cache that **counts how it was used**:
 
@@ -154,7 +154,7 @@ if !r2.CacheHit {
 }
 ```
 
-That's the payoff of chapter 4.3's interfaces: the business logic is tested in microseconds, with no database, and the test reads like a description of how caching should work.
+That's the payoff of [chapter 4.3](./packages-modules-interfaces.mdx)'s interfaces: the business logic is tested in microseconds, with no database, and the test reads like a description of how caching should work.
 
 ---
 
@@ -229,7 +229,7 @@ go tool cover -html=cover.out                      # open a browser view: covere
 
 Coverage is a **flashlight, not a score**. Red lines show code no test exercises — often error paths that deserve a test. But 100% coverage doesn't mean correct: a test can run a line without checking its result. Aim for meaningful tests of important behaviour, not a number.
 
-The **race detector** (chapter 1.2's race conditions) watches your program as it runs and reports when two goroutines touch the same memory unsafely:
+The **race detector** ([chapter 1.2](../foundations/programs-processes-threads.mdx)'s race conditions) watches your program as it runs and reports when two goroutines touch the same memory unsafely:
 
 ```bash
 go test -race ./...      # snip's CI always runs tests this way

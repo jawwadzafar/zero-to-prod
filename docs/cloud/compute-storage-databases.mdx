@@ -6,7 +6,7 @@ description: "The building blocks you rent: compute (VMs, containers on ECS/Farg
 
 # 12.3 Compute, storage & managed databases
 
-Chapter 12.2 built snip a network. Now it needs things to put in it: somewhere to **run** snip, somewhere to **keep files**, and a **database** that doesn't lose data when a machine dies. Every cloud offers several versions of each, from "here's a raw virtual machine, good luck" to "give us your container and forget about servers". The skill is choosing the least work that meets your needs. This chapter surveys the options for compute, storage and databases, explains what "managed" really buys you, and walks through the choices in snip's AWS configuration: containers on **ECS Fargate**, a managed **Postgres** and **Redis**, and logs in the cloud's log service. You'll also use real **object storage** over plain HTTP, no account needed, to see how it differs from the filesystem on your laptop.
+[Chapter 12.2](./cloud-networking.mdx) built snip a network. Now it needs things to put in it: somewhere to **run** snip, somewhere to **keep files**, and a **database** that doesn't lose data when a machine dies. Every cloud offers several versions of each, from "here's a raw virtual machine, good luck" to "give us your container and forget about servers". The skill is choosing the least work that meets your needs. This chapter surveys the options for compute, storage and databases, explains what "managed" really buys you, and walks through the choices in snip's AWS configuration: containers on **ECS Fargate**, a managed **Postgres** and **Redis**, and logs in the cloud's log service. You'll also use real **object storage** over plain HTTP, no account needed, to see how it differs from the filesystem on your laptop.
 
 ## What you'll learn
 
@@ -22,9 +22,9 @@ Chapter 12.2 built snip a network. Now it needs things to put in it: somewhere t
 
 | Option | You provide | The provider handles | Scales by | Good for |
 |---|---|---|---|---|
-| **Virtual machines** (EC2, Compute Engine, Azure VMs) | An OS image, patches, your service (systemd, chapter 2.5) | Hardware, hypervisor | Adding machines (autoscaling groups) | Special OS needs, legacy software, full control |
+| **Virtual machines** (EC2, Compute Engine, Azure VMs) | An OS image, patches, your service (systemd, [chapter 2.5](../linux/running-a-linux-server.mdx)) | Hardware, hypervisor | Adding machines (autoscaling groups) | Special OS needs, legacy software, full control |
 | **Containers, serverless** (ECS on **Fargate**, **Cloud Run**, Azure Container Apps, App Runner) | An image and its settings | Servers, OS, placement, scaling | Adding tasks, automatically | Most web services and APIs, including snip |
-| **Managed Kubernetes** (EKS, GKE, AKS) | Workloads (Part 10) and some cluster settings | Control plane (and optionally nodes) | Pods and nodes | Many services and teams, the Kubernetes ecosystem |
+| **Managed Kubernetes** (EKS, GKE, AKS) | Workloads ([Part 10](../kubernetes/why-orchestration.mdx)) and some cluster settings | Control plane (and optionally nodes) | Pods and nodes | Many services and teams, the Kubernetes ecosystem |
 | **Functions** (Lambda, Cloud Functions, Azure Functions) | A function per event or route | Everything else; scales to zero | Per request | Event handlers, glue, spiky low-volume work |
 
 :::note[Everyday anchor]
@@ -51,9 +51,9 @@ resource "aws_ecs_service" "api" {
 }
 ```
 
-Every idea from Parts 9–11 is here with different names: the image, readiness via the load balancer's health check on `/readyz`, rolling deploys that keep capacity, automatic rollback, secrets injected at runtime, and logs to a central service. The task definition even runs snip on **ARM** processors (`cpu_architecture = "ARM64"`), which are cheaper on AWS, possible because snip's image is multi-architecture (chapter 9.4).
+Every idea from Parts [9](../containers/what-a-container-is.mdx)–[11](../shipping/how-software-ships.mdx) is here with different names: the image, readiness via the load balancer's health check on `/readyz`, rolling deploys that keep capacity, automatic rollback, secrets injected at runtime, and logs to a central service. The task definition even runs snip on **ARM** processors (`cpu_architecture = "ARM64"`), which are cheaper on AWS, possible because snip's image is multi-architecture ([chapter 9.4](../containers/images-in-production.mdx)).
 
-**How to choose:** start at the top of "least work" that fits. For a typical HTTP service, serverless containers (Fargate, Cloud Run) are hard to beat: no servers, no cluster to upgrade, scaling built in. Move to Kubernetes when you have many services and the platform investment pays off (chapter 10.1). Use functions for event-driven glue. Use VMs when nothing else fits.
+**How to choose:** start at the top of "least work" that fits. For a typical HTTP service, serverless containers (Fargate, Cloud Run) are hard to beat: no servers, no cluster to upgrade, scaling built in. Move to Kubernetes when you have many services and the platform investment pays off ([chapter 10.1](../kubernetes/why-orchestration.mdx)). Use functions for event-driven glue. Use VMs when nothing else fits.
 
 ---
 
@@ -61,7 +61,7 @@ Every idea from Parts 9–11 is here with different names: the image, readiness 
 
 | Kind | What it is | Accessed as | Examples | Use for |
 |---|---|---|---|---|
-| **Block** | A virtual disk attached to one machine | A filesystem (`/var/lib/postgresql`) | EBS, Persistent Disk, Azure Disk | A VM's or database's disk; Kubernetes PersistentVolumes (chapter 10.4) |
+| **Block** | A virtual disk attached to one machine | A filesystem (`/var/lib/postgresql`) | EBS, Persistent Disk, Azure Disk | A VM's or database's disk; Kubernetes PersistentVolumes ([chapter 10.4](../kubernetes/config-secrets-storage.mdx)) |
 | **Object** | A huge key → file store, over HTTP | An API: `PUT`/`GET` by key | S3, Cloud Storage, Azure Blob | Uploads, backups, logs, static websites, data lakes, build artefacts |
 | **File** | A shared network filesystem | A filesystem mounted by many machines | EFS, Filestore, Azure Files | Shared files that several servers must see (ReadWriteMany) |
 
@@ -69,23 +69,23 @@ Every idea from Parts 9–11 is here with different names: the image, readiness 
 
 Things to know about object storage:
 
-- **Block public access** is on by default on modern accounts. Keep it on. Public buckets are the most common cloud data leak (chapter 12.1).
+- **Block public access** is on by default on modern accounts. Keep it on. Public buckets are the most common cloud data leak ([chapter 12.1](./cloud-from-zero.mdx)).
 - **Pre-signed URLs** let your API give a user temporary permission to upload or download one object directly, without making the bucket public and without the file passing through your servers. This is how most apps handle user uploads.
 - **Versioning** keeps old versions of each object, which protects against accidental deletes and overwrites (and ransomware).
 - **Lifecycle rules** move old objects to cheaper **storage classes** (infrequent access, archive) or delete them after a time. Logs from last year shouldn't cost the same as today's.
-- **Egress**: downloading lots of data out of the cloud costs money (chapter 12.1). Put a CDN in front of public, popular files (chapter 8.6).
+- **Egress**: downloading lots of data out of the cloud costs money ([chapter 12.1](./cloud-from-zero.mdx)). Put a CDN in front of public, popular files ([chapter 8.6](../distributed/scaling.mdx)).
 
 ---
 
 ## Managed databases: what "managed" buys
 
-Running Postgres yourself means installing, configuring, patching, backing up, monitoring, and failing over at 3 a.m. A **managed database** (Amazon RDS and Aurora, Cloud SQL, Azure Database for PostgreSQL) does the operational work. You still own the schema, queries, indexes and data (chapters 6.x).
+Running Postgres yourself means installing, configuring, patching, backing up, monitoring, and failing over at 3 a.m. A **managed database** (Amazon RDS and Aurora, Cloud SQL, Azure Database for PostgreSQL) does the operational work. You still own the schema, queries, indexes and data ([chapters 6](../data/why-databases.mdx).x).
 
 | Feature | What it gives you | snip's configuration |
 |---|---|---|
 | **Automated backups** + **point-in-time recovery** (PITR) | Restore the database to any second in the retention window: "just before the bad migration at 14:03" | `backup_retention_period = 7` |
 | **Multi-AZ** | A synchronous **standby** in another zone. If the primary's zone or machine fails, it fails over automatically, typically in a minute or two, with the same endpoint | `multi_az = true` in production, `false` in staging to save money |
-| **Read replicas** | Extra copies for read traffic (chapter 8.6), in the same or another region | (not needed yet) |
+| **Read replicas** | Extra copies for read traffic ([chapter 8.6](../distributed/scaling.mdx)), in the same or another region | (not needed yet) |
 | **Patching and upgrades** | Minor versions applied in a maintenance window you choose | automatic minor upgrades |
 | **Encryption at rest** | Disk and backups encrypted with managed keys | `storage_encrypted = true` |
 | **Monitoring** | Metrics, slow-query insights | `performance_insights_enabled = true` |
@@ -107,8 +107,8 @@ resource "aws_db_instance" "postgres" {
 
 Things managed databases **don't** do for you:
 
-- **Connection limits** still apply (chapter 8.6). Twenty snip tasks with ten connections each can exhaust a small instance. Size pools, or use a proxy like **RDS Proxy** (a managed PgBouncer).
-- **Bad queries are still slow.** Managed hardware doesn't fix a missing index (chapter 6.4).
+- **Connection limits** still apply ([chapter 8.6](../distributed/scaling.mdx)). Twenty snip tasks with ten connections each can exhaust a small instance. Size pools, or use a proxy like **RDS Proxy** (a managed PgBouncer).
+- **Bad queries are still slow.** Managed hardware doesn't fix a missing index ([chapter 6.4](../data/indexes-and-performance.mdx)).
 - **Backups you've never restored are hopes, not backups.** Test a restore regularly.
 - **Major version upgrades** still need planning and testing.
 
@@ -123,7 +123,7 @@ snip's **Redis** is managed too (**ElastiCache**; Memorystore on Google Cloud). 
 :::
 
 :::info[In the real world]
-A very common production stack, on any cloud: containers on a serverless container platform or managed Kubernetes, a managed relational database with Multi-AZ and PITR, a managed Redis, object storage for files and backups behind a CDN, a managed queue for background work, and the provider's log and metrics services, often forwarded to a third-party observability tool (Part 13). Almost none of it runs on a server anyone logs into.
+A very common production stack, on any cloud: containers on a serverless container platform or managed Kubernetes, a managed relational database with Multi-AZ and PITR, a managed Redis, object storage for files and backups behind a CDN, a managed queue for background work, and the provider's log and metrics services, often forwarded to a third-party observability tool ([Part 13](../observability/logs.mdx)). Almost none of it runs on a server anyone logs into.
 :::
 
 ---
@@ -256,6 +256,6 @@ A managed database includes most of that for a higher per-hour price. For most t
 - **Egress**: files downloaded directly from storage without a CDN, or cross-region replication nobody needs.
 - **Incomplete multipart uploads** (partial uploads that never finished), which are billed but invisible in normal listings.
 
-Tools: the billing console's breakdown by service and usage type, storage analytics (e.g. S3 Storage Lens), and **tags**, so each cost has an owner (chapter 12.7).
+Tools: the billing console's breakdown by service and usage type, storage analytics (e.g. S3 Storage Lens), and **tags**, so each cost has an owner ([chapter 12.7](./cost-control.mdx)).
 
 </details>

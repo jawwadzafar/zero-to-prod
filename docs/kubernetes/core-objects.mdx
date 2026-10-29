@@ -6,7 +6,7 @@ description: "The Kubernetes objects you'll use every day: the anatomy of a mani
 
 # 10.2 Core objects: Pods, Deployments and friends
 
-Chapter 10.1 ran snip with one imperative command. Real deployments are **files**: YAML manifests, kept in Git, that describe every object snip needs. Kubernetes has dozens of object types, but a handful do nearly all the everyday work. This chapter builds them up in the order they depend on each other: the **Pod** (containers that run together), the **Deployment** (keeps N identical Pods running and upgrades them safely), and the objects for work that doesn't fit that mould: databases, per-node agents and batch jobs. Along the way come the settings that separate a toy from a production workload: **health probes**, **resource requests and limits**, and **security settings**. Then you'll deploy snip's full manifests (Postgres, Redis, API, worker) to your kind cluster, and roll out a new version while traffic flows, with zero failed requests.
+[Chapter 10.1](./why-orchestration.mdx) ran snip with one imperative command. Real deployments are **files**: YAML manifests, kept in Git, that describe every object snip needs. Kubernetes has dozens of object types, but a handful do nearly all the everyday work. This chapter builds them up in the order they depend on each other: the **Pod** (containers that run together), the **Deployment** (keeps N identical Pods running and upgrades them safely), and the objects for work that doesn't fit that mould: databases, per-node agents and batch jobs. Along the way come the settings that separate a toy from a production workload: **health probes**, **resource requests and limits**, and **security settings**. Then you'll deploy snip's full manifests (Postgres, Redis, API, worker) to your kind cluster, and roll out a new version while traffic flows, with zero failed requests.
 
 ## What you'll learn
 
@@ -38,7 +38,7 @@ status:                      # OBSERVED state: Kubernetes writes this
   readyReplicas: 2
 ```
 
-You write `spec`; controllers write `status`; the gap between them is what reconciliation loops close (chapter 10.1). `kubectl explain` documents every field, straight from the cluster:
+You write `spec`; controllers write `status`; the gap between them is what reconciliation loops close ([chapter 10.1](./why-orchestration.mdx)). `kubectl explain` documents every field, straight from the cluster:
 
 ```bash
 kubectl explain deployment.spec.strategy
@@ -55,7 +55,7 @@ A **Pod** is one or more containers that are always scheduled together on the sa
 If a container is a person, a Pod is a **shared hotel room**. Everyone in the room is checked in and out together, shares one room number (IP address) and one phone line (ports), and can leave things for each other on the table (shared volumes). Most rooms have one guest. Sometimes a guest brings an assistant (a sidecar).
 :::
 
-Pods are **disposable**. When one dies, or its node dies, it's never repaired or moved. A **new** Pod, with a new name and a new IP address, is created in its place. That's why you almost never create Pods directly: you create an object that **manages** Pods for you, and you reach them through a Service (chapter 10.3), never by IP.
+Pods are **disposable**. When one dies, or its node dies, it's never repaired or moved. A **new** Pod, with a new name and a new IP address, is created in its place. That's why you almost never create Pods directly: you create an object that **manages** Pods for you, and you reach them through a Service ([chapter 10.3](./networking-and-ingress.mdx)), never by IP.
 
 ### Labels and selectors
 
@@ -132,20 +132,20 @@ The other strategy, `Recreate`, stops all old Pods before starting new ones. Tha
 
 ## Health probes: alive, ready, started
 
-The kubelet asks each container three different questions (chapter 5.4 introduced `/healthz` and `/readyz` for exactly this):
+The kubelet asks each container three different questions ([chapter 5.4](../apis/structuring-a-real-service.mdx) introduced `/healthz` and `/readyz` for exactly this):
 
 | Probe | Question | If it fails… | snip uses |
 |---|---|---|---|
 | **startupProbe** | Has it finished starting? | Keep waiting (up to a limit); other probes don't run yet | `/healthz`, every 2 s, up to 30 times: time for migrations on first start |
 | **livenessProbe** | Is it alive, or stuck? | **Restart the container** | `/healthz`: never checks dependencies |
-| **readinessProbe** | Should it receive traffic right now? | **Take it out of the Service**, but don't restart it | `/readyz`: fails if Postgres is down (Redis down = degraded, still ready; chapter 13.5) |
+| **readinessProbe** | Should it receive traffic right now? | **Take it out of the Service**, but don't restart it | `/readyz`: fails if Postgres is down (Redis down = degraded, still ready; [chapter 13.5](../observability/incidents-and-postmortems.mdx)) |
 
 The difference between liveness and readiness matters enormously. If Postgres goes down and the **liveness** probe checked the database, Kubernetes would restart every API Pod, again and again, which fixes nothing and adds a restart storm to a database outage. With snip's split, Pods stay alive but are marked **not ready**, so traffic stops going to them, and they come back into service by themselves once the database recovers.
 
 :::warning[What can go wrong]
 - **Liveness probes that check dependencies**: one database blip restarts everything.
 - **No readiness probe**: new Pods get traffic before they can serve it, and rollouts cause errors.
-- **No startup probe on slow starters**: the liveness probe kills the container before it ever finishes starting, forever (`CrashLoopBackOff`, chapter 10.5).
+- **No startup probe on slow starters**: the liveness probe kills the container before it ever finishes starting, forever (`CrashLoopBackOff`, [chapter 10.5](./operating-and-debugging.mdx)).
 - **Timeouts too tight**: a probe with a 1-second timeout on a busy Pod fails under load, restarting healthy Pods exactly when you need them.
 :::
 
@@ -161,7 +161,7 @@ lifecycle:
 terminationGracePeriodSeconds: 30
 ```
 
-The `preStop` hook runs first. Then the container gets SIGTERM, finishes its in-flight requests (snip's graceful shutdown, chapter 5.4), and exits. Only after the grace period would it be killed. snip's CI rolls out a new version while a client sends ten requests a second to the Service, and requires **zero** failures.
+The `preStop` hook runs first. Then the container gets SIGTERM, finishes its in-flight requests (snip's graceful shutdown, [chapter 5.4](../apis/structuring-a-real-service.mdx)), and exits. Only after the grace period would it be killed. snip's CI rolls out a new version while a client sends ten requests a second to the Service, and requires **zero** failures.
 
 ---
 
@@ -176,10 +176,10 @@ resources:
 ```
 
 - **Requests** are what the **scheduler** uses. A Pod goes only to a node with that much *unreserved* capacity, and it's guaranteed that much. `100m` is 100 **millicores**: a tenth of one CPU core.
-- **Limits** are enforced by the kernel's cgroups. Over the **memory** limit, the container is **OOM-killed** (exit code 137, chapter 9.1) and restarted. Over a **CPU** limit, it's throttled (slowed), never killed.
+- **Limits** are enforced by the kernel's cgroups. Over the **memory** limit, the container is **OOM-killed** (exit code 137, [chapter 9.1](../containers/what-a-container-is.mdx)) and restarted. Over a **CPU** limit, it's throttled (slowed), never killed.
 - A common, sensible pattern (snip's): set CPU and memory **requests**, a memory **limit**, and no CPU limit. CPU limits often cause surprising throttling, while memory has no "slow down" option.
 
-Requests matter more than they look. Without them, the scheduler can pack too many Pods onto one node, and the autoscaler (chapter 8.6) measures CPU as a **percentage of requests**. snip's HPA "70% CPU" means 70% of 100m.
+Requests matter more than they look. Without them, the scheduler can pack too many Pods onto one node, and the autoscaler ([chapter 8.6](../distributed/scaling.mdx)) measures CPU as a **percentage of requests**. snip's HPA "70% CPU" means 70% of 100m.
 
 ---
 
@@ -191,15 +191,15 @@ Requests matter more than they look. Without them, the scheduler can pack too ma
 | **StatefulSet** | N Pods with **stable identities** (`postgres-0`, `postgres-1`), started in order, each with **its own persistent volume** | Databases, message brokers, anything where each copy owns data | `postgres` |
 | **DaemonSet** | **One Pod on every node** (or chosen nodes) | Per-node agents: log collectors, monitoring, networking | (none; kube-proxy is one) |
 | **Job** | Pods that **run to completion**, retried on failure | Migrations, batch processing, one-off tasks | (could run `snip migrate`) |
-| **CronJob** | A Job **on a schedule** (cron syntax, chapter 2.5) | Nightly reports, cleanups, backups | (a nightly Postgres backup) |
+| **CronJob** | A Job **on a schedule** (cron syntax, [chapter 2.5](../linux/running-a-linux-server.mdx)) | Nightly reports, cleanups, backups | (a nightly Postgres backup) |
 
-snip's Postgres uses a StatefulSet with a `volumeClaimTemplates` entry, so its Pod `postgres-0` always gets the same disk (`data-postgres-0`), even when it's recreated on another node. Chapter 10.4 covers storage properly.
+snip's Postgres uses a StatefulSet with a `volumeClaimTemplates` entry, so its Pod `postgres-0` always gets the same disk (`data-postgres-0`), even when it's recreated on another node. [Chapter 10.4](./config-secrets-storage.mdx) covers storage properly.
 
 ---
 
 ## Namespaces, kustomize and kubectl
 
-A **namespace** is a named group of objects: `snip`, `kube-system`, `monitoring`. Names only need to be unique within a namespace. You can apply permissions and quotas per namespace, and deleting a namespace deletes everything in it. Namespaces aren't a security boundary on their own: Pods in different namespaces can still talk to each other unless NetworkPolicies say otherwise (chapter 10.3).
+A **namespace** is a named group of objects: `snip`, `kube-system`, `monitoring`. Names only need to be unique within a namespace. You can apply permissions and quotas per namespace, and deleting a namespace deletes everything in it. Namespaces aren't a security boundary on their own: Pods in different namespaces can still talk to each other unless NetworkPolicies say otherwise ([chapter 10.3](./networking-and-ingress.mdx)).
 
 **kustomize** (built into `kubectl`, via `-k`) assembles a set of manifests and customises them without templates. snip's `deploy/k8s/base/kustomization.yaml` lists the files, puts everything in the `snip` namespace, adds labels, and sets the image. The `overlays/kind` directory reuses the base, and changes only the image to one you built yourself:
 
@@ -240,14 +240,14 @@ snip's Pods set `runAsNonRoot: true`, a promise the kubelet must check before st
 :::
 
 :::info[In the real world]
-Production manifests are almost never applied by hand from a laptop. They live in Git, are validated in CI (schema checks like **kubeconform**, policy checks), and are applied by a pipeline or a GitOps controller that continuously reconciles the cluster with the repository (chapter 11.4). Teams also standardise on **Helm** charts (chapter 10.6) or kustomize, and enforce security settings like snip's (non-root, read-only root filesystem, no privilege escalation, all capabilities dropped) cluster-wide with **Pod Security Standards**, where the `restricted` level requires exactly these.
+Production manifests are almost never applied by hand from a laptop. They live in Git, are validated in CI (schema checks like **kubeconform**, policy checks), and are applied by a pipeline or a GitOps controller that continuously reconciles the cluster with the repository ([chapter 11.4](../shipping/gitops.mdx)). Teams also standardise on **Helm** charts ([chapter 10.6](./helm.mdx)) or kustomize, and enforce security settings like snip's (non-root, read-only root filesystem, no privilege escalation, all capabilities dropped) cluster-wide with **Pod Security Standards**, where the `restricted` level requires exactly these.
 :::
 
 ---
 
 ## Lab
 
-Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI on a fresh kind cluster on every push.
+Free, on your kind cluster from [chapter 10.1](./why-orchestration.mdx). Every step here runs in snip's CI on a fresh kind cluster on every push.
 
 1. **Build snip and load it into the cluster.** kind's node can't see your local Docker images, so you copy the image in:
    ```bash
@@ -299,7 +299,7 @@ Free, on your kind cluster from chapter 10.1. Every step here runs in snip's CI 
    kubectl -n snip rollout history deploy/api
    kubectl -n snip rollout undo deploy/api
    ```
-   Keep everything running for chapter 10.3.
+   Keep everything running for [chapter 10.3](./networking-and-ingress.mdx).
 
 ## Self-check
 

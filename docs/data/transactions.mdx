@@ -22,7 +22,7 @@ INSERT INTO links VALUES ('godoc', 'https://go.dev/doc/', 1, 42);
 
 # 6.5 Transactions & concurrency
 
-Two of the hardest problems in backend engineering hide inside the most ordinary-looking code. **First:** a change needs several steps, and something fails halfway — the power cuts, the network drops, a rule is violated on step three. Are you left with half a change? **Second:** two requests touch the same data at the same moment — two clicks on the same link, two people buying the last ticket. Does one of them silently disappear? You met the second problem in chapter 1.2 as a race condition in memory. Databases face it at a vastly larger scale, and their answer — **transactions** — is one of the great achievements of computer science. This chapter explains how they work, where they stop protecting you, and how snip stays correct.
+Two of the hardest problems in backend engineering hide inside the most ordinary-looking code. **First:** a change needs several steps, and something fails halfway — the power cuts, the network drops, a rule is violated on step three. Are you left with half a change? **Second:** two requests touch the same data at the same moment — two clicks on the same link, two people buying the last ticket. Does one of them silently disappear? You met the second problem in [chapter 1.2](../foundations/programs-processes-threads.mdx) as a race condition in memory. Databases face it at a vastly larger scale, and their answer — **transactions** — is one of the great achievements of computer science. This chapter explains how they work, where they stop protecting you, and how snip stays correct.
 
 ## What you'll learn
 
@@ -73,7 +73,7 @@ UPDATE owners SET links_left = links_left - 1 WHERE id = 2;   -- would make it -
 COMMIT;
 ```
 
-The `UPDATE` violates the constraint and the transaction is **aborted**. Try running `SELECT * FROM links;` now: Postgres refuses with *"current transaction is aborted, commands ignored until end of transaction block"*. A failed transaction must be ended explicitly — run `ROLLBACK;`, then `SELECT * FROM links;` again. No `grace1`: **the `INSERT` before the failure was undone too.** The constraint (chapter 6.3) plus the transaction guarantee the quota and the links can never disagree.
+The `UPDATE` violates the constraint and the transaction is **aborted**. Try running `SELECT * FROM links;` now: Postgres refuses with *"current transaction is aborted, commands ignored until end of transaction block"*. A failed transaction must be ended explicitly — run `ROLLBACK;`, then `SELECT * FROM links;` again. No `grace1`: **the `INSERT` before the failure was undone too.** The constraint ([chapter 6.3](./designing-schemas.mdx)) plus the transaction guarantee the quota and the links can never disagree.
 
 ---
 
@@ -86,7 +86,7 @@ Transactions in relational databases promise four things, remembered as **ACID**
 | **A**tomicity | All statements take effect, or none do | No half-finished changes, ever |
 | **C**onsistency | Every committed transaction leaves the data obeying all constraints | Rules like `CHECK`, `UNIQUE`, foreign keys always hold |
 | **I**solation | Concurrent transactions don't see each other's half-finished work | Others see before or after, not in between |
-| **D**urability | Once `COMMIT` returns, the change survives crashes | It's in the write-ahead log on disk (chapter 6.1) |
+| **D**urability | Once `COMMIT` returns, the change survives crashes | It's in the write-ahead log on disk ([chapter 6.1](./why-databases.mdx)) |
 
 Every single SQL statement is automatically its own tiny transaction. `BEGIN … COMMIT` is how you make *several* statements share one.
 
@@ -124,7 +124,7 @@ Most applications run at the default, **Read Committed**, and handle the dangero
 
 ## The lost update, and three ways to prevent it
 
-Here's chapter 1.2's race condition, now in a database. Two redirects for `godoc` arrive together, and the code does the obvious thing — read the count, add one in the application, write it back:
+Here's [chapter 1.2](../foundations/programs-processes-threads.mdx)'s race condition, now in a database. Two redirects for `godoc` arrive together, and the code does the obvious thing — read the count, add one in the application, write it back:
 
 ```mermaid
 sequenceDiagram
@@ -157,7 +157,7 @@ func (s *Store) AddClicks(ctx context.Context, slug string, n int64) error {
 }
 ```
 
-And snip has a test proving it — 50 goroutines adding 2 clicks each, concurrently, against real Postgres, must end at exactly 100 (`TestAddClicksIsAtomic` in `postgres_test.go`, chapter 4.4).
+And snip has a test proving it — 50 goroutines adding 2 clicks each, concurrently, against real Postgres, must end at exactly 100 (`TestAddClicksIsAtomic` in `postgres_test.go`, [chapter 4.4](../go/testing.mdx)).
 
 ### 2. Lock the row: `SELECT … FOR UPDATE`
 
@@ -178,7 +178,7 @@ A second transaction running `SELECT … FOR UPDATE` on the same row **waits** u
 
 Sometimes the cleanest fix is to not check at all, and let the database's constraints reject the loser atomically:
 
-- snip doesn't check "is this slug free?" before inserting (two requests could both see "free"). It just inserts; the `PRIMARY KEY` guarantees only one succeeds, and snip turns the other's duplicate-key error into `409 Conflict` (chapter 6.6).
+- snip doesn't check "is this slug free?" before inserting (two requests could both see "free"). It just inserts; the `PRIMARY KEY` guarantees only one succeeds, and snip turns the other's duplicate-key error into `409 Conflict` ([chapter 6.6](./postgres-from-go.mdx)).
 - The quota example above works the same way with `CHECK (links_left >= 0)`: `UPDATE owners SET links_left = links_left - 1 WHERE id = 1` can never drive it negative, however many requests race.
 
 :::tip
@@ -193,7 +193,7 @@ Row locks (from `UPDATE`, `DELETE` and `SELECT … FOR UPDATE`) are held **until
 
 **Long transactions hurt everyone.** A transaction that locks a row and then waits for something slow — a call to another service, a user clicking "confirm", a `time.Sleep` — makes every other request touching that row wait too. Keep transactions **short**: do slow work before `BEGIN` or after `COMMIT`, never inside.
 
-**Deadlocks.** Transaction A locks row 1 and wants row 2; transaction B locks row 2 and wants row 1. Each waits for the other forever (chapter 4.5's deadlock, in the database):
+**Deadlocks.** Transaction A locks row 1 and wants row 2; transaction B locks row 2 and wants row 1. Each waits for the other forever ([chapter 4.5](../go/concurrency.mdx)'s deadlock, in the database):
 
 ```mermaid
 flowchart LR
@@ -207,7 +207,7 @@ Postgres detects this within about a second, aborts one of them with `ERROR: dea
 
 ## Locks that aren't about rows: advisory locks
 
-When snip starts, it runs migrations (chapter 6.3). But on Kubernetes, three copies of snip might start at the same moment — and three copies all trying to create the same tables would collide. snip takes a Postgres **advisory lock**: a named lock with no row attached, just "only one of us may do this at a time". From `Migrate` in `postgres.go`:
+When snip starts, it runs migrations ([chapter 6.3](./designing-schemas.mdx)). But on Kubernetes, three copies of snip might start at the same moment — and three copies all trying to create the same tables would collide. snip takes a Postgres **advisory lock**: a named lock with no row attached, just "only one of us may do this at a time". From `Migrate` in `postgres.go`:
 
 ```go
 // Serialise concurrent migrators (e.g. two pods starting at once).
@@ -223,7 +223,7 @@ The first copy gets the lock and migrates; the others wait, then find nothing le
 - **Read–modify–write in application code.** Lost updates under load. Use atomic statements, `FOR UPDATE`, or constraints.
 - **Check-then-act.** "If the slug is free, insert it" races. Let the unique constraint decide.
 - **Slow work inside a transaction.** Network calls or user input while holding locks stall everyone else.
-- **Forgetting to retry.** Deadlock victims and serialization failures are *expected* under concurrency; code must retry them (with a limit, chapter 8.4).
+- **Forgetting to retry.** Deadlock victims and serialization failures are *expected* under concurrency; code must retry them (with a limit, [chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)).
 - **Assuming the isolation level protects you.** Postgres's default, Read Committed, does not prevent lost updates or write skew.
 :::
 
@@ -339,6 +339,6 @@ Steps 1–2 run in the playground above. Step 3 needs Docker and two terminals �
 <details>
 <summary>Why should you never call another service (say, send an email) inside a database transaction?</summary>
 
-Two reasons. **Locks:** the transaction holds row locks until it ends, so while you wait for the email service (which might take seconds, or hang), every other request touching those rows waits too. **Atomicity doesn't reach outside:** if the transaction rolls back after the email was sent, the email can't be un-sent — the database and the outside world now disagree. Do the database work in a short transaction, commit it, and then trigger the side effect — ideally through a queue, so it can be retried reliably (chapter 8.2's "outbox" idea).
+Two reasons. **Locks:** the transaction holds row locks until it ends, so while you wait for the email service (which might take seconds, or hang), every other request touching those rows waits too. **Atomicity doesn't reach outside:** if the transaction rolls back after the email was sent, the email can't be un-sent — the database and the outside world now disagree. Do the database work in a short transaction, commit it, and then trigger the side effect — ideally through a queue, so it can be retried reliably ([chapter 8.2](../distributed/queues-and-background-work.mdx)'s "outbox" idea).
 
 </details>

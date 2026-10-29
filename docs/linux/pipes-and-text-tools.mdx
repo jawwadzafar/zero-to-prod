@@ -178,7 +178,7 @@ sed -i 's/8080/9090/g' config.yaml            # -i = edit the file in place (car
 
 ## jq: grep for JSON
 
-Modern services — including snip — write logs as **JSON**, one object per line (chapter 1.3), and every API speaks JSON. **`jq`** is the tool for slicing it. Install it with `brew install jq` or `sudo apt install -y jq`.
+Modern services — including snip — write logs as **JSON**, one object per line ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)), and every API speaks JSON. **`jq`** is the tool for slicing it. Install it with `brew install jq` or `sudo apt install -y jq`.
 
 A snip log line looks like this:
 
@@ -205,7 +205,7 @@ Never write a six-stage pipeline in one go. Run the first command and look at it
 - **`uniq` without `sort`.** `uniq` only merges duplicates that are *next to each other*, so unsorted input gives nonsense counts.
 - **Numbers sorted as text.** Plain `sort` puts `100` before `9`. Use `sort -n` for numbers.
 - **Errors disappearing into a pipe.** Only stdout flows through `|`. If a command's errors go to stderr, they print on your screen and never reach the next stage — or vanish if you've redirected them. When a pipeline gives strangely empty output, run the first command alone and read its errors.
-- **A pipeline's exit code.** By default, a pipeline's exit code is only that of the *last* command, so an early failure can be silently ignored. Scripts fix this with `set -o pipefail` (chapter 2.4).
+- **A pipeline's exit code.** By default, a pipeline's exit code is only that of the *last* command, so an early failure can be silently ignored. Scripts fix this with `set -o pipefail` ([chapter 2.4](./bash-scripting.mdx)).
 :::
 
 ---
@@ -259,7 +259,7 @@ Free, on your own computer. You'll create a small sample web-server log and inte
    awk '$9 >= 500 {print $7}' access.log | sort | uniq -c       # which paths are failing?
    awk '{print $1}' access.log | sort | uniq -c | sort -rn | head -3   # busiest clients
    ```
-   Notice the last one: a single IP made most of the `POST`s, including the ones that got `429 Too Many Requests` — rate limiting (chapter 8.4) doing its job.
+   Notice the last one: a single IP made most of the `POST`s, including the ones that got `429 Too Many Requests` — rate limiting ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)) doing its job.
 
 3. **Separate stdout from stderr.**
    ```bash

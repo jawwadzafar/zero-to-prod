@@ -22,7 +22,7 @@ CREATE INDEX links_title_fts ON links USING gin (to_tsvector('english', coalesce
 
 # 6.8 Choosing a datastore
 
-Walk into any engineering discussion about data and you'll hear a dozen names: Postgres, MySQL, MongoDB, DynamoDB, Cassandra, Redis, Elasticsearch, ClickHouse, S3, Pinecone, Neo4j… Each has passionate fans, and each is genuinely excellent at *something*. The danger is choosing by fashion — adding a new database because it's popular, then running and paying for it forever. This chapter gives you a map of the landscape: what each kind of datastore is actually good at, how far plain Postgres can take you, and a practical way to decide. It closes Part 6 by answering the question you'll be asked in every design review and system-design interview: *"why this database?"*
+Walk into any engineering discussion about data and you'll hear a dozen names: Postgres, MySQL, MongoDB, DynamoDB, Cassandra, Redis, Elasticsearch, ClickHouse, S3, Pinecone, Neo4j… Each has passionate fans, and each is genuinely excellent at *something*. The danger is choosing by fashion — adding a new database because it's popular, then running and paying for it forever. This chapter gives you a map of the landscape: what each kind of datastore is actually good at, how far plain Postgres can take you, and a practical way to decide. It closes [Part 6](./why-databases.mdx) by answering the question you'll be asked in every design review and system-design interview: *"why this database?"*
 
 ## What you'll learn
 
@@ -98,11 +98,11 @@ User uploads, images, videos, backups, logs — **files** — belong in **object
 INSERT INTO link_previews (slug, image_key) VALUES ('godoc', 'previews/godoc.png');
 ```
 
-Putting large files *inside* the database bloats it, slows backups, and wastes expensive database memory and disk. Chapter 12.3 sets up object storage on AWS.
+Putting large files *inside* the database bloats it, slows backups, and wastes expensive database memory and disk. [Chapter 12.3](../cloud/compute-storage-databases.mdx) sets up object storage on AWS.
 
 ### Document databases vs relational
 
-Document databases (MongoDB and friends) store each item as a JSON document, and are loved for flexibility: no schema migration to add a field, and a whole nested object read in one go. The costs are the flip side of chapter 6.3: weaker guarantees about relationships between documents, data duplicated across documents (with the update anomalies that brings), and joins that are awkward or absent. They shine when data really is self-contained documents with varying shapes — product catalogues, content, event payloads. For data full of relationships — users, orders, links and owners — relational usually wins.
+Document databases (MongoDB and friends) store each item as a JSON document, and are loved for flexibility: no schema migration to add a field, and a whole nested object read in one go. The costs are the flip side of [chapter 6.3](./designing-schemas.mdx): weaker guarantees about relationships between documents, data duplicated across documents (with the update anomalies that brings), and joins that are awkward or absent. They shine when data really is self-contained documents with varying shapes — product catalogues, content, event payloads. For data full of relationships — users, orders, links and owners — relational usually wins.
 
 ---
 
@@ -138,7 +138,7 @@ It found "scaling Postgres **databases**" even though you searched for "database
 
 ### And more
 
-- **pgvector** adds vector similarity search for AI features (chapter 14.7) — often enough to skip a separate vector database.
+- **pgvector** adds vector similarity search for AI features ([chapter 14.7](../ai/embeddings-and-vector-search.mdx)) — often enough to skip a separate vector database.
 - **PostGIS** adds maps and geography ("links clicked within 10 km of here").
 - **TimescaleDB** adds time-series features on top of Postgres.
 - **Partitioning** splits a huge table (like billions of click events) into chunks, by month for example, so old data can be dropped cheaply.
@@ -154,7 +154,7 @@ It found "scaling Postgres **databases**" even though you searched for "database
 Whatever you choose, one copy on one machine is a single point of failure. **Replication** keeps copies on several machines:
 
 - A **primary** accepts writes; **replicas** (followers) receive a stream of every change and serve **reads**.
-- If the primary dies, a replica can be **promoted** to take over (chapter 12.3's managed databases do this automatically).
+- If the primary dies, a replica can be **promoted** to take over ([chapter 12.3](../cloud/compute-storage-databases.mdx)'s managed databases do this automatically).
 
 ```mermaid
 flowchart LR
@@ -168,14 +168,14 @@ Replicas usually lag slightly behind the primary — milliseconds, sometimes sec
 
 ### The CAP trade-off, in one paragraph
 
-When the network between database machines fails — a **partition** — a distributed datastore must choose: keep answering (**availability**) and risk returning stale or conflicting data, or refuse some requests until the partition heals so every answer is correct (**consistency**). It can't guarantee both during a partition. That's the **CAP theorem**. In practice, systems like Postgres with synchronous safeguards lean towards **consistency**; systems like Cassandra or DynamoDB (by default) lean towards **availability** with **eventual consistency** — copies converge once the network recovers. Neither is better; they fit different problems. Chapter 8.1 explores what this means for your code.
+When the network between database machines fails — a **partition** — a distributed datastore must choose: keep answering (**availability**) and risk returning stale or conflicting data, or refuse some requests until the partition heals so every answer is correct (**consistency**). It can't guarantee both during a partition. That's the **CAP theorem**. In practice, systems like Postgres with synchronous safeguards lean towards **consistency**; systems like Cassandra or DynamoDB (by default) lean towards **availability** with **eventual consistency** — copies converge once the network recovers. Neither is better; they fit different problems. [Chapter 8.1](../distributed/distributed-survival-kit.mdx) explores what this means for your code.
 
 ---
 
 ## A decision guide
 
 1. **Default to Postgres** for your system of record. It's correct, flexible, and goes further than most products ever need.
-2. **Add Redis** when you need a fast cache, counters, rate limits or simple queues (chapter 6.7).
+2. **Add Redis** when you need a fast cache, counters, rate limits or simple queues ([chapter 6.7](./redis-and-caching.mdx)).
 3. **Use object storage** for files — always.
 4. **Add a columnar analytics store** when reports over large event volumes get slow or start hurting the production database.
 5. **Add a search engine** when Postgres full-text search runs out of features or scale.
@@ -186,17 +186,17 @@ When the network between database machines fails — a **partition** — a distr
 
 | Future snip feature | Choice | Why |
 |---|---|---|
-| Tags on links (chapter 6.3) | Postgres tables | Relational data with integrity rules |
+| Tags on links ([chapter 6.3](./designing-schemas.mdx)) | Postgres tables | Relational data with integrity rules |
 | Link preview images | S3 + a key in Postgres | Files belong in object storage |
 | "Clicks per country per day" dashboards over billions of clicks | ClickHouse (fed by the click queue) | Columnar scans; keeps heavy reports off the primary |
 | Search your links by title | Postgres full-text search | Built in; good enough until proven otherwise |
-| "Find links about similar topics" (chapter 14.7) | pgvector in Postgres | One less system to run |
+| "Find links about similar topics" ([chapter 14.7](../ai/embeddings-and-vector-search.mdx)) | pgvector in Postgres | One less system to run |
 | Session and rate-limit data | Redis | Fast, short-lived, rebuildable |
 
 :::warning[What can go wrong]
 - **Résumé-driven architecture.** Picking a trendy database because it's interesting, then carrying the cost of running it forever.
 - **The wrong store as the source of truth.** Search engines and caches are copies; if they're your only copy, data will be lost.
-- **Keeping copies in sync with "dual writes".** Writing to Postgres *and* Elasticsearch from the same request means one can succeed while the other fails, and they drift. Copy data from one source of truth via a queue or change stream instead (chapter 8.2).
+- **Keeping copies in sync with "dual writes".** Writing to Postgres *and* Elasticsearch from the same request means one can succeed while the other fails, and they drift. Copy data from one source of truth via a queue or change stream instead ([chapter 8.2](../distributed/queues-and-background-work.mdx)).
 - **Files in the database.** Bloated tables, slow backups, expensive storage.
 - **Ignoring replication lag.** A user saves something, the next page reads a replica, and it's "gone". Read-your-own-writes from the primary.
 :::

@@ -6,7 +6,7 @@ description: "Why a password alone isn't enough, and every kind of second factor
 
 # 7.7 Multi-factor authentication & passkeys
 
-In chapter 7.2 you stored passwords properly: slow, salted hashes that are useless to someone who steals the database. That protects passwords *on your side*. It does nothing about what happens on the user's side, which is where most accounts are actually lost. People reuse passwords, type them into convincing fake login pages, and choose ones that thousands of others chose too. When snip's CI checks two common passwords against a public database of leaked credentials, `password123` has appeared in breaches **2,266,543 times**, and `P@ssw0rd`, which looks strong to a password-rules checker, **6,421,042 times**.
+In [chapter 7.2](./authentication.mdx) you stored passwords properly: slow, salted hashes that are useless to someone who steals the database. That protects passwords *on your side*. It does nothing about what happens on the user's side, which is where most accounts are actually lost. People reuse passwords, type them into convincing fake login pages, and choose ones that thousands of others chose too. When snip's CI checks two common passwords against a public database of leaked credentials, `password123` has appeared in breaches **2,266,543 times**, and `P@ssw0rd`, which looks strong to a password-rules checker, **6,421,042 times**.
 
 The fix that works is to require something a remote attacker doesn't have: a second **factor**. This chapter ranks every common kind by what it actually stops, builds the one in your authenticator app from its specification, and ends with the one kind that even a perfect fake login page can't defeat.
 
@@ -27,9 +27,9 @@ The fix that works is to require something a remote attacker doesn't have: a sec
 A house key can be copied without you noticing: someone photographs it, or you lend it to a friend who loses it. A car key with a chip in it is different: copying the metal isn't enough, because the car also checks the chip. MFA is the chip. Stealing the password, the part that's easy to copy, is no longer enough.
 :::
 
-Chapter 7.2 introduced the three kinds of **factor**: something you **know** (a password), something you **have** (a phone, a security key), something you **are** (a fingerprint). A password is only the first kind, and it fails in three common ways:
+[Chapter 7.2](./authentication.mdx) introduced the three kinds of **factor**: something you **know** (a password), something you **have** (a phone, a security key), something you **are** (a fingerprint). A password is only the first kind, and it fails in three common ways:
 
-- **Credential stuffing.** Attackers take username and password pairs leaked from one site and try them on thousands of others, automatically. It works because people reuse passwords (chapter 7.8 covers defending against it).
+- **Credential stuffing.** Attackers take username and password pairs leaked from one site and try them on thousands of others, automatically. It works because people reuse passwords ([chapter 7.8](./account-security.mdx) covers defending against it).
 - **Phishing.** A convincing copy of your login page, a link in an email, and the user types their password into it.
 - **Guessing.** Common passwords, tried against many accounts: a few attempts each, too few to trip a lockout.
 
@@ -69,7 +69,7 @@ otpauth://totp/snip:ada@example.com?digits=6&issuer=snip&period=30&secret=GEZDGN
 **Each code.** Both sides compute the same thing independently:
 
 1. Take the current time and count 30-second steps since 1970: the **counter**.
-2. Compute **HMAC-SHA1**(secret, counter): a keyed fingerprint (chapter 7.1).
+2. Compute **HMAC-SHA1**(secret, counter): a keyed fingerprint ([chapter 7.1](./security-literacy.mdx)).
 3. Pick 4 bytes of it (which 4 depends on the last byte: "dynamic truncation"), and keep the last 6 decimal digits.
 
 That's **TOTP** (time-based one-time password, RFC 6238), built on **HOTP** (the same with a plain counter, RFC 4226):
@@ -107,7 +107,7 @@ cases := map[int64]string{
 - **Replay.** A code is valid for its whole step, so someone who sees it over a shoulder could reuse it within those seconds. The server remembers the last step it accepted and refuses it, or anything older, next time.
 
 :::info[If you've written code]
-Unlike a password, a TOTP secret **can't be hashed**: the server needs the secret itself to compute the expected code. So store it **encrypted** (with a key from a secret manager, chapter 7.6), not in plain text next to the user row. A database leak that includes TOTP secrets lets the attacker generate every future code for every user.
+Unlike a password, a TOTP secret **can't be hashed**: the server needs the secret itself to compute the expected code. So store it **encrypted** (with a key from a secret manager, [chapter 7.6](./secrets-management.mdx)), not in plain text next to the user row. A database leak that includes TOTP secrets lets the attacker generate every future code for every user.
 :::
 
 TOTP stops an attacker who only has the password. It does **not** stop phishing: a fake login page can ask for the code too, and pass it to the real site within its 30 seconds. Modern phishing kits do exactly this automatically, sitting between the user and the real site (an **adversary-in-the-middle** proxy), and walk away with the logged-in session.
@@ -116,7 +116,7 @@ TOTP stops an attacker who only has the password. It does **not** stop phishing:
 
 ## Passkeys: the factor phishing can't beat
 
-**Passkeys** (the consumer name for **WebAuthn** credentials, part of the **FIDO2** standards) replace "a secret both sides know" with **public-key cryptography** (chapter 7.1):
+**Passkeys** (the consumer name for **WebAuthn** credentials, part of the **FIDO2** standards) replace "a secret both sides know" with **public-key cryptography** ([chapter 7.1](./security-literacy.mdx)):
 
 ```mermaid
 sequenceDiagram
@@ -164,7 +164,7 @@ Once MFA is on, attackers stop attacking the login and start attacking **account
 - **Make support-desk resets hard on purpose.** Identity verification that a caller can't talk their way through, a delay before the change takes effect, and a notification to every channel on the account. Several major breaches of large companies have been publicly reported to have started with a phone call to an IT help desk.
 - **Notify on every security change**: a factor added or removed, a recovery used, a new device. The real owner can react.
 
-Chapter 7.8 goes deeper into recovery, reset links and sessions.
+[Chapter 7.8](./account-security.mdx) goes deeper into recovery, reset links and sessions.
 
 ---
 
@@ -172,7 +172,7 @@ Chapter 7.8 goes deeper into recovery, reset links and sessions.
 
 Not every action deserves the same proof. Reading your own links is low risk; deleting all of them, changing the account's email address or adding an administrator is high risk. **Step-up authentication** asks for a fresh second factor right before a sensitive action, even if the user logged in hours ago.
 
-To make that decision, the application needs to know *how* and *when* the user last proved who they are. OpenID Connect carries this in the ID token (chapter 7.9): **`amr`** (authentication methods, such as `pwd` or `otp`), **`acr`** (an assurance level) and **`auth_time`**. snip's authorization policy in chapter 7.10 uses exactly this idea: deleting a link requires a second factor within the last 15 minutes.
+To make that decision, the application needs to know *how* and *when* the user last proved who they are. OpenID Connect carries this in the ID token ([chapter 7.9](./single-sign-on.mdx)): **`amr`** (authentication methods, such as `pwd` or `otp`), **`acr`** (an assurance level) and **`auth_time`**. snip's authorization policy in [chapter 7.10](./authorization-at-scale.mdx) uses exactly this idea: deleting a link requires a second factor within the last 15 minutes.
 
 ---
 
@@ -185,7 +185,7 @@ To make that decision, the application needs to know *how* and *when* the user l
 - **Follow the standards bodies' guidance.** NIST's digital identity guidelines (SP 800-63B) classify SMS codes as a restricted option because of SIM swapping and interception, and recognise phishing-resistant authenticators as the strongest.
 
 :::info[Honesty label]
-**Exists today:** snip's TOTP implementation (`snip/examples/totp`), tested against RFC 4226 and RFC 6238's official vectors, and a CI job in which a Keycloak user enrolls an authenticator using that code, logs in with password and code, and has a replayed code refused. **Not built:** MFA for snip itself. snip's API authenticates with API keys (chapter 7.2) and has no user logins; in a real product, you'd get MFA and passkeys from an identity provider (chapter 7.9) rather than building them.
+**Exists today:** snip's TOTP implementation (`snip/examples/totp`), tested against RFC 4226 and RFC 6238's official vectors, and a CI job in which a Keycloak user enrolls an authenticator using that code, logs in with password and code, and has a replayed code refused. **Not built:** MFA for snip itself. snip's API authenticates with API keys ([chapter 7.2](./authentication.mdx)) and has no user logins; in a real product, you'd get MFA and passkeys from an identity provider ([chapter 7.9](./single-sign-on.mdx)) rather than building them.
 :::
 
 ---
@@ -204,7 +204,7 @@ Free and local. Steps 1–2 need only Go; steps 3–4 need Docker.
 
 2. **Break it on purpose.** In `totp_test.go`, change one expected RFC value, and run the tests. Then set your computer's clock a minute wrong (or pass a different time in a test) and see the verifier's window accept the neighbouring steps and refuse older ones.
 
-3. **Real MFA with a real identity provider.** Start Keycloak with snip's lab realm and the chapter 7.9 relying party:
+3. **Real MFA with a real identity provider.** Start Keycloak with snip's lab realm and the [chapter 7.9](./single-sign-on.mdx) relying party:
    ```bash
    docker run -d --name keycloak -p 8180:8080 \
      -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin \
@@ -301,6 +301,6 @@ Understand the complaint before widening the window. Codes that "don't work" usu
 
 A ±5 minute window means about 21 codes are valid at any moment instead of 3. That makes guessing slightly easier, and it makes a shoulder-surfed or phished code usable for much longer. Replay protection still stops exact reuse, but not a code the user never entered.
 
-Better: keep the standard ±1 step, check the server's time sync (NTP, chapter 2.5), log verification failures with the time offset they'd need to succeed (so you can see real drift), and give users a clear message ("check that your phone's time is set automatically"). If a small number of users do have drifting devices, some servers remember each user's observed offset and adjust for it.
+Better: keep the standard ±1 step, check the server's time sync (NTP, [chapter 2.5](../linux/running-a-linux-server.mdx)), log verification failures with the time offset they'd need to succeed (so you can see real drift), and give users a clear message ("check that your phone's time is set automatically"). If a small number of users do have drifting devices, some servers remember each user's observed offset and adjust for it.
 
 </details>

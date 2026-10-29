@@ -6,7 +6,7 @@ description: "From a first Dockerfile that works to one that's production-ready:
 
 # 9.2 Writing Dockerfiles
 
-Chapter 9.1 showed what an image *is*: layers of files plus settings. This chapter is about making one. A **Dockerfile** is the recipe: a short text file of instructions that `docker build` follows, step by step, to produce an image. Writing one that *works* takes five minutes. Writing one that's **small, fast to rebuild, secure and well-behaved** takes knowing a handful of rules. Each rule exists because breaking it caused real pain somewhere. You'll write a naive Dockerfile, measure what's wrong with it, and fix it step by step until the image is **32 times smaller**, rebuilds in no time, runs as a non-root user and shuts down cleanly. Then you'll read snip's real Dockerfile line by line.
+[Chapter 9.1](./what-a-container-is.mdx) showed what an image *is*: layers of files plus settings. This chapter is about making one. A **Dockerfile** is the recipe: a short text file of instructions that `docker build` follows, step by step, to produce an image. Writing one that *works* takes five minutes. Writing one that's **small, fast to rebuild, secure and well-behaved** takes knowing a handful of rules. Each rule exists because breaking it caused real pain somewhere. You'll write a naive Dockerfile, measure what's wrong with it, and fix it step by step until the image is **32 times smaller**, rebuilds in no time, runs as a non-root user and shuts down cleanly. Then you'll read snip's real Dockerfile line by line.
 
 ## What you'll learn
 
@@ -69,7 +69,7 @@ hello from 9c5c0af17ec6 (version dev, running as uid 0)
 It works. Three problems are hiding in it:
 
 1. **Size.** `docker images` says **448 MB**. The image contains the entire Go toolchain, a compiler that's needed to *build* the program and never to *run* it.
-2. **Root.** `uid 0` is root. If an attacker finds a bug in the server, they're root inside the container, one step closer to the host (chapter 9.1).
+2. **Root.** `uid 0` is root. If an attacker finds a bug in the server, they're root inside the container, one step closer to the host ([chapter 9.1](./what-a-container-is.mdx)).
 3. **Slow rebuilds.** Change *any* file, even the README, and the `go build` runs again. You'll see why in a moment.
 
 The last line of `docker build` is `.`: the **build context**, which is next.
@@ -153,7 +153,7 @@ dockerlab:naive   448MB
 dockerlab:good    14.2MB
 ```
 
-The same program is **32 times smaller**. That means faster pulls on every deploy and every new machine (chapter 8.6's autoscaling waits on this), less disk, and far less software that could contain vulnerabilities.
+The same program is **32 times smaller**. That means faster pulls on every deploy and every new machine ([chapter 8.6](../distributed/scaling.mdx)'s autoscaling waits on this), less disk, and far less software that could contain vulnerabilities.
 
 :::info[If you've written code]
 Go is ideal for this: `CGO_ENABLED=0` produces a **static binary** that needs no C libraries at run time, so it runs on a base with nothing in it. `-trimpath` removes your local file paths from the binary, and `-ldflags="-s -w"` strips debug symbols (smaller, but profiles and stack traces lose some detail). Interpreted languages can't drop the runtime: a Python image must contain Python. They still benefit from multi-stage builds, by installing compilers and build-only packages in the first stage and copying only the installed packages into a slim final stage.
@@ -175,7 +175,7 @@ Alpine uses **musl** instead of the usual **glibc** C library. Most things work,
 
 ## Run as non-root
 
-By default, a container's process runs as **root** (UID 0). Namespaces make that a *contained* root, but a kernel bug or a misconfiguration (a mounted host directory, the Docker socket, `--privileged`) can turn it into real root on the host. So always set a non-root `USER` in the final stage (chapter 7.4's least privilege):
+By default, a container's process runs as **root** (UID 0). Namespaces make that a *contained* root, but a kernel bug or a misconfiguration (a mounted host directory, the Docker socket, `--privileged`) can turn it into real root on the host. So always set a non-root `USER` in the final stage ([chapter 7.4](../security/authorization-multi-tenancy.mdx)'s least privilege):
 
 - distroless images ship a `nonroot` user (UID 65532): `USER nonroot:nonroot`.
 - On Debian or Alpine bases, create one: `RUN adduser -D -u 10001 app` (Alpine) and then `USER app`.
@@ -197,7 +197,7 @@ ENTRYPOINT ["/server", "--port", "8080"]   # exec form: runs /server directly
 ENTRYPOINT /server --port 8080             # shell form: runs /bin/sh -c "/server --port 8080"
 ```
 
-This matters because of **signals**. `docker stop` (and Kubernetes, when it replaces a pod) sends **SIGTERM** to the container's **PID 1**, waits (10 seconds by default), then sends **SIGKILL** (chapter 1.2). Your program only gets the chance to shut down gracefully (finish requests, close database connections, chapter 5.4) if **it** is PID 1 and handles SIGTERM.
+This matters because of **signals**. `docker stop` (and Kubernetes, when it replaces a pod) sends **SIGTERM** to the container's **PID 1**, waits (10 seconds by default), then sends **SIGKILL** ([chapter 1.2](../foundations/programs-processes-threads.mdx)). Your program only gets the chance to shut down gracefully (finish requests, close database connections, [chapter 5.4](../apis/structuring-a-real-service.mdx)) if **it** is PID 1 and handles SIGTERM.
 
 With shell form, PID 1 can be the shell instead, and a shell running a command doesn't forward SIGTERM to it. Some shells hand off (`exec`) to a *single simple* command, so `CMD ./server` may happen to work. But anything more (a pipe, `&&`, a script) leaves the shell in charge. Measured with `CMD ./server | cat`:
 
@@ -243,7 +243,7 @@ ARG API_TOKEN=super-secret-123
 
 The token is in the image, readable by anyone who can pull it. Instead:
 
-- **Runtime secrets** (database passwords, API keys) go in at **run** time, as environment variables or mounted files from a secrets manager (chapter 7.6). They never enter the image. snip's image contains no configuration at all.
+- **Runtime secrets** (database passwords, API keys) go in at **run** time, as environment variables or mounted files from a secrets manager ([chapter 7.6](../security/secrets-management.mdx)). They never enter the image. snip's image contains no configuration at all.
 - **Build-time secrets** (a token to download private dependencies) use BuildKit **secret mounts**, which are available to one `RUN` step and never written to a layer:
   ```dockerfile
   RUN --mount=type=secret,id=npm_token NPM_TOKEN=$(cat /run/secrets/npm_token) npm ci
@@ -253,7 +253,7 @@ The token is in the image, readable by anyone who can pull it. Instead:
   ```
 
 :::danger
-If a secret has ever been built into an image that was pushed anywhere, treat it as **leaked**: rotate it (chapter 7.6). Deleting the tag doesn't un-leak it. Someone may already have pulled it, and caches keep layers.
+If a secret has ever been built into an image that was pushed anywhere, treat it as **leaked**: rotate it ([chapter 7.6](../security/secrets-management.mdx)). Deleting the tag doesn't un-leak it. Someone may already have pulled it, and caches keep layers.
 :::
 
 ---
@@ -279,9 +279,9 @@ ENTRYPOINT ["/usr/local/bin/snip"]
 ```
 
 - **Two stages**: the Go toolchain builds; distroless runs.
-- **`--platform=$BUILDPLATFORM`**, `TARGETOS` and `TARGETARCH` let one build produce images for several CPU types (Intel/AMD and ARM) by cross-compiling. Chapter 9.4 explains; for a normal `docker build` they simply match your machine.
+- **`--platform=$BUILDPLATFORM`**, `TARGETOS` and `TARGETARCH` let one build produce images for several CPU types (Intel/AMD and ARM) by cross-compiling. [Chapter 9.4](./images-in-production.mdx) explains; for a normal `docker build` they simply match your machine.
 - **Dependencies first** (`go.mod`, `go.sum`, `go mod download`) for caching; then the code (`COPY . .`, filtered by `.dockerignore`).
-- **Two programs, one image**: the API and the worker. Compose runs the worker by overriding the entrypoint (`entrypoint: ["/usr/local/bin/snip-worker"]`, chapter 9.3).
+- **Two programs, one image**: the API and the worker. Compose runs the worker by overriding the entrypoint (`entrypoint: ["/usr/local/bin/snip-worker"]`, [chapter 9.3](./docker-compose.mdx)).
 - **Non-root**, **exec-form** `ENTRYPOINT`, and no configuration or secrets inside: everything comes from `SNIP_*` environment variables at run time.
 
 CI builds this image and checks that it starts and answers `/healthz` on every push (the `snip-image` job in `.github/workflows/ci.yml`).
@@ -291,12 +291,12 @@ CI builds this image and checks that it starts and answers `/healthz` on every p
 - **`COPY . .` before installing dependencies**: every code change re-downloads everything.
 - **No `.dockerignore`**: `.env` files and `.git` shipped inside the image.
 - **Shell-form `CMD` with a pipe or `&&`**: SIGTERM never reaches the program, so every deploy waits 10 seconds and then kills it mid-request.
-- **`latest` as a base** (`FROM golang:latest`): builds change underneath you. Pin a version (chapter 9.4).
+- **`latest` as a base** (`FROM golang:latest`): builds change underneath you. Pin a version ([chapter 9.4](./images-in-production.mdx)).
 - **Package-manager caches left in the image**: `apt-get update && apt-get install ... && rm -rf /var/lib/apt/lists/*` must be **one** `RUN`. Deleting files in a later layer doesn't shrink the earlier one.
 :::
 
 :::info[In the real world]
-Teams **lint** Dockerfiles with **hadolint**, which catches most of this chapter's mistakes automatically. They **scan** images for known vulnerabilities (chapter 9.4), use BuildKit **cache mounts** (`RUN --mount=type=cache,target=/root/.cache/go-build`) to keep compiler caches between builds, and often generate images **without a Dockerfile at all**: tools like `ko` (Go), Jib (Java) and Cloud Native Buildpacks produce well-built images directly from source. Knowing what a good Dockerfile looks like is how you judge what those tools give you.
+Teams **lint** Dockerfiles with **hadolint**, which catches most of this chapter's mistakes automatically. They **scan** images for known vulnerabilities ([chapter 9.4](./images-in-production.mdx)), use BuildKit **cache mounts** (`RUN --mount=type=cache,target=/root/.cache/go-build`) to keep compiler caches between builds, and often generate images **without a Dockerfile at all**: tools like `ko` (Go), Jib (Java) and Cloud Native Buildpacks produce well-built images directly from source. Knowing what a good Dockerfile looks like is how you judge what those tools give you.
 :::
 
 ---
@@ -430,7 +430,7 @@ CMD python app.py
 - **`python:latest`**: unpinned; the build changes when a new Python ships. Pin it, e.g. `python:3.13-slim` (slim, too: the full image is large).
 - **`COPY . /app` before `pip install`**: any code change reinstalls every package. Copy `requirements.txt` first, `RUN pip install --no-cache-dir -r requirements.txt`, then copy the code.
 - **No `.dockerignore`** implied: `.git`, `.env`, `__pycache__` and virtualenvs would be copied in.
-- **A secret in `ENV`**: the database password is baked into the image forever. Pass it at run time and rotate this one, since it has leaked (chapter 7.6).
+- **A secret in `ENV`**: the database password is baked into the image forever. Pass it at run time and rotate this one, since it has leaked ([chapter 7.6](../security/secrets-management.mdx)).
 - **Root user**: add a user (`RUN useradd -r -u 10001 app`) and `USER app`.
 - **Shell-form `CMD`**: use `CMD ["python", "app.py"]`, and make sure the app handles SIGTERM.
 - Optionally, a multi-stage build if any packages need compilers to install.

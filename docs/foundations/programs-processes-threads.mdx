@@ -66,7 +66,7 @@ echo $?              # → a non-zero number (1 or 2, depending on your system)
 ```
 
 :::warning[What can go wrong]
-**Exit code 0 means "this program didn't report an error" — not "what you wanted actually happened".** A command can succeed while doing the wrong thing: a web request that returns an error *page* successfully, a build that quietly used old files. Good engineers check the **result**, not just the exit code. You'll hear this again in Part 11.
+**Exit code 0 means "this program didn't report an error" — not "what you wanted actually happened".** A command can succeed while doing the wrong thing: a web request that returns an error *page* successfully, a build that quietly used old files. Good engineers check the **result**, not just the exit code. You'll hear this again in [Part 11](../shipping/how-software-ships.mdx).
 :::
 
 ---
@@ -85,7 +85,7 @@ The columns that matter most in `ps aux`:
 
 | Column | Meaning |
 |---|---|
-| `USER` | Who owns the process (permissions come from this — chapter 2.2) |
+| `USER` | Who owns the process (permissions come from this — [chapter 2.2](../linux/users-permissions-processes.mdx)) |
 | `PID` | The process ID |
 | `%CPU` / `%MEM` | How much CPU and memory it's using |
 | `COMMAND` | What program is running, with its arguments |
@@ -104,7 +104,7 @@ flowchart LR
 ```
 
 :::tip
-Always try a plain `kill` (SIGTERM) first and give the program a few seconds. Reach for `kill -9` only if it's truly stuck. snip is written to handle SIGTERM gracefully: it stops accepting new requests, finishes the ones in progress, then exits (chapter 5.4). Kubernetes relies on exactly that.
+Always try a plain `kill` (SIGTERM) first and give the program a few seconds. Reach for `kill -9` only if it's truly stuck. snip is written to handle SIGTERM gracefully: it stops accepting new requests, finishes the ones in progress, then exits ([chapter 5.4](../apis/structuring-a-real-service.mdx)). Kubernetes relies on exactly that.
 :::
 
 ---
@@ -123,7 +123,7 @@ flowchart TB
     end
 ```
 
-Why bother? Because a server spends most of its time **waiting** (remember chapter 1.1: waiting on disk and network is slow). With several threads, while one is waiting for the database, another can be answering a different visitor. A server handling thousands of visitors at once is really a process with many threads (or thread-like workers), each looking after a few requests.
+Why bother? Because a server spends most of its time **waiting** (remember [chapter 1.1](./what-a-computer-does.mdx): waiting on disk and network is slow). With several threads, while one is waiting for the database, another can be answering a different visitor. A server handling thousands of visitors at once is really a process with many threads (or thread-like workers), each looking after a few requests.
 
 | | Processes | Threads |
 |---|---|---|
@@ -145,7 +145,7 @@ Two words people mix up:
 - **Concurrency** — *dealing* with many things at once, by switching between them. One cook juggling five orders.
 - **Parallelism** — *doing* many things at literally the same instant, on different cores. Five cooks each making one order.
 
-A server needs concurrency (thousands of visitors in progress) and benefits from parallelism (several cores working at once). Go, the language you'll use for snip, makes concurrency unusually easy with lightweight workers called **goroutines** (chapter 4.5).
+A server needs concurrency (thousands of visitors in progress) and benefits from parallelism (several cores working at once). Go, the language you'll use for snip, makes concurrency unusually easy with lightweight workers called **goroutines** ([chapter 4.5](../go/concurrency.mdx)).
 
 ---
 
@@ -179,9 +179,9 @@ Both threads read 10 before either wrote. Both wrote 11. **Two clicks, one count
 
 How engineers prevent it (you'll use all of these):
 
-- **Locks** (also called mutexes): only one worker may do the read–add–write at a time; others wait their turn. snip's in-memory store uses one (chapter 4.5).
-- **Atomic operations**: the machine or database does read–add–write as one indivisible step. snip's Postgres store does `UPDATE links SET clicks = clicks + 1` — a single step the database guarantees can't be interleaved (chapter 6.5).
-- **Don't share**: give each piece of data a single owner, and send it messages instead. snip's click worker does this with a queue (chapter 8.2).
+- **Locks** (also called mutexes): only one worker may do the read–add–write at a time; others wait their turn. snip's in-memory store uses one ([chapter 4.5](../go/concurrency.mdx)).
+- **Atomic operations**: the machine or database does read–add–write as one indivisible step. snip's Postgres store does `UPDATE links SET clicks = clicks + 1` — a single step the database guarantees can't be interleaved ([chapter 6.5](../data/transactions.mdx)).
+- **Don't share**: give each piece of data a single owner, and send it messages instead. snip's click worker does this with a queue ([chapter 8.2](../distributed/queues-and-background-work.mdx)).
 
 :::warning[What can go wrong]
 - **"It works on my machine."** Race conditions hide during testing, when there's one user (you), and appear in production under load. Go has a built-in **race detector** (`go test -race`) that catches many of them; snip's tests run with it.
@@ -192,10 +192,10 @@ How engineers prevent it (you'll use all of these):
 
 ## Why this matters for the systems you'll build
 
-- A **server** is a long-running process (chapter 1.6) that uses many concurrent workers to serve many visitors at once.
-- **Isolation between processes** is why modern systems run each service as a separate process — and, in Part 9, inside a separate **container**.
+- A **server** is a long-running process ([chapter 1.6](./what-a-server-is.mdx)) that uses many concurrent workers to serve many visitors at once.
+- **Isolation between processes** is why modern systems run each service as a separate process — and, in [Part 9](../containers/what-a-container-is.mdx), inside a separate **container**.
 - **Signals and exit codes** are how the tools that run your software (Docker, Kubernetes, CI systems) start, stop and judge it.
-- **Race conditions** are why databases have transactions (chapter 6.5) and why "just add a counter" is never quite as simple as it sounds.
+- **Race conditions** are why databases have transactions ([chapter 6.5](../data/transactions.mdx)) and why "just add a counter" is never quite as simple as it sounds.
 
 :::info[In the real world]
 Real race conditions have caused serious incidents: the **Therac-25** radiation therapy machine in the 1980s delivered massive overdoses partly because of a race condition in its software — a sobering, well-documented case often taught in engineering courses. Most races are less dramatic — lost counts, double charges, duplicate emails — but they're some of the hardest bugs to reproduce and among the most expensive to ship.

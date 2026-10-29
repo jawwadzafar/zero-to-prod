@@ -6,7 +6,7 @@ description: "What changes when an AI feature meets real users: estimating and c
 
 # 14.13 AI in production: cost, safety & observability
 
-Everything in Part 14 so far has run on your laptop or in CI, with one person at the keyboard and data we chose. Production is different. Thousands of people send inputs you'd never have thought of, some of them on purpose. Every call costs money, and a loop or an abuser can multiply that by a thousand overnight. The provider has outages. And the model, which you don't fully control, sits in the middle of it all, reading untrusted text and writing output your code will act on.
+Everything in [Part 14](./python-for-ai-engineers.mdx) so far has run on your laptop or in CI, with one person at the keyboard and data we chose. Production is different. Thousands of people send inputs you'd never have thought of, some of them on purpose. Every call costs money, and a loop or an abuser can multiply that by a thousand overnight. The provider has outages. And the model, which you don't fully control, sits in the middle of it all, reading untrusted text and writing output your code will act on.
 
 None of this needs new ideas. It's the same engineering as the rest of this handbook (budgets, rate limits, timeouts, least privilege, logs and metrics, careful rollouts), applied to a component that's unusually expensive, slow, and easy to talk into things. This chapter pulls it together, with snipai's `guard.py` as working code and this site's own Ask panel as a real, deployed example.
 
@@ -28,32 +28,32 @@ None of this needs new ideas. It's the same engineering as the rest of this hand
 A taxi meter. Every trip has a price made of a few simple parts: a fixed fee, distance and waiting time. Once you know the parts, you can estimate any trip, and you notice immediately when one costs ten times what it should.
 :::
 
-The cost of a model call is **input tokens × input price + output tokens × output price** (chapter 14.4). Output tokens cost several times more than input tokens. So the estimate for a feature is:
+The cost of a model call is **input tokens × input price + output tokens × output price** ([chapter 14.4](./calling-models-from-code.mdx)). Output tokens cost several times more than input tokens. So the estimate for a feature is:
 
 **monthly cost ≈ calls per month × (average input tokens × input price + average output tokens × output price)**
 
-A worked example. snip's link-description feature (chapter 14.4) sends about 1,100 tokens of prompt and page text and gets back about 25 tokens: that's what the local model reported for go.dev and python.org in our CI runs (Claude's tokenizer counts a little differently, so treat it as a rough size). With the prices in snipai's price table (dollars per million tokens, as published when this was written; check the current ones):
+A worked example. snip's link-description feature ([chapter 14.4](./calling-models-from-code.mdx)) sends about 1,100 tokens of prompt and page text and gets back about 25 tokens: that's what the local model reported for go.dev and python.org in our CI runs (Claude's tokenizer counts a little differently, so treat it as a rough size). With the prices in snipai's price table (dollars per million tokens, as published when this was written; check the current ones):
 
 | Model | Per link | 100,000 links a month |
 |---|---|---|
 | Claude Haiku 4.5 ($1 in, $5 out) | 1,100 × $1/M + 25 × $5/M ≈ $0.0012 | ≈ **$120** |
 | Claude Sonnet 5 ($2 in, $10 out) | 1,100 × $2/M + 25 × $10/M ≈ $0.0025 | ≈ **$245** |
 
-Those are estimates from a price table, not bills, but they're the right order of magnitude, and that's what you need to decide whether a feature is worth building. The same arithmetic shows where the money goes: here it's mostly **input**, the page text. An agent (chapter 14.9) is different: it resends the whole growing conversation on every turn, so its cost grows much faster than its number of steps.
+Those are estimates from a price table, not bills, but they're the right order of magnitude, and that's what you need to decide whether a feature is worth building. The same arithmetic shows where the money goes: here it's mostly **input**, the page text. An agent ([chapter 14.9](./agents.mdx)) is different: it resends the whole growing conversation on every turn, so its cost grows much faster than its number of steps.
 
 The levers, roughly from cheapest to hardest:
 
-- **Send less.** Trim inputs: the main text of a page, not its navigation (chapter 14.4's `extract()`); four retrieved passages, not twenty (chapter 14.8). Cap `max_tokens` on output.
-- **Don't call the model at all** when code can answer: an empty page, a duplicate link, a question whose best retrieved passage scores too low (chapter 14.8). Cache answers to identical inputs.
-- **Use the smallest model that passes your evals** (chapter 14.10), and route: a cheap model for easy cases, a capable one for hard ones.
-- **Prompt caching.** When many calls start with the same long prefix (a system prompt, a document), providers can cache it, and cached input is billed at a fraction of the normal price. Put the unchanging part first (chapter 14.11 explains what's being cached).
+- **Send less.** Trim inputs: the main text of a page, not its navigation ([chapter 14.4](./calling-models-from-code.mdx)'s `extract()`); four retrieved passages, not twenty ([chapter 14.8](./rag.mdx)). Cap `max_tokens` on output.
+- **Don't call the model at all** when code can answer: an empty page, a duplicate link, a question whose best retrieved passage scores too low ([chapter 14.8](./rag.mdx)). Cache answers to identical inputs.
+- **Use the smallest model that passes your evals** ([chapter 14.10](./evals.mdx)), and route: a cheap model for easy cases, a capable one for hard ones.
+- **Prompt caching.** When many calls start with the same long prefix (a system prompt, a document), providers can cache it, and cached input is billed at a fraction of the normal price. Put the unchanging part first ([chapter 14.11](./serving-open-models.mdx) explains what's being cached).
 - **Batch** work that isn't urgent. Describing yesterday's 10,000 new links doesn't need an answer in two seconds, and providers offer batch processing at a large discount (around half price at the time of writing) in exchange for results within hours.
 
 ---
 
 ## Budgets and limits: cost control is security
 
-A public endpoint that calls a model is a public endpoint that **spends your money**. If snip offered "describe any URL", anyone could script a million calls, or use your feature as a free general-purpose chatbot with a cleverly worded "URL". So the limits from chapter 8.4 apply, with one addition: count **tokens**, not just requests, because one request can cost a thousand times another.
+A public endpoint that calls a model is a public endpoint that **spends your money**. If snip offered "describe any URL", anyone could script a million calls, or use your feature as a free general-purpose chatbot with a cleverly worded "URL". So the limits from [chapter 8.4](../distributed/rate-limiting-and-resilience.mdx) apply, with one addition: count **tokens**, not just requests, because one request can cost a thousand times another.
 
 snipai's `Guarded` wrapper (`ai/src/snipai/guard.py`) keeps a **daily token budget per user**, checked before every call:
 
@@ -72,23 +72,23 @@ log: {"feature": "describe", ..., "input_tokens": 9, "output_tokens": 5, ...}
    refused: daily limit of 30 tokens reached
 ```
 
-In production, the counter lives in Redis (like snip's rate limiter, chapter 8.4) so every copy of the service shares it, and you add three more layers:
+In production, the counter lives in Redis (like snip's rate limiter, [chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)) so every copy of the service shares it, and you add three more layers:
 
-- **Authentication.** Only signed-in users can reach the feature at all (chapter 7.2), so limits attach to an account, not an IP address.
-- **A global ceiling**: a total daily spend for the feature, with an alert well below it (chapter 13.4) and a switch that turns the feature off.
-- **A provider-side spending limit**, set in the provider's console, as the last line of defence (chapter 14.4).
+- **Authentication.** Only signed-in users can reach the feature at all ([chapter 7.2](../security/authentication.mdx)), so limits attach to an account, not an IP address.
+- **A global ceiling**: a total daily spend for the feature, with an alert well below it ([chapter 13.4](../observability/slos-alerting-on-call.mdx)) and a switch that turns the feature off.
+- **A provider-side spending limit**, set in the provider's console, as the last line of defence ([chapter 14.4](./calling-models-from-code.mdx)).
 
 :::info[In the real world]
-This site's **Ask panel** takes a different route to the same problem: it has no backend at all. Each reader pastes **their own** API key, which stays in their browser and pays for their own questions. The handbook can't be run up a bill, because it never holds a key. That's reasonable for a free learning tool (the risk is only ever to your own account), and it's the "bring your own key" pattern from chapter 14.4. A product serving the public can't do that, and needs everything above.
+This site's **Ask panel** takes a different route to the same problem: it has no backend at all. Each reader pastes **their own** API key, which stays in their browser and pays for their own questions. The handbook can't be run up a bill, because it never holds a key. That's reasonable for a free learning tool (the risk is only ever to your own account), and it's the "bring your own key" pattern from [chapter 14.4](./calling-models-from-code.mdx). A product serving the public can't do that, and needs everything above.
 :::
 
 ---
 
 ## Latency and outages
 
-A model call takes seconds, sometimes tens of seconds. Users feel every one of them (chapter 14.11), and the provider will sometimes be slow, overloaded or down. The tools:
+A model call takes seconds, sometimes tens of seconds. Users feel every one of them ([chapter 14.11](./serving-open-models.mdx)), and the provider will sometimes be slow, overloaded or down. The tools:
 
-- **Stream** answers (chapter 14.4), so text appears after the first token, not after the last.
+- **Stream** answers ([chapter 14.4](./calling-models-from-code.mdx)), so text appears after the first token, not after the last.
 - **Timeouts** on every call. snipai sets 60 seconds, not the SDK default of ten minutes: a web request that waits ten minutes has already failed. For background work, longer is fine.
 - **Retries with backoff**, for rate limits (`429`) and server errors, a small number of times. The official SDKs do this for you (snipai allows 2 retries).
 - **Fallbacks** for real outages: a second model, from a different provider or a local one, that's good enough to keep the feature working. `Guarded` falls back **only** on errors that mean the provider is in trouble:
@@ -104,13 +104,13 @@ OUTAGE_ERRORS: tuple[type[Exception], ...] = (
 
 A bad request or an invalid key is *your* bug; falling back would hide it. And every fallback is logged (`"fell_back": true`), because a feature that's quietly running on its backup model for a week is an incident nobody noticed.
 
-- **Degrade gracefully** (chapter 8.4): when the model is unavailable, snip should still create the link, just without a description, and fill it in later from the queue (chapter 8.2). An AI feature should almost never be on the critical path of the product's core job.
+- **Degrade gracefully** ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)): when the model is unavailable, snip should still create the link, just without a description, and fill it in later from the queue ([chapter 8.2](../distributed/queues-and-background-work.mdx)). An AI feature should almost never be on the critical path of the product's core job.
 
 ---
 
 ## Prompt injection can't be prevented, only contained
 
-You've met **prompt injection** throughout Part 14: a web page telling the describer to advertise something (chapter 14.5), a document telling a RAG system to ignore its instructions (chapter 14.8), a tool result telling an agent to delete everything (chapter 14.9). The uncomfortable truth is that **there is no reliable fix.** A language model reads its instructions and its data as one stream of text. Fencing the data in tags, telling the model "this is data, not instructions", and choosing models trained to resist injection all help a lot, and none of them is a guarantee. An attacker gets unlimited attempts; you need to win every time.
+You've met **prompt injection** throughout [Part 14](./python-for-ai-engineers.mdx): a web page telling the describer to advertise something ([chapter 14.5](./prompt-engineering.mdx)), a document telling a RAG system to ignore its instructions ([chapter 14.8](./rag.mdx)), a tool result telling an agent to delete everything ([chapter 14.9](./agents.mdx)). The uncomfortable truth is that **there is no reliable fix.** A language model reads its instructions and its data as one stream of text. Fencing the data in tags, telling the model "this is data, not instructions", and choosing models trained to resist injection all help a lot, and none of them is a guarantee. An attacker gets unlimited attempts; you need to win every time.
 
 There are two kinds:
 
@@ -125,17 +125,17 @@ So you design as if injection **will** succeed sometimes, and make sure the dama
 
 Remove any one, and the worst case shrinks a lot. The defences, in layers:
 
-- **Least privilege** (chapter 7.4). The model's tools act with the **user's** permissions, never more: snipai's tools call snip's API with the user's own key, so no injection can reach another user's links.
-- **Human approval for consequential actions**, decided by **code**, not by the model (chapter 14.9's `dangerous=True`). An approval step that the model can talk its way past isn't an approval step.
-- **Separate the reading from the doing.** A model that reads untrusted pages shouldn't also hold tools that write or send. Split the work: one call summarises the page into a fixed structure (chapter 14.6), code validates it, and only that structured result reaches the part that acts.
-- **Constrain the output** with structured output and validation (chapter 14.6): an enum can't contain an instruction.
+- **Least privilege** ([chapter 7.4](../security/authorization-multi-tenancy.mdx)). The model's tools act with the **user's** permissions, never more: snipai's tools call snip's API with the user's own key, so no injection can reach another user's links.
+- **Human approval for consequential actions**, decided by **code**, not by the model ([chapter 14.9](./agents.mdx)'s `dangerous=True`). An approval step that the model can talk its way past isn't an approval step.
+- **Separate the reading from the doing.** A model that reads untrusted pages shouldn't also hold tools that write or send. Split the work: one call summarises the page into a fixed structure ([chapter 14.6](./structured-output-and-tools.mdx)), code validates it, and only that structured result reaches the part that acts.
+- **Constrain the output** with structured output and validation ([chapter 14.6](./structured-output-and-tools.mdx)): an enum can't contain an instruction.
 - **Keep secrets out of the prompt.** Anything in the context window can end up in the answer. API keys, other users' data and internal notes don't belong there.
 
 ---
 
 ## Model output is untrusted input
 
-Chapter 7.5's rule applies to model output exactly as it applies to user input: **never trust it; validate it and encode it for wherever it goes.** Model output that ends up in HTML can carry script (XSS), in SQL can carry injection, in a shell command can carry anything. And one trick is specific to AI features: **exfiltration through rendering**.
+[Chapter 7.5](../security/web-attacks.mdx)'s rule applies to model output exactly as it applies to user input: **never trust it; validate it and encode it for wherever it goes.** Model output that ends up in HTML can carry script (XSS), in SQL can carry injection, in a shell command can carry anything. And one trick is specific to AI features: **exfiltration through rendering**.
 
 If your app renders model output as Markdown, an injected instruction can make the model write an image like this:
 
@@ -158,7 +158,7 @@ This site's Ask panel avoids the problem by design: it renders answers as plain 
 
 Every prompt is data you're sending somewhere, and every log line is data you're keeping. Decide deliberately:
 
-- **What goes to the provider.** Read its data policy: whether it stores prompts, for how long, and whether it trains on them (the major providers' business APIs typically don't train on your data by default, but check the terms for the plan you're on). Personal data in prompts is subject to privacy law like any other processing. Sometimes this is the reason to self-host (chapter 14.11).
+- **What goes to the provider.** Read its data policy: whether it stores prompts, for how long, and whether it trains on them (the major providers' business APIs typically don't train on your data by default, but check the terms for the plan you're on). Personal data in prompts is subject to privacy law like any other processing. Sometimes this is the reason to self-host ([chapter 14.11](./serving-open-models.mdx)).
 - **What goes in your logs.** By default, **don't log prompts and answers**: they contain whatever users typed and whatever pages said. Log the metadata instead (below). When you need the text for debugging or evals, store it separately, with access control, a short retention period, and redaction. `guard.py`'s `redact()` masks email addresses and API keys:
 
 ```text
@@ -171,7 +171,7 @@ Every prompt is data you're sending somewhere, and every log line is data you're
 
 ## Observability: one log line per call
 
-An AI feature is a dependency like a database (chapter 13.1): you need to see every call. `Guarded` writes one structured line per call:
+An AI feature is a dependency like a database ([chapter 13.1](../observability/logs.mdx)): you need to see every call. `Guarded` writes one structured line per call:
 
 ```json
 {"feature": "describe", "prompt_version": "v3", "user": "fdee430d40bd", "model": "fake-extractive",
@@ -189,17 +189,17 @@ Each field answers a question you'll be asked:
 | `stop_reason` | "Why are answers cut off?" (`max_tokens`), "why does it refuse?" (`refusal`) |
 | `fell_back`, `error` | "Is the provider having an outage?" |
 
-From those lines come the **metrics** (chapter 13.2) to put on a dashboard and alert on: calls, errors and fallbacks per minute; latency percentiles; tokens and cost per hour; the share of answers truncated or refused; and the quality checks from chapter 14.10 that code can run on every output (the share of answers with no valid citations, say). For multi-step features (RAG, agents), **traces** (chapter 13.3) show where the time went: retrieval, each model call, each tool. OpenTelemetry has semantic conventions for model calls, so these spans look the same across tools.
+From those lines come the **metrics** ([chapter 13.2](../observability/metrics.mdx)) to put on a dashboard and alert on: calls, errors and fallbacks per minute; latency percentiles; tokens and cost per hour; the share of answers truncated or refused; and the quality checks from [chapter 14.10](./evals.mdx) that code can run on every output (the share of answers with no valid citations, say). For multi-step features (RAG, agents), **traces** ([chapter 13.3](../observability/tracing.mdx)) show where the time went: retrieval, each model call, each tool. OpenTelemetry has semantic conventions for model calls, so these spans look the same across tools.
 
 ---
 
 ## Shipping changes: prompts and models are code
 
-A new prompt, a new model version, or a new retrieval setting can change every answer the feature gives. Treat them like code changes (Part 11):
+A new prompt, a new model version, or a new retrieval setting can change every answer the feature gives. Treat them like code changes ([Part 11](../shipping/how-software-ships.mdx)):
 
 - **Version them.** Prompts live in the repository (snipai's `PROMPTS` dict), with a version name that's logged with every call.
-- **Evaluate before merging.** CI runs the evals (chapter 14.10) and blocks a change that makes the code-checked metrics worse.
-- **Roll out gradually.** A feature flag (chapter 11.3) sends 5% of traffic to the new prompt or model; compare the metrics above, then continue or roll back. Pin model versions where the provider allows it, so the model doesn't change under you without a decision.
+- **Evaluate before merging.** CI runs the evals ([chapter 14.10](./evals.mdx)) and blocks a change that makes the code-checked metrics worse.
+- **Roll out gradually.** A feature flag ([chapter 11.3](../shipping/delivery-and-deployment.mdx)) sends 5% of traffic to the new prompt or model; compare the metrics above, then continue or roll back. Pin model versions where the provider allows it, so the model doesn't change under you without a decision.
 - **Keep a kill switch.** One flag that turns the AI feature off and falls back to the non-AI behaviour. You'll need it during an incident, and you'll want it tested before then.
 
 :::info[Honesty label]

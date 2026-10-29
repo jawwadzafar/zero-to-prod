@@ -33,13 +33,13 @@ flowchart LR
 ```
 
 1. **Branch**: `git switch -c fix/redirect-dashes` from an up-to-date `main`.
-2. **Commit** your work in small, clear steps (chapter 3.1).
+2. **Commit** your work in small, clear steps ([chapter 3.1](./git-mental-model.mdx)).
 3. **Push** the branch: `git push -u origin fix/redirect-dashes`.
 4. **Open a pull request** on GitHub: "please pull my branch into `main`".
 5. **Automated checks** (continuous integration) build the code and run the tests on your branch.
 6. **Teammates review** the change, ask questions and suggest improvements. You push more commits to address them; the PR updates automatically.
 7. When checks are green and reviewers approve, the PR is **merged**.
-8. `main` is deployed (Part 11), and the branch is deleted.
+8. `main` is deployed ([Part 11](../shipping/how-software-ships.mdx)), and the branch is deleted.
 
 `main` stays **always releasable**: nothing lands there without passing tests and a second pair of eyes.
 
@@ -97,7 +97,7 @@ Before asking anyone else, open your PR and read the diff top to bottom as if so
 
 ## Automated checks and protected branches
 
-When you push a branch or open a PR, **CI** (continuous integration — chapter 11.2) runs automatically: it builds the code, runs the tests, checks formatting and scans for obvious problems. The PR page shows each check as ✅ or ❌.
+When you push a branch or open a PR, **CI** (continuous integration — [chapter 11.2](../shipping/ci-with-github-actions.mdx)) runs automatically: it builds the code, runs the tests, checks formatting and scans for obvious problems. The PR page shows each check as ✅ or ❌.
 
 This handbook's own repository does exactly this. Every push runs `.github/workflows/ci.yml`, which builds the site, runs snip's tests against real Postgres and Redis, and builds snip's container image.
 
@@ -121,7 +121,7 @@ Many companies also require a **CODEOWNERS** file, which automatically requests 
 Reviewing isn't gatekeeping or proving you're clever. It's **sharing responsibility** for the code, and it's how knowledge spreads through a team. Look for, roughly in this order:
 
 1. **Does it do what it claims?** Does the approach make sense for the problem in the description?
-2. **Is it correct?** Edge cases, error handling, what happens under load or when a dependency is down, security (Part 7).
+2. **Is it correct?** Edge cases, error handling, what happens under load or when a dependency is down, security ([Part 7](../security/security-literacy.mdx)).
 3. **Is it tested?** Would the tests catch it if this broke later?
 4. **Will the next person understand it?** Names, structure, comments explaining *why*.
 5. **Style and nits** — ideally caught by automated formatters, not humans.
@@ -149,7 +149,7 @@ GitHub offers three ways to merge a PR:
 
 | Option | Result on `main` | Good for |
 |---|---|---|
-| **Create a merge commit** | All the branch's commits, plus a merge commit (chapter 3.2) | Keeping the full, detailed history |
+| **Create a merge commit** | All the branch's commits, plus a merge commit ([chapter 3.2](./branches-merges-conflicts.mdx)) | Keeping the full, detailed history |
 | **Squash and merge** | The whole PR becomes **one** commit | Clean history: one commit per feature or fix — very popular |
 | **Rebase and merge** | The branch's commits replayed on `main`, no merge commit | A straight line that keeps individual commits |
 
@@ -174,7 +174,7 @@ Before contributing to a project, read its `CONTRIBUTING.md` (this handbook has 
 :::warning[What can go wrong]
 - **The mega-PR.** Thousands of lines, mixed purposes, "please review by tomorrow". It will be rubber-stamped or stall for weeks. Split it.
 - **No description.** Reviewers have to reverse-engineer *why* from the diff. They'll guess wrong, or ask questions you could have answered in two sentences.
-- **Merging with red checks.** "It's just a flaky test" is how broken code reaches production. Find out why it's red (chapter 11.2).
+- **Merging with red checks.** "It's just a flaky test" is how broken code reaches production. Find out why it's red ([chapter 11.2](../shipping/ci-with-github-actions.mdx)).
 - **Rubber-stamp approvals.** An "LGTM" (looks good to me) on something you didn't really read spreads false confidence. If you don't have time to review properly, say so.
 :::
 
@@ -182,7 +182,7 @@ Before contributing to a project, read its `CONTRIBUTING.md` (this handbook has 
 
 ## Lab
 
-Free — you'll need your GitHub account from chapter 0.2 and the SSH key from chapter 2.6.
+Free — you'll need your GitHub account from [chapter 0.2](../start/set-up-your-machine.mdx) and the SSH key from [chapter 2.6](../linux/ssh-and-remote-machines.mdx).
 
 1. **Create your own practice repository.** On GitHub, click **New repository**, name it `git-practice`, tick **Add a README**, and create it. Then:
    ```bash
@@ -266,7 +266,7 @@ Free — you'll need your GitHub account from chapter 0.2 and the SSH key from c
 
 Something like: *"GET /api/links takes 900 ms for users with many links, because Postgres scans the whole links table to find one owner's links. It's our slowest endpoint and the one users complain about. An index on (owner_id, created_at) lets Postgres jump straight to one owner's links in date order. In local testing with 1M links, the query drops from ~850 ms to ~2 ms. Adding the index takes a few seconds on the current table size and doesn't lock writes (created CONCURRENTLY)."*
 
-A reviewer needs: the **problem** (with evidence), **why this fixes it**, the **measured effect**, and the **risks** (here, what happens while the index is built). Chapter 6.4 teaches exactly this change.
+A reviewer needs: the **problem** (with evidence), **why this fixes it**, the **measured effect**, and the **risks** (here, what happens while the index is built). [Chapter 6.4](../data/indexes-and-performance.mdx) teaches exactly this change.
 
 </details>
 

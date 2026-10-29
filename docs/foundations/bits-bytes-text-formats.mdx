@@ -6,7 +6,7 @@ description: How everything becomes numbers — bits, bytes, text encodings like
 
 # 1.3 Bits, bytes, text & data formats
 
-Every photo, message, song and web page you've ever seen was, at the bottom, a long row of numbers. The CPU from chapter 1.1 can only do arithmetic on numbers — so text, dates, prices and even emoji all have to be **encoded** as numbers, and decoded back. Most of the time this is invisible. Then one day a customer named *Zoë* shows up as *ZoÃ«*, a price of 0.10 + 0.20 comes out as 0.30000000000000004, or a meeting booked for 9 a.m. lands at 2 p.m. This chapter gives you the mental model to understand — and prevent — all of those.
+Every photo, message, song and web page you've ever seen was, at the bottom, a long row of numbers. The CPU from [chapter 1.1](./what-a-computer-does.mdx) can only do arithmetic on numbers — so text, dates, prices and even emoji all have to be **encoded** as numbers, and decoded back. Most of the time this is invisible. Then one day a customer named *Zoë* shows up as *ZoÃ«*, a price of 0.10 + 0.20 comes out as 0.30000000000000004, or a meeting booked for 9 a.m. lands at 2 p.m. This chapter gives you the mental model to understand — and prevent — all of those.
 
 ## What you'll learn
 
@@ -29,7 +29,7 @@ One bit can't say much. But group them and the possibilities double with every b
 | 1 | 2 (0, 1) | yes / no |
 | 2 | 4 | the four seasons |
 | 8 | 256 | every letter, digit and symbol on an English keyboard |
-| 32 | about 4.3 billion | the old internet addresses (chapter 1.4) |
+| 32 | about 4.3 billion | the old internet addresses ([chapter 1.4](./networks-from-zero.mdx)) |
 | 64 | about 18 billion billion | practically anything |
 
 A group of **8 bits is a byte** — the basic unit computers use for storage and memory. One byte holds a number from 0 to 255.
@@ -55,7 +55,7 @@ Also: network speeds are usually in **bits** per second (Mb/s, with a small *b*)
 
 ### Hexadecimal: a compact way to write bytes
 
-You'll often see bytes written in **hexadecimal** (hex, base 16): digits 0–9 then a–f. Two hex digits describe exactly one byte: `00` is 0, `ff` is 255. You've seen hex in colour codes like `#4f46e5`, and you'll see it in IDs, hashes (chapter 7.1) and memory dumps. It's just a shorter way to write the same numbers.
+You'll often see bytes written in **hexadecimal** (hex, base 16): digits 0–9 then a–f. Two hex digits describe exactly one byte: `00` is 0, `ff` is 255. You've seen hex in colour codes like `#4f46e5`, and you'll see it in IDs, hashes ([chapter 7.1](../security/security-literacy.mdx)) and memory dumps. It's just a shorter way to write the same numbers.
 
 ---
 
@@ -157,7 +157,7 @@ It's pleasant to read and allows comments. But indentation is meaning — one wr
 
 ### Base64 — binary as safe text
 
-Some channels only carry text (older email, parts of a URL, a JSON string). **Base64** rewrites any bytes — an image, a key — using only 64 safe characters (A–Z, a–z, 0–9, `+`, `/`). It makes data about **33% bigger**, and it's **not encryption**: anyone can decode it instantly. You'll see it in API credentials (HTTP Basic auth), in Kubernetes Secrets (chapter 10.4), and in tokens (chapter 7.2).
+Some channels only carry text (older email, parts of a URL, a JSON string). **Base64** rewrites any bytes — an image, a key — using only 64 safe characters (A–Z, a–z, 0–9, `+`, `/`). It makes data about **33% bigger**, and it's **not encryption**: anyone can decode it instantly. You'll see it in API credentials (HTTP Basic auth), in Kubernetes Secrets ([chapter 10.4](../kubernetes/config-secrets-storage.mdx)), and in tokens ([chapter 7.2](../security/authentication.mdx)).
 
 | Format | Best for | Watch out for |
 |---|---|---|
@@ -180,7 +180,7 @@ Time looks simple and is a minefield. Computers usually store it as a **Unix tim
 :::warning[What can go wrong]
 - **Storing local time without a zone.** "2026-03-29 02:30" means nothing without a place — and in much of Europe that particular time *doesn't exist* (clocks jump from 02:00 to 03:00 that night).
 - **Assuming a day has 24 hours.** Days with a daylight-saving change have 23 or 25. "Add one day" and "add 24 hours" are different operations.
-- **Server clocks disagree.** Two machines' clocks can drift apart by seconds. Never rely on timestamps from different machines to decide which event happened first (chapter 8.1).
+- **Server clocks disagree.** Two machines' clocks can drift apart by seconds. Never rely on timestamps from different machines to decide which event happened first ([chapter 8.1](../distributed/distributed-survival-kit.mdx)).
 - **The year 2038 problem.** Old systems store Unix time in 32 bits, which overflows on 19 January 2038. Modern systems use 64 bits; it's still worth knowing why "32-bit timestamps" is a red flag.
 :::
 

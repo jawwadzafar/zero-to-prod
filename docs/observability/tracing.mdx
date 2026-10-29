@@ -6,7 +6,7 @@ description: "Seeing where the time goes inside a request: traces, spans and con
 
 # 13.3 Tracing with OpenTelemetry
 
-Metrics told you snip's p99 latency went up (chapter 13.2). Logs told you which requests were slow (chapter 13.1). Neither tells you **where the time went** inside a request: waiting for Redis? For Postgres? For another service three hops away? A **trace** answers that. It records a request's whole journey as a tree of timed steps, across every service it touches, so you can see at a glance that 380 of the 400 milliseconds were one database query. This chapter explains traces and spans, how a trace follows a request across services, the **OpenTelemetry** standard that makes it portable, and the trade-offs of sampling. snip is instrumented with OpenTelemetry: each redirect produces a trace showing the cache lookup, the database query on a miss, and the click being recorded. You'll run it with **Jaeger** and compare a cache miss with a cache hit.
+Metrics told you snip's p99 latency went up ([chapter 13.2](./metrics.mdx)). Logs told you which requests were slow ([chapter 13.1](./logs.mdx)). Neither tells you **where the time went** inside a request: waiting for Redis? For Postgres? For another service three hops away? A **trace** answers that. It records a request's whole journey as a tree of timed steps, across every service it touches, so you can see at a glance that 380 of the 400 milliseconds were one database query. This chapter explains traces and spans, how a trace follows a request across services, the **OpenTelemetry** standard that makes it portable, and the trade-offs of sampling. snip is instrumented with OpenTelemetry: each redirect produces a trace showing the cache lookup, the database query on a miss, and the click being recorded. You'll run it with **Jaeger** and compare a cache miss with a cache hit.
 
 ## What you'll learn
 
@@ -42,7 +42,7 @@ GET /{slug}                  710 µs
 └─ links.RecordClick         306 µs
 ```
 
-Two traces make the cache-aside pattern of chapter 6.7 visible: the first request pays for the database and fills the cache; the second never touches the database.
+Two traces make the cache-aside pattern of [chapter 6.7](../data/redis-and-caching.mdx) visible: the first request pays for the database and fills the cache; the second never touches the database.
 
 :::note[Everyday anchor]
 A parcel's tracking history: "collected 09:02, sorting centre 11:40, out for delivery 07:15, delivered 13:08". One tracking number (the **trace ID**) follows the parcel through many companies' depots (services), and each scan is a **span** with a time. When a parcel is late, you don't guess: you look at which leg took too long.
@@ -52,7 +52,7 @@ A parcel's tracking history: "collected 09:02, sorting centre 11:40, out for del
 
 ## Crossing service boundaries: context propagation
 
-Within one program, the current span travels in memory. In Go, it rides in the `context.Context` that every function already receives, which is one reason snip passes `ctx` everywhere (chapter 4.5). Between services, it must travel **with the request**. The standard is **W3C Trace Context**: a `traceparent` HTTP header carrying the trace ID and the caller's span ID:
+Within one program, the current span travels in memory. In Go, it rides in the `context.Context` that every function already receives, which is one reason snip passes `ctx` everywhere ([chapter 4.5](../go/concurrency.mdx)). Between services, it must travel **with the request**. The standard is **W3C Trace Context**: a `traceparent` HTTP header carrying the trace ID and the caller's span ID:
 
 ```text
 traceparent: 00-960b80508a17736595d01c82a1415d90-9f5dc13dc0eee6e4-01
@@ -111,7 +111,7 @@ func (s *Service) Resolve(ctx context.Context, slug string) (ResolveResult, erro
 		// …
 ```
 
-Two small but important details: the child spans are created from the `ctx` returned by the parent's `tracer.Start`, which is what makes them children; and errors are **recorded** on spans (`span.RecordError(err)`, `span.SetStatus(codes.Error, …)`) so failing traces are easy to find. snip also names each request span by its **route** (`GET /{slug}`) rather than the raw path, for the same cardinality reason as metric labels (chapter 13.2).
+Two small but important details: the child spans are created from the `ctx` returned by the parent's `tracer.Start`, which is what makes them children; and errors are **recorded** on spans (`span.RecordError(err)`, `span.SetStatus(codes.Error, …)`) so failing traces are easy to find. snip also names each request span by its **route** (`GET /{slug}`) rather than the raw path, for the same cardinality reason as metric labels ([chapter 13.2](./metrics.mdx)).
 
 ### The collector
 
@@ -138,12 +138,12 @@ The signals are most useful together. snip puts the **trace ID in every request 
 {"level":"INFO","msg":"request","request_id":"e175f03b58204971","route":"GET /{slug}","path":"/traced","status":302,"duration_ms":0,"trace_id":"960b80508a17736595d01c82a1415d90"}
 ```
 
-That's the same `960b8050…` as the trace above. From an error in the logs you jump to its trace, and from a slow span in a trace you search the logs for everything that happened in that request. Metrics connect too: a latency spike on a dashboard can link to example traces from that moment (**exemplars**). The workflow you'll use most in chapter 13.6: **metrics** to notice, **traces** to locate, **logs** to explain.
+That's the same `960b8050…` as the trace above. From an error in the logs you jump to its trace, and from a slow span in a trace you search the logs for everything that happened in that request. Metrics connect too: a latency spike on a dashboard can link to example traces from that moment (**exemplars**). The workflow you'll use most in [chapter 13.6](./debugging-playbook.mdx): **metrics** to notice, **traces** to locate, **logs** to explain.
 
 :::warning[What can go wrong]
 - **Broken propagation**: one service in the chain doesn't forward `traceparent` (a proxy that strips headers, a queue without context), and every trace ends there. Test propagation end to end.
 - **Spans that aren't ended**: a missing `span.End()` (use `defer`) leaks memory and produces incomplete traces.
-- **Sensitive data in attributes**: request bodies, tokens and personal data in span attributes are exported to another system. Treat attributes like logs (chapter 13.1).
+- **Sensitive data in attributes**: request bodies, tokens and personal data in span attributes are exported to another system. Treat attributes like logs ([chapter 13.1](./logs.mdx)).
 - **High-cardinality span names**: naming spans by full URL (`GET /abc123`) instead of route makes traces hard to group and search.
 - **Tracing everything at full rate** on a busy system: cost and overhead. Sample.
 :::
@@ -263,7 +263,7 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
 <details>
 <summary>A user reports that some redirects take over a second, but snip's p99 on the dashboard is 5 ms. How would tracing help?</summary>
 
-The p99 across all traffic hides a small group of slow requests (maybe one slug, one customer, or one API copy). With tracing on and sampling that keeps slow traces (tail sampling, or a high rate during the investigation): search Jaeger for `snip-api` traces with duration over 500 ms. Open a few and look for the long span. Is it `store.Get` (a slow query, or a lock: chapters 6.4 and 6.5), `cache.GetURL` (Redis slow or timing out: chapter 8.1), or `links.RecordClick` (the queue blocking the redirect)? Check the attributes and the trace ID, and jump to that request's logs. Traces turn "some requests are slow" into "this step, under these conditions".
+The p99 across all traffic hides a small group of slow requests (maybe one slug, one customer, or one API copy). With tracing on and sampling that keeps slow traces (tail sampling, or a high rate during the investigation): search Jaeger for `snip-api` traces with duration over 500 ms. Open a few and look for the long span. Is it `store.Get` (a slow query, or a lock: chapters [6.4](../data/indexes-and-performance.mdx) and [6.5](../data/transactions.mdx)), `cache.GetURL` (Redis slow or timing out: [chapter 8.1](../distributed/distributed-survival-kit.mdx)), or `links.RecordClick` (the queue blocking the redirect)? Check the attributes and the trace ID, and jump to that request's logs. Traces turn "some requests are slow" into "this step, under these conditions".
 
 </details>
 

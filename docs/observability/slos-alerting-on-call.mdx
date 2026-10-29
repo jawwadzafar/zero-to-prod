@@ -6,7 +6,7 @@ description: "Deciding how reliable is reliable enough and alerting on what matt
 
 # 13.4 SLOs, alerting & on-call
 
-With metrics (chapter 13.2) you *can* measure everything. The hard questions are different. **How reliable should snip be?** 100% is impossible, and chasing it is ruinously expensive. **When should a human be woken up?** Too rarely and users suffer unnoticed; too often and people learn to ignore alerts, and then they miss the real one. This chapter gives you the framework most of the industry now uses: **service level objectives** and **error budgets**. It turns "reliability" into a number users would recognise, and alerts into a question of how fast that budget is burning. snip has real SLOs, real alert rules and a real runbook, and its alerts have **unit tests** that prove they fire for an outage and stay quiet for a blip. The chapter ends with on-call itself: how to share the pager so it's sustainable, and humane.
+With metrics ([chapter 13.2](./metrics.mdx)) you *can* measure everything. The hard questions are different. **How reliable should snip be?** 100% is impossible, and chasing it is ruinously expensive. **When should a human be woken up?** Too rarely and users suffer unnoticed; too often and people learn to ignore alerts, and then they miss the real one. This chapter gives you the framework most of the industry now uses: **service level objectives** and **error budgets**. It turns "reliability" into a number users would recognise, and alerts into a question of how fast that budget is burning. snip has real SLOs, real alert rules and a real runbook, and its alerts have **unit tests** that prove they fire for an outage and stay quiet for a blip. The chapter ends with on-call itself: how to share the pager so it's sustainable, and humane.
 
 ## What you'll learn
 
@@ -126,7 +126,7 @@ Prometheus evaluates rules and sends firing alerts to **Alertmanager**, which **
 
 A **runbook** is the page an on-call engineer opens when an alert fires: what the alert means, how to confirm it, and the first steps to diagnose and mitigate. snip's is `snip/docs/runbook.md`, with one section per alert, and every alert's description links to its section. The high-error-rate section, for example, says: find which route (with the exact PromQL), check whether anything just changed and **roll back first if the timing matches**, check the dependencies, read the failing requests' logs, follow a trace ID to Jaeger.
 
-Good runbooks are short, specific (real commands, real dashboard names), and **maintained**: every incident ends with "fix the runbook where it was wrong" (chapter 13.5).
+Good runbooks are short, specific (real commands, real dashboard names), and **maintained**: every incident ends with "fix the runbook where it was wrong" ([chapter 13.5](./incidents-and-postmortems.mdx)).
 
 ---
 
@@ -178,7 +178,7 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
    - At a burn rate of 14.4, how long until the budget is gone? (30 days ÷ 14.4 ≈ **2.1 days**.)
    - If snip serves 1 million requests a day, how many failed requests does the monthly budget allow? (0.5% × 30 million = **150,000**.)
 
-4. **See the rules live.** With the Compose stack and the observability profile running (chapter 13.2), open [localhost:9090/rules](http://localhost:9090/rules) (the `snip-slo` group with its recordings and alerts) and [localhost:9090/alerts](http://localhost:9090/alerts). Stop the worker (`docker compose stop worker`) and watch `SnipNoWorkerRunning` go from inactive to **pending**, and to **firing** after 5 minutes. Notice that `SnipTargetDown` doesn't fire: Docker's DNS stops returning the stopped worker, so Prometheus has no target to report as down (see "Missing is not down" above). Start the worker again (`docker compose start worker`).
+4. **See the rules live.** With the Compose stack and the observability profile running ([chapter 13.2](./metrics.mdx)), open [localhost:9090/rules](http://localhost:9090/rules) (the `snip-slo` group with its recordings and alerts) and [localhost:9090/alerts](http://localhost:9090/alerts). Stop the worker (`docker compose stop worker`) and watch `SnipNoWorkerRunning` go from inactive to **pending**, and to **firing** after 5 minutes. Notice that `SnipTargetDown` doesn't fire: Docker's DNS stops returning the stopped worker, so Prometheus has no target to report as down (see "Missing is not down" above). Start the worker again (`docker compose start worker`).
 
 5. **Read the runbook** (`snip/docs/runbook.md`) as if you'd just been paged for `SnipErrorBudgetFastBurn`. Is there anything you'd need that isn't there?
 
@@ -274,7 +274,7 @@ Free, on your own computer. You'll run snip's alert tests, then break the rules 
 3. **Check for a recent change**: a deploy at 03:05? If so and the timing matches, **roll back first** (`kubectl rollout undo` / revert in Git), then confirm the error rate falls.
 4. **If not a change**: check dependencies (Postgres, Redis readiness), read recent 5xx logs, and follow a trace ID in Jaeger to see which step fails.
 5. **Mitigate before diagnosing fully**: restore service, even crudely (scale up, fail over, disable a feature flag).
-6. **Escalate** if you're stuck after ~15 minutes, or if users are clearly affected: call the secondary, declare an incident (chapter 13.5).
+6. **Escalate** if you're stuck after ~15 minutes, or if users are clearly affected: call the secondary, declare an incident ([chapter 13.5](./incidents-and-postmortems.mdx)).
 7. **Keep a timeline** of what you saw and did, with times. It's gold for the postmortem.
 
 </details>

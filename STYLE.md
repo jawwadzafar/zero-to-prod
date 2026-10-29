@@ -328,6 +328,9 @@ box means:
 
 - Link back to where a concept was first taught: "You met processes in
   chapter 0.1". Link forward sparingly: "covered in chapter 0.7".
+- **Every "chapter N.N" or "Part N" in prose is a link.** A reference the
+  reader can't click is a dead end. `npm run link:refs` links them for you;
+  CI (`npm run check:refs`) fails on any left bare.
 - Use relative file links: `[6.4 Indexes](../data/indexes-and-performance.mdx)`.
 - When you introduce a term that other chapters will use, **add it to
   `src/data/glossary.json`** as `{"term": "…", "def": "one or two plain

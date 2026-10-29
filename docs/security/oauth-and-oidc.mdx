@@ -74,7 +74,7 @@ Step by step:
 
 The two security values:
 
-- **`state`** — a random value the client remembers and checks when you come back. It stops an attacker from tricking your browser into completing *their* login flow (a CSRF attack, chapter 7.5).
+- **`state`** — a random value the client remembers and checks when you come back. It stops an attacker from tricking your browser into completing *their* login flow (a CSRF attack, [chapter 7.5](./web-attacks.mdx)).
 - **PKCE** ("pixie", Proof Key for Code Exchange) — the client invents a random secret **`code_verifier`**, sends only its hash (**`code_challenge`**) at the start, and reveals the verifier when exchanging the code. If an attacker intercepts the code (for example, via a malicious app on a phone), it's useless without the verifier. PKCE is now recommended for **all** clients.
 
 :::info[In the real world]
@@ -91,10 +91,10 @@ A **scope** is a named permission the client asks for, and the user approves: `l
 
 ### Access tokens and refresh tokens
 
-- An **access token** is the bearer token (chapter 7.2) the client sends to the API. It's **short-lived** — often 5 to 60 minutes — so a leaked one expires quickly.
+- An **access token** is the bearer token ([chapter 7.2](./authentication.mdx)) the client sends to the API. It's **short-lived** — often 5 to 60 minutes — so a leaked one expires quickly.
 - A **refresh token** is longer-lived and used only with the authorization server, to get new access tokens without making the user log in again. It can be **revoked** (for example, when the user clicks "remove access"), which stops new access tokens being issued.
 
-This split is how OAuth solves chapter 7.2's JWT revocation problem: access tokens can be self-contained JWTs checked without any lookup, because they expire soon, while the revocable refresh token controls the long-term access.
+This split is how OAuth solves [chapter 7.2](./authentication.mdx)'s JWT revocation problem: access tokens can be self-contained JWTs checked without any lookup, because they expire soon, while the revocable refresh token controls the long-term access.
 
 ---
 
@@ -105,7 +105,7 @@ OAuth 2.0 answers *"what may this app do?"* — it's about **authorization**. It
 OIDC adds:
 
 - **The `openid` scope** — asking for it turns an OAuth flow into a login.
-- **An ID token** — a **JWT** (chapter 7.2), signed by the identity provider, stating who logged in:
+- **An ID token** — a **JWT** ([chapter 7.2](./authentication.mdx)), signed by the identity provider, stating who logged in:
 
   ```json
   {
@@ -137,7 +137,7 @@ Signature checking isn't enough. A token is only valid for *you* if **all** of t
 | **`exp`** is in the future | Expired tokens are dead |
 | **`nonce`** matches (ID tokens) | Stops a captured token being replayed into a new login |
 
-Use a well-maintained OIDC library to do this (chapter 7.1's "don't roll your own crypto"); but know what it checks, so you can recognise a misconfiguration.
+Use a well-maintained OIDC library to do this ([chapter 7.1](./security-literacy.mdx)'s "don't roll your own crypto"); but know what it checks, so you can recognise a misconfiguration.
 
 ---
 
@@ -157,7 +157,7 @@ sequenceDiagram
     R->>W: 200 OK
 ```
 
-Compared with a long-lived API key (chapter 7.2), the program's secret goes only to the authorization server, the tokens it uses everywhere else expire in minutes, and permissions are managed centrally. Cloud platforms go further with **workload identity**: the platform itself vouches for the program, so there's no secret at all (chapter 12.4).
+Compared with a long-lived API key ([chapter 7.2](./authentication.mdx)), the program's secret goes only to the authorization server, the tokens it uses everywhere else expire in minutes, and permissions are managed centrally. Cloud platforms go further with **workload identity**: the platform itself vouches for the program, so there's no secret at all ([chapter 12.4](../cloud/iam.mdx)).
 
 ---
 
@@ -165,7 +165,7 @@ Compared with a long-lived API key (chapter 7.2), the program's secret goes only
 
 Real identity providers are large and complex. To see the core clearly, the handbook includes **tinyauth** (`snip/examples/tinyauth/main.go`): a toy authorization server *and* protected API in one program, using only Go's standard library. It implements discovery, JWKS, the client credentials grant, and token verification with scope checks.
 
-Signing a token is just chapter 7.1's signatures plus Base64 (chapter 1.3):
+Signing a token is just [chapter 7.1](./security-literacy.mdx)'s signatures plus Base64 ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)):
 
 ```go
 // sign builds a JWT: base64url(header).base64url(claims).base64url(signature).
@@ -209,7 +209,7 @@ In production, you almost never build this yourself. You use an **identity provi
 - **Hosted**: Auth0/Okta, Microsoft Entra ID, Google Identity, AWS Cognito, Firebase Auth, Clerk.
 - **Self-hosted, open source**: **Keycloak**, Authentik, ZITADEL, Ory.
 
-The IdP handles passwords, MFA, passkeys, account recovery, "Sign in with Google/GitHub", brute-force protection and audit logs — years of security work. Your application becomes an **OIDC client**: it redirects users to the IdP, receives tokens, validates them, and maps the stable `sub` to its own user record. Companies also use IdPs for **single sign-on** (SSO): employees log in once and reach every internal tool, often via OIDC or the older XML-based standard **SAML**. Chapter 7.9 covers single sign-on in depth, from the application's side, with a real Keycloak.
+The IdP handles passwords, MFA, passkeys, account recovery, "Sign in with Google/GitHub", brute-force protection and audit logs — years of security work. Your application becomes an **OIDC client**: it redirects users to the IdP, receives tokens, validates them, and maps the stable `sub` to its own user record. Companies also use IdPs for **single sign-on** (SSO): employees log in once and reach every internal tool, often via OIDC or the older XML-based standard **SAML**. [Chapter 7.9](./single-sign-on.mdx) covers single sign-on in depth, from the application's side, with a real Keycloak.
 
 :::warning[What can go wrong]
 - **Not validating `aud`.** Your API accepts tokens issued to a completely different app — any app on the same provider can call your API as its users.

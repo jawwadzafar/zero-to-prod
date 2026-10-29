@@ -84,7 +84,7 @@ erDiagram
     }
 ```
 
-This is an **entity–relationship diagram** (ERD). The crow's-foot markings show **cardinality**: one API key creates **many** links (`||--o{`). Drawing one before writing SQL is a cheap way to catch design mistakes — and it's exactly the diagram you'd sketch in a design review or interview (chapter 15.1).
+This is an **entity–relationship diagram** (ERD). The crow's-foot markings show **cardinality**: one API key creates **many** links (`||--o{`). Drawing one before writing SQL is a cheap way to catch design mistakes — and it's exactly the diagram you'd sketch in a design review or interview ([chapter 15.1](../architecture/system-design-method.mdx)).
 
 ---
 
@@ -96,9 +96,9 @@ Every column has a type, and the right type is itself a rule: a `bigint` column 
 |---|---|---|---|
 | `text` | Any text | Names, URLs, slugs | Limit length with a `CHECK` if it matters |
 | `bigint` | Whole numbers up to ~9.2 × 10¹⁸ | IDs, counts | `int` tops out at ~2.1 billion — counters and IDs outgrow it |
-| `numeric(12,2)` | Exact decimals | **Money** | Never `float`/`real` for money (chapter 1.3) |
+| `numeric(12,2)` | Exact decimals | **Money** | Never `float`/`real` for money ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)) |
 | `boolean` | `true` / `false` | Flags | Many booleans may really be one status column |
-| `timestamptz` | A moment in time, stored in UTC | Almost every date/time | Plain `timestamp` has no time zone — avoid it (chapter 1.3) |
+| `timestamptz` | A moment in time, stored in UTC | Almost every date/time | Plain `timestamp` has no time zone — avoid it ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)) |
 | `uuid` | A 128-bit random ID | Public or distributed IDs | Larger than `bigint`; random ones make indexes a bit slower |
 | `jsonb` | JSON, stored efficiently and queryable | Genuinely flexible, nested data | Not a way to avoid designing tables |
 
@@ -133,7 +133,7 @@ CREATE TABLE links (
 );
 ```
 
-For `links`, the slug is *the* thing every redirect looks up, it must be unique anyway, and snip never lets a slug change — so making it the primary key gives the hottest query a perfect index for free (chapter 6.4). For `api_keys`, nothing natural is short, stable and unique, so a surrogate `id` it is.
+For `links`, the slug is *the* thing every redirect looks up, it must be unique anyway, and snip never lets a slug change — so making it the primary key gives the hottest query a perfect index for free ([chapter 6.4](./indexes-and-performance.mdx)). For `api_keys`, nothing natural is short, stable and unique, so a surrogate `id` it is.
 
 :::tip
 If a natural key might **ever change** (email addresses, usernames, company names) or isn't truly unique (people's names), use a surrogate key and put a `UNIQUE` constraint on the natural value instead. Changing a primary key means updating every reference to it.
@@ -174,12 +174,12 @@ CREATE TABLE links (
 |---|---|
 | `PRIMARY KEY` | slugs are unique and never missing |
 | `NOT NULL` | every link has a URL, an owner, a count and a time |
-| `CHECK (length(url) <= 2048)` | matches the validation limit in Go (chapter 5.3) — twice guarded |
+| `CHECK (length(url) <= 2048)` | matches the validation limit in Go ([chapter 5.3](../apis/validation-errors-status-codes.mdx)) — twice guarded |
 | `CHECK (clicks >= 0)` | a bug can never produce a negative count |
 | `DEFAULT 0`, `DEFAULT now()` | sensible values when an insert doesn't give one |
 | `UNIQUE` (on `api_keys.key_hash`) | no two keys can have the same hash |
 
-Why check in the database *and* in Go? The Go validation gives users a friendly, specific error early (chapter 5.3). The database constraints are the **last line of defence** that nothing can bypass. They also solve problems code can't: remember that snip doesn't check "is this slug free?" before inserting — it lets the `PRIMARY KEY` reject duplicates atomically, and translates the error to `409 Conflict` (chapter 6.6). No race condition possible.
+Why check in the database *and* in Go? The Go validation gives users a friendly, specific error early ([chapter 5.3](../apis/validation-errors-status-codes.mdx)). The database constraints are the **last line of defence** that nothing can bypass. They also solve problems code can't: remember that snip doesn't check "is this slug free?" before inserting — it lets the `PRIMARY KEY` reject duplicates atomically, and translates the error to `409 Conflict` ([chapter 6.6](./postgres-from-go.mdx)). No race condition possible.
 
 :::note[Everyday anchor]
 Constraints are the shape of a plug socket. You *could* print a sign saying "please only insert UK plugs", but the socket's shape simply makes the wrong plug impossible to insert — for every person, forever, whether or not they read the sign.
@@ -199,12 +199,12 @@ Imagine a single table that stores everything about each link, including the own
 
 It looks convenient. But ada's email is stored **twice**. When she changes it, you must update every row — miss one, and the database now holds two different "truths". Upgrade her plan and some of her links still say `free`. These are **update anomalies**, and they're how data quietly rots.
 
-**Normalisation** is the discipline of storing **each fact in exactly one place**. Owner facts go in an `owners` (or `api_keys`) table, stored once; links hold just a reference — `owner_id`. You get the combined view back whenever you need it with a `JOIN` (chapter 6.2).
+**Normalisation** is the discipline of storing **each fact in exactly one place**. Owner facts go in an `owners` (or `api_keys`) table, stored once; links hold just a reference — `owner_id`. You get the combined view back whenever you need it with a `JOIN` ([chapter 6.2](./sql-from-zero.mdx)).
 
 The formal theory (first, second, third "normal forms") boils down to one practical question: **"if this fact changes, how many rows must I update?"** The answer should be *one*.
 
 :::info[In the real world]
-Sometimes teams **denormalise** on purpose — for example, snip stores a running `clicks` count on each link instead of counting `click_events` rows on every request. That's a duplicated fact (the count can be derived from events), accepted for speed. Denormalise deliberately, for a measured reason, and know how you'll keep the copies in sync (chapter 8.2) — never by accident.
+Sometimes teams **denormalise** on purpose — for example, snip stores a running `clicks` count on each link instead of counting `click_events` rows on every request. That's a duplicated fact (the count can be derived from events), accepted for speed. Denormalise deliberately, for a measured reason, and know how you'll keep the copies in sync ([chapter 8.2](../distributed/queues-and-background-work.mdx)) — never by accident.
 :::
 
 ---
@@ -281,11 +281,11 @@ migrations/
 └── 0002_tags.sql          tags and link_tags (the tables above)
 ```
 
-snip records which migrations have run in a table called `schema_migrations`, and applies any new ones at startup — each inside a transaction, so a failing migration leaves nothing half-done. Chapter 6.6 walks through that code.
+snip records which migrations have run in a table called `schema_migrations`, and applies any new ones at startup — each inside a transaction, so a failing migration leaves nothing half-done. [Chapter 6.6](./postgres-from-go.mdx) walks through that code.
 
 ### Changing a live database without downtime
 
-Adding a table is easy. Changing an existing column that live code depends on is not: during a deployment, **old and new versions of snip run side by side** (chapter 11.3). If a migration renames `url` to `target_url`, every old copy breaks immediately.
+Adding a table is easy. Changing an existing column that live code depends on is not: during a deployment, **old and new versions of snip run side by side** ([chapter 11.3](../shipping/delivery-and-deployment.mdx)). If a migration renames `url` to `target_url`, every old copy breaks immediately.
 
 The standard technique is **expand, then contract**:
 
@@ -299,7 +299,7 @@ Slower, yes — but no moment exists where running code and the database disagre
 :::warning[What can go wrong]
 - **Rules only in application code.** A second service, a script or a bug writes bad data straight into the table. Put the invariants in the schema.
 - **`int` IDs and counters.** Fine for years, then an outage when the counter hits 2.1 billion. Use `bigint`.
-- **Money as floating point, times without zones.** Chapter 1.3's classics, now baked into your schema for good.
+- **Money as floating point, times without zones.** [Chapter 1.3](../foundations/bits-bytes-text-formats.mdx)'s classics, now baked into your schema for good.
 - **Repeating facts across tables.** Every copy is a future inconsistency. Normalise, and denormalise only on purpose.
 - **Destructive migrations in one step.** Renaming or dropping a column that running code uses causes an outage mid-deploy. Expand, migrate, contract.
 - **Editing an old migration after it has run somewhere.** Other databases already applied the old version and won't re-run it. Always add a new migration instead.

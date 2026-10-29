@@ -30,7 +30,7 @@ A conference badge. You show your ID once at registration, and get a badge. Ever
 
 The roles:
 
-- The **identity provider** (**IdP**) holds the accounts and does the actual authentication: passwords, MFA, passkeys (chapter 7.7). Examples: Microsoft Entra ID, Okta, Google Workspace, and open-source Keycloak.
+- The **identity provider** (**IdP**) holds the accounts and does the actual authentication: passwords, MFA, passkeys ([chapter 7.7](./mfa-and-passkeys.mdx)). Examples: Microsoft Entra ID, Okta, Google Workspace, and open-source Keycloak.
 - Each application that trusts it is a **relying party** (**RP**, the OpenID Connect term) or **service provider** (**SP**, the SAML term). Your product is one.
 - **Federation** is the trust relationship between them, set up once by exchanging configuration: URLs, identifiers and public keys.
 
@@ -55,7 +55,7 @@ The protocols are the same; the risks differ, as you'll see.
 
 ## OpenID Connect sign-in, from the application's side
 
-Chapter 7.3 explained OAuth 2.0 and OpenID Connect (OIDC) and built a toy authorization server. Now you're on the other side: the application that lets people sign in. snip's `examples/oidcrp` is a complete relying party in under 500 lines of standard-library Go, comments included, so every step is visible. (In production, use a maintained library: this one exists to be read.)
+[Chapter 7.3](./oauth-and-oidc.mdx) explained OAuth 2.0 and OpenID Connect (OIDC) and built a toy authorization server. Now you're on the other side: the application that lets people sign in. snip's `examples/oidcrp` is a complete relying party in under 500 lines of standard-library Go, comments included, so every step is visible. (In production, use a maintained library: this one exists to be read.)
 
 The flow, as the relying party runs it:
 
@@ -88,7 +88,7 @@ Three random values protect three different things:
 
 ### The six checks on an ID token
 
-The **ID token** is a JWT (chapter 7.2) signed by the IdP. Everything the application trusts depends on verifying it properly. `VerifyIDToken` does these checks, in this order:
+The **ID token** is a JWT ([chapter 7.2](./authentication.mdx)) signed by the IdP. Everything the application trusts depends on verifying it properly. `VerifyIDToken` does these checks, in this order:
 
 ```go
 // 1. Only the algorithm we expect. Never "none", and never an HMAC
@@ -177,7 +177,7 @@ For a product like snip, "support SSO" means supporting **many** IdPs: Acme uses
 - **Which IdP handles this person?** Usually by email domain: someone typing `ada@acme.com` is sent to Acme's IdP. This is called **home realm discovery**.
 - **Domain verification, before anything else.** A customer must prove they control `acme.com` (typically by adding a DNS TXT record you specify) before their IdP can claim `@acme.com` users. Otherwise any customer could set up an IdP, configure it for someone else's domain, and log in as that company's employees.
 - **Enforcing SSO.** Once a company turns SSO on, password logins for its users should be disabled, or the company's MFA and offboarding policies can simply be walked around.
-- **Mapping the IdP's groups to your roles**: "members of the IdP group snip-admins get the tenant-admin role" (chapter 7.10). Mapping must stay within the customer's own tenant (chapter 7.4).
+- **Mapping the IdP's groups to your roles**: "members of the IdP group snip-admins get the tenant-admin role" ([chapter 7.10](./authorization-at-scale.mdx)). Mapping must stay within the customer's own tenant ([chapter 7.4](./authorization-multi-tenancy.mdx)).
 
 :::info[In the real world]
 Many teams don't build multi-IdP SSO themselves: they use an identity platform (hosted, or self-hosted like Keycloak with one realm or identity-provider configuration per customer) that speaks SAML and OIDC to every customer IdP and gives the application a single, consistent OIDC connection. That's usually the right trade-off, because the long tail of IdP quirks is real. The checks in this chapter still apply to the one connection you do own.
@@ -198,7 +198,7 @@ Deprovisioning is the part that matters for security. When an employee leaves, t
 - **End existing sessions** in your product (SSO does **not** do this: a session created yesterday stays valid until it expires, unless you end it).
 - **Revoke their API keys and tokens**, which were never tied to the SSO login at all.
 
-That last point is easy to miss. snip's API keys (chapter 7.2) would keep working after their owner left the company unless deactivation also revokes them.
+That last point is easy to miss. snip's API keys ([chapter 7.2](./authentication.mdx)) would keep working after their owner left the company unless deactivation also revokes them.
 
 ---
 

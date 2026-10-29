@@ -6,7 +6,7 @@ description: Writing your API down as a machine-readable contract with OpenAPI, 
 
 # 5.5 API contracts: OpenAPI, gRPC & versioning
 
-In chapter 5.2 you designed snip's API, and in chapter 5.3 you made its errors consistent. But where is that design actually *written down*? Right now, the only complete description of snip's API is… snip's Go code. A developer at another company who wants to use snip would have to read Go, or guess. This chapter turns the API into a **contract**: a precise, machine-readable document that humans can read, tools can check, and code can be generated from. Then it looks at **gRPC**, the contract-first alternative popular between internal services, and at the hardest question in API work: **how do you change an API without breaking everyone?**
+In [chapter 5.2](./designing-rest-apis.mdx) you designed snip's API, and in [chapter 5.3](./validation-errors-status-codes.mdx) you made its errors consistent. But where is that design actually *written down*? Right now, the only complete description of snip's API is… snip's Go code. A developer at another company who wants to use snip would have to read Go, or guess. This chapter turns the API into a **contract**: a precise, machine-readable document that humans can read, tools can check, and code can be generated from. Then it looks at **gRPC**, the contract-first alternative popular between internal services, and at the hardest question in API work: **how do you change an API without breaking everyone?**
 
 ## What you'll learn
 
@@ -48,7 +48,7 @@ A contract is an architect's blueprint. Builders, electricians, plumbers and the
 
 ## OpenAPI: describing an HTTP API
 
-**OpenAPI** (formerly called Swagger) is the standard format for describing HTTP APIs, written in YAML (chapter 1.3) or JSON. snip's is at `snip/api/openapi.yaml`. Here's its shape, trimmed:
+**OpenAPI** (formerly called Swagger) is the standard format for describing HTTP APIs, written in YAML ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)) or JSON. snip's is at `snip/api/openapi.yaml`. Here's its shape, trimmed:
 
 ```yaml
 openapi: 3.1.0
@@ -110,12 +110,12 @@ Reading it top to bottom:
 
 - **`paths`** lists every URL, and under each, every **method** — with its request body and every possible **response**, including errors.
 - **`components/schemas`** defines the data shapes once, and **`$ref`** reuses them. `Link`, `Error` and `Slug` appear in many places but are defined once.
-- **Schemas** describe types, required fields and rules: `maxLength: 2048`, the slug `pattern`, `additionalProperties: false`. These are exactly snip's validation rules from chapter 5.3 — now visible to every client without reading Go.
+- **Schemas** describe types, required fields and rules: `maxLength: 2048`, the slug `pattern`, `additionalProperties: false`. These are exactly snip's validation rules from [chapter 5.3](./validation-errors-status-codes.mdx) — now visible to every client without reading Go.
 - **`enum`** lists every error `code` snip can return. A client can handle each one confidently.
 - **`security`** says the API needs a bearer token; the redirect and health endpoints override it with `security: []` (public).
 
 :::info[In the real world]
-Many teams publish their OpenAPI files, and tools turn them into polished interactive docs (Swagger UI, Redoc, Scalar) where developers can read and even try each endpoint. Stripe, GitHub and Twilio all publish OpenAPI descriptions of their APIs. AI agents and "tool use" features (chapter 14.6) also consume OpenAPI to learn how to call APIs.
+Many teams publish their OpenAPI files, and tools turn them into polished interactive docs (Swagger UI, Redoc, Scalar) where developers can read and even try each endpoint. Stripe, GitHub and Twilio all publish OpenAPI descriptions of their APIs. AI agents and "tool use" features ([chapter 14.6](../ai/structured-output-and-tools.mdx)) also consume OpenAPI to learn how to call APIs.
 :::
 
 ---
@@ -157,7 +157,7 @@ REST with JSON is the default for public APIs. Between a company's own services,
 
 1. You describe the API in a **`.proto`** file using **Protocol Buffers** (protobuf), a language for defining messages and services.
 2. A tool **generates** client and server code from it, in any major language.
-3. Messages travel in a compact **binary** format over **HTTP/2** (chapter 1.5).
+3. Messages travel in a compact **binary** format over **HTTP/2** ([chapter 1.5](../foundations/http-from-zero.mdx)).
 
 If snip offered gRPC, its contract might look like this (illustrative — snip itself doesn't ship a gRPC API):
 
@@ -192,7 +192,7 @@ message Link {
 | Browsers & curl | Work directly | Need extra tooling |
 | Typical use | Public APIs, web and mobile clients | Service-to-service inside a company |
 
-A common pattern: **REST/JSON at the edge** (for browsers, mobile apps and partners), **gRPC inside** (between your own services). Chapter 8.1 discusses how services talk to each other more generally.
+A common pattern: **REST/JSON at the edge** (for browsers, mobile apps and partners), **gRPC inside** (between your own services). [Chapter 8.1](../distributed/distributed-survival-kit.mdx) discusses how services talk to each other more generally.
 
 ---
 
@@ -233,7 +233,7 @@ snip's API is small and unversioned today; if it ever needed a breaking change, 
 
 1. **Announce** the change and the timeline in docs and a changelog.
 2. **Mark** the old behaviour as deprecated — OpenAPI has `deprecated: true`, and HTTP has `Deprecation` and `Sunset` response headers so clients can detect it automatically.
-3. **Measure** who still uses it (metrics per version, chapter 13.2).
+3. **Measure** who still uses it (metrics per version, [chapter 13.2](../observability/metrics.mdx)).
 4. **Remove** it only after the announced date — and ideally after usage has dropped to zero.
 
 :::warning[What can go wrong]
@@ -255,7 +255,7 @@ Free, on your own computer (needs Node.js for the linter — install it with `br
    - the pattern a custom slug must match;
    - the full list of error codes.
 
-   Compare it with the error table you walked in chapter 5.3's lab. Everything you discovered by experiment is written down here.
+   Compare it with the error table you walked in [chapter 5.3](./validation-errors-status-codes.mdx)'s lab. Everything you discovered by experiment is written down here.
 
 2. **Lint it.**
    ```bash

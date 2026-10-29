@@ -6,7 +6,7 @@ description: "The building blocks of all security work — encoding vs hashing v
 
 # 7.1 Security literacy: hashing, encryption, TLS
 
-Security can feel like a field for specialists, full of intimidating maths. But almost everything a backend engineer does securely rests on four or five ideas that fit on a single page: **hashing**, **encryption**, **signatures**, **randomness** and **certificates**. You've already used them without noticing — Git commit IDs are hashes (chapter 3.1), SSH keys are public-key cryptography (chapter 2.6), and every `https://` request uses TLS (chapter 1.5). This chapter explains each idea in plain words, shows where snip uses it, and — just as importantly — teaches you to spot the common, costly confusions: "Base64 is encryption", "we hash passwords with SHA-256", "we'll write our own crypto".
+Security can feel like a field for specialists, full of intimidating maths. But almost everything a backend engineer does securely rests on four or five ideas that fit on a single page: **hashing**, **encryption**, **signatures**, **randomness** and **certificates**. You've already used them without noticing — Git commit IDs are hashes ([chapter 3.1](../git/git-mental-model.mdx)), SSH keys are public-key cryptography ([chapter 2.6](../linux/ssh-and-remote-machines.mdx)), and every `https://` request uses TLS ([chapter 1.5](../foundations/http-from-zero.mdx)). This chapter explains each idea in plain words, shows where snip uses it, and — just as importantly — teaches you to spot the common, costly confusions: "Base64 is encryption", "we hash passwords with SHA-256", "we'll write our own crypto".
 
 ## What you'll learn
 
@@ -22,13 +22,13 @@ Security can feel like a field for specialists, full of intimidating maths. But 
 
 | | Reversible? | Needs a key? | Purpose | Example |
 |---|---|---|---|---|
-| **Encoding** | Yes, by anyone | No | Represent data in a different format | Base64, URL-encoding, UTF-8 (chapter 1.3) |
+| **Encoding** | Yes, by anyone | No | Represent data in a different format | Base64, URL-encoding, UTF-8 ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)) |
 | **Hashing** | **No** — one-way | No | A fixed-size fingerprint of data | SHA-256, bcrypt |
 | **Encryption** | Yes — **only with the key** | Yes | Keep data secret | AES, TLS |
 
 The classic mistakes:
 
-- **Treating encoding as protection.** A password Base64-encoded in a config file is a password in plain sight (chapter 1.3's lab decoded one instantly).
+- **Treating encoding as protection.** A password Base64-encoded in a config file is a password in plain sight ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)'s lab decoded one instantly).
 - **"Encrypting" passwords.** If you can decrypt them, so can an attacker who steals the key. Passwords must be **hashed**, not encrypted.
 - **Hashing something you'll need back.** A hash is a one-way street; you can't recover the original.
 
@@ -40,7 +40,7 @@ The classic mistakes:
 
 ## Hash functions: fingerprints for data
 
-A **cryptographic hash function** takes any input — a word, a file, a whole database — and produces a fixed-size output, the **hash** (or digest). SHA-256 always produces 256 bits, usually written as 64 hex characters (chapter 1.3):
+A **cryptographic hash function** takes any input — a word, a file, a whole database — and produces a fixed-size output, the **hash** (or digest). SHA-256 always produces 256 bits, usually written as 64 hex characters ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)):
 
 ```text
 SHA-256("snip")  = b0e6a23a…  (64 hex characters in full)
@@ -56,8 +56,8 @@ The properties that make it useful:
 
 Where you meet hashes:
 
-- **Integrity**: download checksums, Go's `go.sum` (chapter 4.3), Docker image digests (chapter 9.4) — "is this exactly the file I expected?"
-- **Identity**: Git commit IDs (chapter 3.1) — the ID *is* a hash of the content.
+- **Integrity**: download checksums, Go's `go.sum` ([chapter 4.3](../go/packages-modules-interfaces.mdx)), Docker image digests ([chapter 9.4](../containers/images-in-production.mdx)) — "is this exactly the file I expected?"
+- **Identity**: Git commit IDs ([chapter 3.1](../git/git-mental-model.mdx)) — the ID *is* a hash of the content.
 - **Storing secrets you only need to check**: passwords and API keys.
 
 :::warning
@@ -148,7 +148,7 @@ Its limitation: both sides need the same key. How do you get a secret key to som
 
 ### Public-key (asymmetric) encryption: a key pair
 
-**Asymmetric** cryptography uses a **pair** of mathematically linked keys (chapter 2.6):
+**Asymmetric** cryptography uses a **pair** of mathematically linked keys ([chapter 2.6](../linux/ssh-and-remote-machines.mdx)):
 
 - The **public key** can be shared with anyone.
 - The **private key** is kept secret.
@@ -166,13 +166,13 @@ Public-key encryption is a letterbox. Anyone can post a letter through the slot 
 
 Run the key pair the other way round and you get **signatures**. You create a signature over some data with your **private** key; anyone can check it with your **public** key. A valid signature proves the data came from the private key's holder **and** wasn't changed since.
 
-You use signatures constantly: SSH proves your identity with one (chapter 2.6), software updates are signed so your computer knows they're genuine, and many login tokens (JWTs, chapter 7.2) are signed so a server can trust them without looking anything up.
+You use signatures constantly: SSH proves your identity with one ([chapter 2.6](../linux/ssh-and-remote-machines.mdx)), software updates are signed so your computer knows they're genuine, and many login tokens (JWTs, [chapter 7.2](./authentication.mdx)) are signed so a server can trust them without looking anything up.
 
 ---
 
 ## TLS: how HTTPS actually works
 
-**TLS** (Transport Layer Security) wraps an HTTP connection in encryption (chapter 1.5). It combines everything above:
+**TLS** (Transport Layer Security) wraps an HTTP connection in encryption ([chapter 1.5](../foundations/http-from-zero.mdx)). It combines everything above:
 
 ```mermaid
 sequenceDiagram
@@ -193,16 +193,16 @@ sequenceDiagram
 3. The two sides use public-key maths to agree on a fresh **session key** that an eavesdropper can't work out — even one recording everything.
 4. Everything after that is encrypted with fast **symmetric** encryption and protected against tampering.
 
-The result is chapter 1.5's three guarantees: **privacy**, **integrity**, **authenticity**.
+The result is [chapter 1.5](../foundations/http-from-zero.mdx)'s three guarantees: **privacy**, **integrity**, **authenticity**.
 
 ### Certificates and CAs
 
-A **Certificate Authority** is an organisation trusted to check that whoever requests a certificate for `snip.example` really controls `snip.example`. **Let's Encrypt** issues free certificates automatically, and today most of the web uses it or a similar service. Certificates expire — Let's Encrypt's have lasted 90 days, and the industry is moving to even shorter lifetimes — so renewal must be **automated** — tools like `certbot`, or Kubernetes' **cert-manager** (chapter 10.3), handle it.
+A **Certificate Authority** is an organisation trusted to check that whoever requests a certificate for `snip.example` really controls `snip.example`. **Let's Encrypt** issues free certificates automatically, and today most of the web uses it or a similar service. Certificates expire — Let's Encrypt's have lasted 90 days, and the industry is moving to even shorter lifetimes — so renewal must be **automated** — tools like `certbot`, or Kubernetes' **cert-manager** ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)), handle it.
 
-In snip's architecture, TLS is **terminated** at the front door — the reverse proxy (chapter 8.3) or Ingress holds the certificate, decrypts traffic, and forwards it to snip over the private network. snip itself speaks plain HTTP behind it.
+In snip's architecture, TLS is **terminated** at the front door — the reverse proxy ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)) or Ingress holds the certificate, decrypts traffic, and forwards it to snip over the private network. snip itself speaks plain HTTP behind it.
 
 :::info[In the real world]
-Expired certificates are one of the most common causes of sudden, total outages — for small sites and for very large companies alike — because a certificate that worked yesterday stops working at a precise moment, for everyone. Automate renewal, and monitor expiry dates with alerts well in advance (chapter 13.4).
+Expired certificates are one of the most common causes of sudden, total outages — for small sites and for very large companies alike — because a certificate that worked yesterday stops working at a precise moment, for everyone. Automate renewal, and monitor expiry dates with alerts well in advance ([chapter 13.4](../observability/slos-alerting-on-call.mdx)).
 :::
 
 ---
@@ -219,7 +219,7 @@ Every tool in this chapter has subtle traps: nonces that must never repeat, comp
 - **Encoding mistaken for encryption.** Base64 "protected" secrets are public secrets.
 - **Passwords with fast or unsalted hashes** (MD5, SHA-1, plain SHA-256). Stolen databases get cracked in hours.
 - **`math/rand` for tokens.** Predictable tokens let attackers guess other users' sessions or reset links.
-- **Hard-coded encryption keys** in source code or Git. Anyone with the repository can decrypt everything (chapter 7.6).
+- **Hard-coded encryption keys** in source code or Git. Anyone with the repository can decrypt everything ([chapter 7.6](./secrets-management.mdx)).
 - **Disabling certificate checks** "to make it work" (`curl -k`, `InsecureSkipVerify: true`). It silently removes the authenticity guarantee — and tends to reach production.
 - **Expired certificates.** Automate renewal and alert before expiry.
 :::

@@ -6,7 +6,7 @@ description: "How systems grow: vertical vs horizontal scaling, why services mus
 
 # 8.6 Scaling from one box to many
 
-snip goes viral. Traffic is ten times yesterday's and rising. Chapter 8.5 taught you to measure how much one server can take. This chapter is about what to do when that isn't enough. The good news: the stateless API servers you've been building are the easy part. You can run as many copies as you like. The hard part is always the **state**: the database, and anything else that remembers. You'll add copies behind a load balancer and watch capacity multiply. Then you'll watch the same setup quietly break when state lives in the wrong place. Along the way you'll learn the tools for scaling databases, and when *not* to use them.
+snip goes viral. Traffic is ten times yesterday's and rising. [Chapter 8.5](./performance-and-load-testing.mdx) taught you to measure how much one server can take. This chapter is about what to do when that isn't enough. The good news: the stateless API servers you've been building are the easy part. You can run as many copies as you like. The hard part is always the **state**: the database, and anything else that remembers. You'll add copies behind a load balancer and watch capacity multiply. Then you'll watch the same setup quietly break when state lives in the wrong place. Along the way you'll learn the tools for scaling databases, and when *not* to use them.
 
 ## What you'll learn
 
@@ -26,7 +26,7 @@ A bakery can't keep up. It can buy a **bigger oven** (scale **up**, *vertical*):
 
 | | Vertical (bigger machine) | Horizontal (more machines) |
 |---|---|---|
-| How | More CPU, memory, faster disk | More copies behind a load balancer (chapter 8.3) |
+| How | More CPU, memory, faster disk | More copies behind a load balancer ([chapter 8.3](./reverse-proxies-and-nginx.mdx)) |
 | Code changes | None | The service must be stateless |
 | Limit | The biggest machine you can buy, and its price | Mostly your shared state (database) and budget |
 | Failure | One machine = single point of failure | Copies cover for each other |
@@ -48,9 +48,9 @@ Where state likes to hide:
 |---|---|---|
 | Data in memory (maps, globals) | Each copy sees different data | Move it to the database or Redis |
 | Login sessions in memory | Users are logged out whenever they hit a different copy | Store sessions in Redis or the DB, or use signed tokens |
-| Uploaded files on local disk | The file exists on one copy only; lost when the copy is replaced | Object storage (S3 and friends, chapter 12.3) |
+| Uploaded files on local disk | The file exists on one copy only; lost when the copy is replaced | Object storage (S3 and friends, [chapter 12.3](../cloud/compute-storage-databases.mdx)) |
 | Per-copy caches | Copies disagree after an update; memory is duplicated | Shared cache (Redis), or short TTLs if brief staleness is OK |
-| Per-copy rate limits | Clients get the limit once per copy (chapter 8.4) | Shared counters in Redis |
+| Per-copy rate limits | Clients get the limit once per copy ([chapter 8.4](./rate-limiting-and-resilience.mdx)) | Shared counters in Redis |
 | Scheduled jobs in every copy | The nightly email is sent N times | Run jobs in one place: a queue (8.2), a dedicated worker, or a lock |
 
 :::info[If you've written code]
@@ -67,12 +67,12 @@ Once the app tier is stateless, adding copies is easy, and every copy talks to t
 
 Most applications read far more than they write. snip's redirects (reads) vastly outnumber link creations (writes).
 
-- **Cache** hot data (chapter 6.7). snip's cache-aside for redirects means a popular link hits Postgres once per TTL instead of millions of times. Usually the biggest win of all.
+- **Cache** hot data ([chapter 6.7](../data/redis-and-caching.mdx)). snip's cache-aside for redirects means a popular link hits Postgres once per TTL instead of millions of times. Usually the biggest win of all.
 - **Read replicas**: copies of the database that continuously receive the primary's changes and serve read-only queries. Add replicas to add read capacity.
 - **CDNs** (content delivery networks) cache static files (images, JavaScript, this handbook's pages) on servers around the world, close to users, so those requests never reach you at all.
 
 :::warning[What can go wrong]
-Replicas are slightly **behind** the primary, usually by milliseconds and sometimes by seconds (**replication lag**). A user creates a link (written to the primary), is redirected to a page that reads from a replica, and their new link isn't there yet: "it didn't save!" The usual fix is **read-your-writes**: send a user's reads to the primary for a short while after they write, or for data they just changed. This is the eventual consistency of chapter 8.1, in your own database.
+Replicas are slightly **behind** the primary, usually by milliseconds and sometimes by seconds (**replication lag**). A user creates a link (written to the primary), is redirected to a page that reads from a replica, and their new link isn't there yet: "it didn't save!" The usual fix is **read-your-writes**: send a user's reads to the primary for a short while after they write, or for data they just changed. This is the eventual consistency of [chapter 8.1](./distributed-survival-kit.mdx), in your own database.
 :::
 
 ### Scaling writes
@@ -81,14 +81,14 @@ Every write must go to the one **primary**, so write capacity is harder to add.
 
 1. **Make each write cheaper**: fewer indexes on hot tables, smaller rows, shorter transactions.
 2. **Batch**: one statement inserting 1,000 rows is far cheaper than 1,000 separate statements. snip's worker does this for clicks: instead of `UPDATE ... clicks = clicks + 1` per click, it adds up many clicks and writes once.
-3. **Queue** (chapter 8.2): absorb bursts, and let workers write at a steady, sustainable rate.
+3. **Queue** ([chapter 8.2](./queues-and-background-work.mdx)): absorb bursts, and let workers write at a steady, sustainable rate.
 4. **Scale up the primary.** Unglamorous, and often the right answer.
 5. **Partition / shard**: split the data across several independent databases, each owning part of it.
 
 **Sharding** splits data by a **shard key**. For snip, the slug is a natural choice: `shard = hash(slug) mod 4` decides which of 4 databases holds a link. Each shard handles a quarter of the writes, and a redirect only needs one shard. The costs are real:
 
 - **Queries across shards** are hard: "all links for owner 42" now means asking every shard and merging the answers.
-- **Transactions across shards** lose the simple guarantees of chapter 6.5.
+- **Transactions across shards** lose the simple guarantees of [chapter 6.5](../data/transactions.mdx).
 - **Resharding** (going from 4 to 8) moves data around while the system is live. **Consistent hashing** reduces how much has to move, but it's still a project.
 - **Hot keys**: one viral link still lands on one shard. Sharding spreads *many* keys, not one busy one. (A cache handles that.)
 
@@ -96,13 +96,13 @@ Some databases shard for you (distributed SQL databases like CockroachDB, or man
 
 ### Connections run out before CPU does
 
-Each copy of snip keeps a **pool** of database connections (chapter 6.6). pgx's default pool size is the larger of 4 and the machine's CPU count (you can set it with `pool_max_conns` in the connection URL). Postgres allows 100 connections by default (`max_connections`), and each connection costs the server memory. Now scale out:
+Each copy of snip keeps a **pool** of database connections ([chapter 6.6](../data/postgres-from-go.mdx)). pgx's default pool size is the larger of 4 and the machine's CPU count (you can set it with `pool_max_conns` in the connection URL). Postgres allows 100 connections by default (`max_connections`), and each connection costs the server memory. Now scale out:
 
 ```text
 40 api copies × 10 connections each = 400 connections  →  Postgres refuses the rest
 ```
 
-Adding app copies can **take the database down**, even at modest traffic. Fixes: size pools with Little's law (chapter 8.5), and put a **connection pooler** like **PgBouncer** between the app and Postgres. It accepts thousands of client connections and funnels them through a small number of real ones. Managed databases often offer one built in.
+Adding app copies can **take the database down**, even at modest traffic. Fixes: size pools with Little's law ([chapter 8.5](./performance-and-load-testing.mdx)), and put a **connection pooler** like **PgBouncer** between the app and Postgres. It accepts thousands of client connections and funnels them through a small number of real ones. Managed databases often offer one built in.
 
 ---
 
@@ -111,7 +111,7 @@ Adding app copies can **take the database down**, even at modest traffic. Fixes:
 **Autoscaling** adds and removes copies automatically based on a signal. You configure:
 
 - **The signal**: CPU utilisation (simple, common), requests per second per copy, latency, or, for workers, **queue depth** (messages waiting).
-- **A target**: "keep average CPU around 60%" (headroom, chapter 8.5).
+- **A target**: "keep average CPU around 60%" (headroom, [chapter 8.5](./performance-and-load-testing.mdx)).
 - **Minimum and maximum** copies: at least 2 for availability; a maximum to cap cost and protect the database's connection limit.
 - **Cooldowns**, so it doesn't flap up and down on every blip.
 
@@ -119,10 +119,10 @@ Adding app copies can **take the database down**, even at modest traffic. Fixes:
 - **It isn't instant.** Starting a machine, pulling an image and warming up takes from seconds to minutes. A sudden spike arrives faster than new copies. So keep headroom, and scale on signals that rise *early*.
 - **It scales the easy tier.** Autoscaling the API from 4 to 40 copies can push all the load onto the database, which doesn't autoscale, and connections run out first.
 - **Scaling on the wrong signal**: scaling on CPU when the real bottleneck is a slow dependency just adds more copies waiting on the same dependency.
-- **Scale-down kills in-flight work** unless copies shut down gracefully (snip does: chapter 5.4).
+- **Scale-down kills in-flight work** unless copies shut down gracefully (snip does: [chapter 5.4](../apis/structuring-a-real-service.mdx)).
 :::
 
-Kubernetes' Horizontal Pod Autoscaler (chapter 10.2) and cloud autoscaling groups (chapter 12.3) are the usual tools.
+Kubernetes' Horizontal Pod Autoscaler ([chapter 10.2](../kubernetes/core-objects.mdx)) and cloud autoscaling groups ([chapter 12.3](../cloud/compute-storage-databases.mdx)) are the usual tools.
 
 ---
 
@@ -139,7 +139,7 @@ Database:                         cache hit rate 95% → 300 queries/s reach Pos
 Connections:                      6 copies × 10 = 60 < 100: fine (with room for workers)
 ```
 
-Revisit it when traffic grows or the system changes, and set alerts (chapter 13.4) *before* the limits: at 70% utilisation, at 80% of `max_connections`.
+Revisit it when traffic grows or the system changes, and set alerts ([chapter 13.4](../observability/slos-alerting-on-call.mdx)) *before* the limits: at 70% utilisation, at 80% of `max_connections`.
 
 :::info[In the real world]
 Most systems never need sharding or dozens of microservices. A stateless app tier with a few copies, a well-indexed Postgres primary with a replica, and a Redis cache carry businesses a long way. Every step up the ladder (replicas, queues, sharding, multiple regions) adds moving parts that must be operated, monitored and debugged at 3 a.m. Experienced engineers scale **when measurements say so**, one bottleneck at a time, and prefer the boring option that works. "We might need it someday" isn't a reason.
@@ -151,7 +151,7 @@ Most systems never need sharding or dozens of microservices. A stateless app tie
 
 Free, on your own computer, using the small examples in `snip/examples` (no Docker needed until step 3).
 
-1. **Watch horizontal scaling.** `examples/slowserver` has a fixed capacity of about 375 req/s (chapter 8.5), and `examples/lb` is a round-robin load balancer in about 40 lines. Read its `main.go`. Build the three tools into `bin/`, then start three slowservers and a balancer with one backend:
+1. **Watch horizontal scaling.** `examples/slowserver` has a fixed capacity of about 375 req/s ([chapter 8.5](./performance-and-load-testing.mdx)), and `examples/lb` is a round-robin load balancer in about 40 lines. Read its `main.go`. Build the three tools into `bin/`, then start three slowservers and a balancer with one backend:
    ```bash
    cd ~/code/zero-to-prod/snip
    go build -o bin/ ./examples/slowserver ./examples/lb ./examples/loadgen
@@ -161,7 +161,7 @@ Free, on your own computer, using the small examples in `snip/examples` (no Dock
    ./bin/lb -listen :8000 http://localhost:9091 &
    ./bin/loadgen -url http://localhost:8000/ -rate 600 -d 5s
    ```
-   (`&` runs a program in the background, chapter 1.2. We build binaries first so `pkill` can find them by name. Killing a background `go run` stops only the `go` tool and leaves your program running.) Now replace the balancer with one that has two backends, then three, load-testing each time:
+   (`&` runs a program in the background, [chapter 1.2](../foundations/programs-processes-threads.mdx). We build binaries first so `pkill` can find them by name. Killing a background `go run` stops only the `go` tool and leaves your program running.) Now replace the balancer with one that has two backends, then three, load-testing each time:
    ```bash
    pkill -x lb; ./bin/lb -listen :8000 http://localhost:9091 http://localhost:9092 &
    ./bin/loadgen -url http://localhost:8000/ -rate 600 -d 5s
@@ -193,16 +193,16 @@ Free, on your own computer, using the small examples in `snip/examples` (no Dock
    ```text
    404 302 404 302 404 302
    ```
-   Half your users get "not found". Now restart both copies with a shared Postgres (chapter 6.6): add `SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable"` to both commands. Create a key with `go run ./cmd/snip keys create scale-lab` (same variable set), create the link again, and repeat the loop: `302 302 302 302 302 302`. Same code, same balancer. Only where the state lives changed.
+   Half your users get "not found". Now restart both copies with a shared Postgres ([chapter 6.6](../data/postgres-from-go.mdx)): add `SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable"` to both commands. Create a key with `go run ./cmd/snip keys create scale-lab` (same variable set), create the link again, and repeat the loop: `302 302 302 302 302 302`. Same code, same balancer. Only where the state lives changed.
 
 3. **Scale with Compose** (Docker). The compose stack runs two api copies. Make it four:
    ```bash
    docker compose up -d --scale api=4 --wait
    docker compose restart nginx            # nginx looks up "api" only at startup
    ```
-   Send 40 requests through `localhost:8080` and count requests per copy as in chapter 8.3's lab. Why did nginx need a restart? (It resolved the name `api` to addresses once, when it started. Knowing which copies currently exist is **service discovery**, and chapter 10.3 shows how Kubernetes handles it for you.)
+   Send 40 requests through `localhost:8080` and count requests per copy as in [chapter 8.3](./reverse-proxies-and-nginx.mdx)'s lab. Why did nginx need a restart? (It resolved the name `api` to addresses once, when it started. Knowing which copies currently exist is **service discovery**, and [chapter 10.3](../kubernetes/networking-and-ingress.mdx) shows how Kubernetes handles it for you.)
 
-4. **Design exercise.** snip must handle 100,000 redirects per second worldwide. Using your chapter 8.5 numbers, sketch the plan: how many api copies, what cache hit rate you need, what reaches Postgres, how many connections, and what you'd do about a single link that gets 20,000 hits per second.
+4. **Design exercise.** snip must handle 100,000 redirects per second worldwide. Using your [chapter 8.5](./performance-and-load-testing.mdx) numbers, sketch the plan: how many api copies, what cache hit rate you need, what reaches Postgres, how many connections, and what you'd do about a single link that gets 20,000 hits per second.
 
 ## Self-check
 

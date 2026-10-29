@@ -46,19 +46,19 @@ A tiny product with a sticky-note description turns out to touch nearly every ha
 
 | The question | What it forces you to learn | Where |
 |---|---|---|
-| How does a browser even reach snip? | Networks, addresses, ports, HTTP | Part 1 |
-| Where do we write snip, and how do we run it? | A programming language, the terminal, Linux | Parts 2 & 4 |
-| How do other programs ask snip to shorten a link? | Designing an **API** (a menu of requests a program accepts) | Part 5 |
-| Where are links kept so they survive a restart? | Databases and SQL | Part 6 |
-| Redirects must be instant, even with millions of links. How? | Indexes and caching | Part 6 |
-| How do we stop strangers deleting your links, or spammers flooding snip? | Authentication, authorisation, rate limiting, web attacks | Parts 7 & 8 |
-| Counting clicks shouldn't slow redirects down. How? | Queues and background workers | Part 8 |
-| How do we run it the same way on every machine? | Containers | Part 9 |
-| How do we run many copies so one crash doesn't take it down? | Kubernetes, load balancing | Parts 8 & 10 |
-| How does new code reach users safely, many times a day? | CI/CD, deployment strategies | Part 11 |
-| Where does it run in the real world, and what does it cost? | The cloud, Terraform | Part 12 |
-| How do we know it's healthy at 3 a.m.? | Logs, metrics, traces, alerts | Part 13 |
-| Can snip summarise and tag the pages it links to, and let you search them by meaning? | Large language models, embeddings, RAG, evals | Part 14 |
+| How does a browser even reach snip? | Networks, addresses, ports, HTTP | [Part 1](../foundations/what-a-computer-does.mdx) |
+| Where do we write snip, and how do we run it? | A programming language, the terminal, Linux | Parts [2](../linux/shell-and-filesystem.mdx) & [4](../go/why-go-first-program.mdx) |
+| How do other programs ask snip to shorten a link? | Designing an **API** (a menu of requests a program accepts) | [Part 5](../apis/first-http-server.mdx) |
+| Where are links kept so they survive a restart? | Databases and SQL | [Part 6](../data/why-databases.mdx) |
+| Redirects must be instant, even with millions of links. How? | Indexes and caching | [Part 6](../data/why-databases.mdx) |
+| How do we stop strangers deleting your links, or spammers flooding snip? | Authentication, authorisation, rate limiting, web attacks | Parts [7](../security/security-literacy.mdx) & [8](../distributed/distributed-survival-kit.mdx) |
+| Counting clicks shouldn't slow redirects down. How? | Queues and background workers | [Part 8](../distributed/distributed-survival-kit.mdx) |
+| How do we run it the same way on every machine? | Containers | [Part 9](../containers/what-a-container-is.mdx) |
+| How do we run many copies so one crash doesn't take it down? | Kubernetes, load balancing | Parts [8](../distributed/distributed-survival-kit.mdx) & [10](../kubernetes/why-orchestration.mdx) |
+| How does new code reach users safely, many times a day? | CI/CD, deployment strategies | [Part 11](../shipping/how-software-ships.mdx) |
+| Where does it run in the real world, and what does it cost? | The cloud, Terraform | [Part 12](../cloud/cloud-from-zero.mdx) |
+| How do we know it's healthy at 3 a.m.? | Logs, metrics, traces, alerts | [Part 13](../observability/logs.mdx) |
+| Can snip summarise and tag the pages it links to, and let you search them by meaning? | Large language models, embeddings, RAG, evals | [Part 14](../ai/python-for-ai-engineers.mdx) |
 
 That's the whole handbook, driven by one product. Every chapter answers a question snip actually has.
 
@@ -90,8 +90,8 @@ flowchart TB
 
 Two things in that picture matter most:
 
-- **There's more than one copy of snip.** If one crashes, the other keeps serving. The **reverse proxy** in front decides which copy handles each visitor. (Part 8.)
-- **Following a link and counting a click are separated.** When you visit a short link, snip redirects you *immediately* and just drops a note — "a click happened" — into a **queue**. A separate program, the **worker**, picks up those notes and updates the counts. Your visit never waits for the counting. (Part 8.)
+- **There's more than one copy of snip.** If one crashes, the other keeps serving. The **reverse proxy** in front decides which copy handles each visitor. ([Part 8](../distributed/distributed-survival-kit.mdx).)
+- **Following a link and counting a click are separated.** When you visit a short link, snip redirects you *immediately* and just drops a note — "a click happened" — into a **queue**. A separate program, the **worker**, picks up those notes and updates the counts. Your visit never waits for the counting. ([Part 8](../distributed/distributed-survival-kit.mdx).)
 
 Don't worry if words like *cache*, *queue* or *reverse proxy* are new. Each one gets the full ladder — everyday anchor first — in the chapter that introduces it.
 
@@ -104,11 +104,11 @@ You won't build that big picture in one go. snip grows in versions, and **every 
 | Version | What's new | You learn it in |
 |---|---|---|
 | **v0** | A Go program that shortens and follows links, keeping them in memory (forgotten on restart). | 5.1 |
-| **v1** | A proper API with validation and errors, links stored in **Postgres** so they survive restarts. | Parts 5–6 |
-| **v2** | **Redis** cache for fast redirects; click counting through a **queue** and **worker**; API keys and rate limiting. | Parts 6–8 |
-| **v3** | Packaged in **containers**; the whole stack starts with one command. | Part 9 |
-| **v4** | Running on **Kubernetes**, deployed automatically by **CI/CD**, infrastructure described in **Terraform**. | Parts 10–12 |
-| **v5** | **Observable** (metrics, logs, traces, alerts) — and, on the AI track, **AI features** (summaries, tags, search by meaning). | Parts 13–14 |
+| **v1** | A proper API with validation and errors, links stored in **Postgres** so they survive restarts. | Parts [5](../apis/first-http-server.mdx)–[6](../data/why-databases.mdx) |
+| **v2** | **Redis** cache for fast redirects; click counting through a **queue** and **worker**; API keys and rate limiting. | Parts [6](../data/why-databases.mdx)–[8](../distributed/distributed-survival-kit.mdx) |
+| **v3** | Packaged in **containers**; the whole stack starts with one command. | [Part 9](../containers/what-a-container-is.mdx) |
+| **v4** | Running on **Kubernetes**, deployed automatically by **CI/CD**, infrastructure described in **Terraform**. | Parts [10](../kubernetes/why-orchestration.mdx)–[12](../cloud/cloud-from-zero.mdx) |
+| **v5** | **Observable** (metrics, logs, traces, alerts) — and, on the AI track, **AI features** (summaries, tags, search by meaning). | Parts [13](../observability/logs.mdx)–[14](../ai/python-for-ai-engineers.mdx) |
 
 ---
 
@@ -128,7 +128,7 @@ Treat it like the answer key at the back of a textbook:
 :::
 
 :::info[In the real world]
-Real link shorteners (Bitly, TinyURL, the ones built into social networks) are a classic **system design interview** question precisely because they look simple and aren't. By Part 15 you'll be able to design one at the scale of billions of clicks — and explain every trade-off — because you'll have built one.
+Real link shorteners (Bitly, TinyURL, the ones built into social networks) are a classic **system design interview** question precisely because they look simple and aren't. By [Part 15](../architecture/system-design-method.mdx) you'll be able to design one at the scale of billions of clicks — and explain every trade-off — because you'll have built one.
 :::
 
 ---
@@ -143,9 +143,9 @@ Two minutes, in your browser and terminal. Free.
    ```
    Look for two lines near the top: `HTTP/1.1 301 Moved Permanently` and `Location: https://github.com/`. That's a redirect — the server saying "not here, go *there*". snip will send exactly this kind of answer, pointing at your long link. (`curl` is a tool for talking to web servers from the terminal; it's preinstalled on macOS and most Linux systems — on WSL, run `sudo apt install -y curl` if it's missing.)
 
-2. **Look at the finished code — just look.** Open the [`snip/` folder on GitHub](https://github.com/jawwadzafar/zero-to-prod/tree/main/snip) and browse. You won't understand most of it yet, and that's the point: come back after Part 5 and notice how much of it reads like plain English.
+2. **Look at the finished code — just look.** Open the [`snip/` folder on GitHub](https://github.com/jawwadzafar/zero-to-prod/tree/main/snip) and browse. You won't understand most of it yet, and that's the point: come back after [Part 5](../apis/first-http-server.mdx) and notice how much of it reads like plain English.
 
-3. **Write down your "why".** In one sentence, write why you're doing this — the job you want, the thing you want to build, the person you want to be able to explain things to. Put it somewhere you'll see it. You'll want it around chapter 6.5.
+3. **Write down your "why".** In one sentence, write why you're doing this — the job you want, the thing you want to build, the person you want to be able to explain things to. Put it somewhere you'll see it. You'll want it around [chapter 6.5](../data/transactions.mdx).
 
 ## Self-check
 
@@ -211,6 +211,6 @@ If you could say that, you already understand the product. Everything else is ab
 <details>
 <summary>Which single part of the snip picture do you think would cause the most trouble if it broke, and why?</summary>
 
-There's no single right answer — this is a judgment question, and Part 15 teaches you to argue it properly. A strong answer usually picks **Postgres**, because it's the **source of truth**: if the cache (Redis) is lost, snip can rebuild it from Postgres; if a worker dies, clicks wait in the queue; if one API copy dies, others serve. But if Postgres loses data, those links are gone. That's why Part 6 spends so long on databases, and Part 12 on backups.
+There's no single right answer — this is a judgment question, and [Part 15](../architecture/system-design-method.mdx) teaches you to argue it properly. A strong answer usually picks **Postgres**, because it's the **source of truth**: if the cache (Redis) is lost, snip can rebuild it from Postgres; if a worker dies, clicks wait in the queue; if one API copy dies, others serve. But if Postgres loses data, those links are gone. That's why [Part 6](../data/why-databases.mdx) spends so long on databases, and [Part 12](../cloud/cloud-from-zero.mdx) on backups.
 
 </details>

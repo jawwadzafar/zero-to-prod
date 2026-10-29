@@ -6,7 +6,7 @@ description: "Redis, the in-memory data store behind countless fast backends —
 
 # 6.7 Redis & caching
 
-Every time someone clicks a snip link, snip must look up where it goes. With Postgres and the right index (chapter 6.4), that takes about a millisecond — impressive, until a link goes viral and gets 5,000 clicks a second, all asking the database the exact same question. The answer never changes, yet the database does the same work 5,000 times a second. A **cache** remembers recent answers in fast memory, so most requests never reach the database at all. The tool nearly everyone uses for this is **Redis**. This chapter covers what Redis is, how snip uses it as a cache, and the famous quip that there are only two hard things in computer science — and one of them is **cache invalidation**.
+Every time someone clicks a snip link, snip must look up where it goes. With Postgres and the right index ([chapter 6.4](./indexes-and-performance.mdx)), that takes about a millisecond — impressive, until a link goes viral and gets 5,000 clicks a second, all asking the database the exact same question. The answer never changes, yet the database does the same work 5,000 times a second. A **cache** remembers recent answers in fast memory, so most requests never reach the database at all. The tool nearly everyone uses for this is **Redis**. This chapter covers what Redis is, how snip uses it as a cache, and the famous quip that there are only two hard things in computer science — and one of them is **cache invalidation**.
 
 ## What you'll learn
 
@@ -14,15 +14,15 @@ Every time someone clicks a snip link, snip must look up where it goes. With Pos
 - **Caching** with the **cache-aside** pattern, exactly as snip's redirect path does it.
 - **TTLs**, **invalidation** and **stale data** — the trade-offs every cache makes.
 - Failure modes: **cache stampedes**, a **down cache**, caching **misses**, and why the cache is never the **source of truth**.
-- The other jobs Redis does in snip — **rate limiting** and a **queue** — previewed for Part 8.
+- The other jobs Redis does in snip — **rate limiting** and a **queue** — previewed for [Part 8](../distributed/distributed-survival-kit.mdx).
 
 ---
 
 ## Redis: a data structure server in memory
 
-**Redis** is a server (chapter 1.6, default port **6379**) that keeps all its data **in memory** — the "countertop" from chapter 1.1. That makes it extraordinarily fast: a typical command takes well under a millisecond, and one Redis server can handle on the order of 100,000 simple commands per second.
+**Redis** is a server ([chapter 1.6](../foundations/what-a-server-is.mdx), default port **6379**) that keeps all its data **in memory** — the "countertop" from [chapter 1.1](../foundations/what-a-computer-does.mdx). That makes it extraordinarily fast: a typical command takes well under a millisecond, and one Redis server can handle on the order of 100,000 simple commands per second.
 
-At its simplest it's a giant **key–value map** (chapter 4.2's map, as a network service):
+At its simplest it's a giant **key–value map** ([chapter 4.2](../go/types-structs-errors.mdx)'s map, as a network service):
 
 ```text
 SET snip:url:godoc "https://go.dev/doc/"      → OK
@@ -39,12 +39,12 @@ But values can be richer **data types**, each with its own atomic commands:
 | **List** | ordered list | `LPUSH`, `RPOP` | simple queues |
 | **Set** | unordered, unique members | `SADD`, `SISMEMBER` | "who has seen this?" |
 | **Sorted set** | members ordered by a score | `ZADD`, `ZRANGE` | leaderboards, "top links" |
-| **Stream** | an append-only log of entries | `XADD`, `XREADGROUP`, `XACK` | reliable queues (snip's clicks, chapter 8.2) |
+| **Stream** | an append-only log of entries | `XADD`, `XREADGROUP`, `XACK` | reliable queues (snip's clicks, [chapter 8.2](../distributed/queues-and-background-work.mdx)) |
 
 Two properties make Redis special for backends:
 
-- **Every command is atomic.** Redis executes commands one at a time, so `INCR counter` from a thousand clients at once never loses an update — chapter 6.5's lost update, solved by design.
-- **Keys can expire.** Give a key a **TTL** (time to live, chapter 1.4) and Redis deletes it automatically when time's up.
+- **Every command is atomic.** Redis executes commands one at a time, so `INCR counter` from a thousand clients at once never loses an update — [chapter 6.5](./transactions.mdx)'s lost update, solved by design.
+- **Keys can expire.** Give a key a **TTL** (time to live, [chapter 1.4](../foundations/networks-from-zero.mdx)) and Redis deletes it automatically when time's up.
 
 :::note[Everyday anchor]
 If Postgres is the library's archive — complete, permanent, carefully catalogued, in the basement — Redis is the librarian's desk: a small pile of the books people asked for recently, within arm's reach. Most requests are answered from the desk. When a book isn't there, the librarian walks down to the archive, and leaves a copy on the desk for the next person.
@@ -76,7 +76,7 @@ sequenceDiagram
     end
 ```
 
-Here it is in snip's real code. The business logic, in `internal/links/service.go` (with the tracing lines from chapter 13.3 left out):
+Here it is in snip's real code. The business logic, in `internal/links/service.go` (with the tracing lines from [chapter 13.3](../observability/tracing.mdx) left out):
 
 ```go
 // Resolve finds the URL for slug: cache first, then the store (filling the
@@ -131,10 +131,10 @@ func (c *Redis) SetURL(ctx context.Context, slug, url string) error {
 
 Things worth noticing:
 
-- **The Service only knows the `Cache` interface** (chapter 4.3). With no `SNIP_REDIS_ADDR`, there's no cache at all and snip still works — just every redirect reads Postgres.
+- **The Service only knows the `Cache` interface** ([chapter 4.3](../go/packages-modules-interfaces.mdx)). With no `SNIP_REDIS_ADDR`, there's no cache at all and snip still works — just every redirect reads Postgres.
 - **Keys are namespaced**: `snip:url:<slug>`. The same Redis holds rate-limit counters (`snip:rl:…`) and the click stream (`snip:clicks`); prefixes keep them apart and make them easy to find.
 - **Cache errors never fail a redirect.** If Redis is down, `GetURL` errors, snip treats it as a miss, and serves from Postgres. A cache should make things *faster*, never make them *break*.
-- **Hits and misses are counted** (`snip_redirects_total{cache="hit|miss"}`, chapter 13.2). The **hit ratio** — hits ÷ all lookups — tells you whether the cache is earning its keep. For a link shortener, where a few links get most clicks, it's typically very high.
+- **Hits and misses are counted** (`snip_redirects_total{cache="hit|miss"}`, [chapter 13.2](../observability/metrics.mdx)). The **hit ratio** — hits ÷ all lookups — tells you whether the cache is earning its keep. For a link shortener, where a few links get most clicks, it's typically very high.
 
 ---
 
@@ -207,7 +207,7 @@ The famous quote — *"There are only two hard things in computer science: cache
 
 ### Negative caching
 
-What about slugs that **don't** exist? Every request for `/nope123` misses the cache and hits Postgres. A bot requesting millions of random slugs sails straight past the cache. Some systems cache "not found" too (briefly, say 30 seconds). snip doesn't — the index lookup is cheap, and rate limiting (chapter 8.4) handles abuse — but it's a classic knob to know about.
+What about slugs that **don't** exist? Every request for `/nope123` misses the cache and hits Postgres. A bot requesting millions of random slugs sails straight past the cache. Some systems cache "not found" too (briefly, say 30 seconds). snip doesn't — the index lookup is cheap, and rate limiting ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)) handles abuse — but it's a classic knob to know about.
 
 ---
 
@@ -245,8 +245,8 @@ Writing data **only** to Redis because it's fast, then losing it on a restart or
 
 The same Redis does two more jobs, each covered properly later:
 
-- **Rate limiting** (chapter 8.4): a counter per API key per minute, increased with atomic `INCR` and expired with a TTL — shared by every copy of snip, which a counter in one process's memory couldn't be.
-- **The click queue** (chapter 8.2): each redirect appends an event to the Redis **stream** `snip:clicks` with `XADD`; the worker reads batches, updates Postgres, and acknowledges them. Redirects stay instant; counting happens in the background.
+- **Rate limiting** ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)): a counter per API key per minute, increased with atomic `INCR` and expired with a TTL — shared by every copy of snip, which a counter in one process's memory couldn't be.
+- **The click queue** ([chapter 8.2](../distributed/queues-and-background-work.mdx)): each redirect appends an event to the Redis **stream** `snip:clicks` with `XADD`; the worker reads batches, updates Postgres, and acknowledges them. Redirects stay instant; counting happens in the background.
 
 ---
 
@@ -271,7 +271,7 @@ Free, on your own computer, using Docker.
    ```
    Wait 30 seconds and `GET snip:url:godoc` again: `(nil)`. It expired by itself.
 
-2. **Run snip with a cache.** Start Postgres as in chapter 6.6's lab (or reuse it), then:
+2. **Run snip with a cache.** Start Postgres as in [chapter 6.6](./postgres-from-go.mdx)'s lab (or reuse it), then:
    ```bash
    cd ~/code/zero-to-prod/snip
    export SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable"
@@ -362,6 +362,6 @@ You're trading **freshness** against **database load**. A redirect only changes 
 
 Because the cache only exists to **speed things up**: every answer it could give is also in Postgres. Failing a redirect because Redis is unavailable would turn an optimisation into an outage. Treating an error as a miss keeps snip working, just slower, and the errors are still logged and visible in metrics.
 
-It might not be right when the cache has become **load-bearing** — if the database can't survive full traffic without it, silently falling through during a Redis outage could overload and take down the database too. Then you'd need protection such as rate limiting, load shedding or a circuit breaker (chapter 8.4) around the fallback.
+It might not be right when the cache has become **load-bearing** — if the database can't survive full traffic without it, silently falling through during a Redis outage could overload and take down the database too. Then you'd need protection such as rate limiting, load shedding or a circuit breaker ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)) around the fallback.
 
 </details>

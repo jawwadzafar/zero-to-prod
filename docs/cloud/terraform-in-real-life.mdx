@@ -6,7 +6,7 @@ description: "What changes when Terraform manages real infrastructure for a team
 
 # 12.6 Terraform in real life: state, modules, environments
 
-Chapter 12.5's Terraform lived on one laptop: one state file on disk, one person applying, one environment, nothing at stake. Real infrastructure is different. A team shares it, production and staging must stay in step, the state file suddenly contains secrets and becomes the most important file you own, and a bad `apply` can take down a company. This chapter covers the practices that make Terraform safe at that scale, using snip's AWS configuration (`snip/infra/aws/`). That's a production-shaped setup (a VPC module, security groups, RDS, ElastiCache, ECS Fargate, a load balancer and IAM) that this repository's CI validates and scans on every push. It isn't applied, because applying it costs money. You'll see how its state is stored, how it keeps the database password *out* of that state, how one codebase serves two environments, and what a scanner found when it read the code.
+[Chapter 12.5](./terraform-from-zero.mdx)'s Terraform lived on one laptop: one state file on disk, one person applying, one environment, nothing at stake. Real infrastructure is different. A team shares it, production and staging must stay in step, the state file suddenly contains secrets and becomes the most important file you own, and a bad `apply` can take down a company. This chapter covers the practices that make Terraform safe at that scale, using snip's AWS configuration (`snip/infra/aws/`). That's a production-shaped setup (a VPC module, security groups, RDS, ElastiCache, ECS Fargate, a load balancer and IAM) that this repository's CI validates and scans on every push. It isn't applied, because applying it costs money. You'll see how its state is stored, how it keeps the database password *out* of that state, how one codebase serves two environments, and what a scanner found when it read the code.
 
 ## What you'll learn
 
@@ -83,7 +83,7 @@ resource "aws_secretsmanager_secret_version" "db_url" {
 - An **ephemeral** resource produces a value that exists only during the run.
 - A **write-only argument** (the `_wo` suffix) is sent to the provider's API but not recorded. Terraform can't compare it later, so a **version** number tells it when to send a new one.
 
-The password goes from Terraform straight to RDS and Secrets Manager. snip's tasks read it from Secrets Manager at start-up (chapter 12.4's execution role), and the state never contains it. Compare the local stack from chapter 12.5, which uses an ordinary `random_password` and whose state *does* hold the password: fine on a laptop, not in production.
+The password goes from Terraform straight to RDS and Secrets Manager. snip's tasks read it from Secrets Manager at start-up ([chapter 12.4](./iam.mdx)'s execution role), and the state never contains it. Compare the local stack from [chapter 12.5](./terraform-from-zero.mdx), which uses an ordinary `random_password` and whose state *does* hold the password: fine on a laptop, not in production.
 
 ---
 
@@ -102,7 +102,7 @@ module "network" {
 subnets = module.network.private_subnet_ids
 ```
 
-Inside `modules/network/` are the VPC, subnets, gateways and route tables from chapter 12.2, exposing just three outputs: `vpc_id`, `public_subnet_ids` and `private_subnet_ids`. The rest of the configuration doesn't need to know how the network is built.
+Inside `modules/network/` are the VPC, subnets, gateways and route tables from [chapter 12.2](./cloud-networking.mdx), exposing just three outputs: `vpc_id`, `public_subnet_ids` and `private_subnet_ids`. The rest of the configuration doesn't need to know how the network is built.
 
 Modules come from local paths, Git repositories, or registries (the public **Terraform Registry** has widely used community modules, such as a full-featured VPC module). Good modules follow the same advice as good code: a small, clear interface; sensible, secure defaults; pinned versions when you consume them (`version = "~> 5.0"`); and not too many options. A module with 80 variables is a configuration language of its own.
 
@@ -129,13 +129,13 @@ terraform plan  -var-file=envs/production.tfvars
 
 The code expresses the differences as logic on inputs, for example `deletion_protection = var.environment == "production"`. Separate state files mean a mistake in staging can't touch production's state.
 
-Other common layouts: **one directory per environment** (each calling shared modules; more explicit, some duplication) and **Terraform workspaces** (several states for one configuration; convenient, but easy to apply to the wrong one, so many teams avoid them for environments). Whatever the layout, the strongest isolation is **separate cloud accounts** per environment (chapter 12.4), each with its own state and credentials.
+Other common layouts: **one directory per environment** (each calling shared modules; more explicit, some duplication) and **Terraform workspaces** (several states for one configuration; convenient, but easy to apply to the wrong one, so many teams avoid them for environments). Whatever the layout, the strongest isolation is **separate cloud accounts** per environment ([chapter 12.4](./iam.mdx)), each with its own state and credentials.
 
 ---
 
 ## Lock files across platforms
 
-Chapter 12.5 said to commit `.terraform.lock.hcl`. There's a trap: the lock records checksums of provider packages, which differ per operating system and CPU. A lock created on a Linux machine can hold only Linux checksums, and then `terraform init` on a colleague's Mac fails with "the checksums don't match". snip's lock files were generated for all the platforms readers use:
+[Chapter 12.5](./terraform-from-zero.mdx) said to commit `.terraform.lock.hcl`. There's a trap: the lock records checksums of provider packages, which differ per operating system and CPU. A lock created on a Linux machine can hold only Linux checksums, and then `terraform init` on a colleague's Mac fails with "the checksums don't match". snip's lock files were generated for all the platforms readers use:
 
 ```bash
 terraform providers lock \
@@ -155,9 +155,9 @@ Nobody runs `terraform apply` for production from a laptop. The common pattern:
 2. CI runs `fmt -check`, `validate`, **security scanning**, and `terraform plan` against the real environment, and posts the plan on the PR.
 3. Reviewers read the **code and the plan**: every `-/+` and `-`.
 4. After approval and merge, CI runs `apply` with **exactly that plan** (`terraform plan -out=tfplan`, then `terraform apply tfplan`), so what was reviewed is what happens.
-5. CI authenticates to the cloud with **OIDC** (chapter 12.4), using a role that only the main-branch pipeline can assume. A separate, read-only role is used for PR plans.
+5. CI authenticates to the cloud with **OIDC** ([chapter 12.4](./iam.mdx)), using a role that only the main-branch pipeline can assume. A separate, read-only role is used for PR plans.
 
-Tools like **Atlantis**, **HCP Terraform** and similar services implement this workflow; plain GitHub Actions can too. A scheduled `plan -detailed-exitcode` job catches drift (chapter 12.5).
+Tools like **Atlantis**, **HCP Terraform** and similar services implement this workflow; plain GitHub Actions can too. A scheduled `plan -detailed-exitcode` job catches drift ([chapter 12.5](./terraform-from-zero.mdx)).
 
 ### Scanning infrastructure code
 
@@ -174,12 +174,12 @@ aws/main.tf (terraform)
 AWS-0104 (CRITICAL): Security group rule allows unrestricted egress to any IP address.
 ```
 
-Each got a decision, which is what scanning is for (chapter 9.4's triage):
+Each got a decision, which is what scanning is for ([chapter 9.4](../containers/images-in-production.mdx)'s triage):
 
 | Finding | Decision |
 |---|---|
 | **AWS-0052**: invalid headers not dropped | **Fixed**: `drop_invalid_header_fields = true` (malformed headers are a request-smuggling tool) |
-| **AWS-0104**: tasks may send anything anywhere | **Narrowed**: HTTPS out (image pulls, AWS APIs), plus Postgres and Redis only to the data security group. The remaining HTTPS rule is **accepted**, with a reason: VPC endpoints (chapter 12.2) would remove it |
+| **AWS-0104**: tasks may send anything anywhere | **Narrowed**: HTTPS out (image pulls, AWS APIs), plus Postgres and Redis only to the data security group. The remaining HTTPS rule is **accepted**, with a reason: VPC endpoints ([chapter 12.2](./cloud-networking.mdx)) would remove it |
 | **AWS-0053**: load balancer is public | **Accepted**: it's snip's front door, public on purpose |
 | **AWS-0054**: no HTTPS listener | **Accepted for the example** (no domain to get a certificate for), with a note that production must add HTTPS |
 
@@ -190,7 +190,7 @@ Accepted findings are recorded **in the code**, next to the resource, with the r
 resource "aws_lb" "this" {
 ```
 
-The same scan found that the **Postgres and Redis Kubernetes manifests** (chapter 10.2) ran with default security contexts, which allow root. snip's own Pods were already locked down, but these two, adapted from the Compose stack, weren't. They now run as the images' non-root users with read-only root filesystems, like snip. After that, the scan reported zero HIGH or CRITICAL findings, and CI was switched from *report only* to **blocking**: any new finding now fails the build until it's fixed or accepted with a written reason.
+The same scan found that the **Postgres and Redis Kubernetes manifests** ([chapter 10.2](../kubernetes/core-objects.mdx)) ran with default security contexts, which allow root. snip's own Pods were already locked down, but these two, adapted from the Compose stack, weren't. They now run as the images' non-root users with read-only root filesystems, like snip. After that, the scan reported zero HIGH or CRITICAL findings, and CI was switched from *report only* to **blocking**: any new finding now fails the build until it's fixed or accepted with a written reason.
 
 ### Refactoring without destroying: moved and import
 
@@ -335,7 +335,7 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
 - **Accounts**: separate AWS accounts for staging and production (and a third for shared state and logs), in one organisation with guardrail policies.
 - **State**: an S3 bucket per environment (versioned, encrypted, locked), in the shared account or each environment's own. Only the pipeline roles can write to it.
 - **Code**: one configuration (`snip/infra/aws`) plus per-environment `tfvars` and backend files. Shared building blocks (the network) as pinned modules.
-- **Pipeline**: on a PR, CI assumes a **read-only plan role** in each account via OIDC, runs fmt/validate/scan/plan, and posts the plans. On merge to `main`, CI assumes the **apply role** (trust restricted to `main`, chapter 12.4), applies the saved plan to staging, runs smoke tests, then waits for approval before production.
+- **Pipeline**: on a PR, CI assumes a **read-only plan role** in each account via OIDC, runs fmt/validate/scan/plan, and posts the plans. On merge to `main`, CI assumes the **apply role** (trust restricted to `main`, [chapter 12.4](./iam.mdx)), applies the saved plan to staging, runs smoke tests, then waits for approval before production.
 - **Secrets**: ephemeral and write-only for generated passwords; everything else in Secrets Manager, never in tfvars or state.
 - **Humans**: read-only console access by default; a logged, time-limited break-glass role for emergencies.
 - **Drift**: a nightly `plan -detailed-exitcode` per environment, alerting on changes.

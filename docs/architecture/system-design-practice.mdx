@@ -8,7 +8,7 @@ description: "Three complete system designs using chapter 15.1's method, each bu
 
 System design is a skill, not a body of facts, and skills come from practice. The good news: you already know the building blocks. Queues, caches, retries, idempotency, rate limits, replicas, embeddings, evals. Every one has a chapter in this handbook, and most have running code in snip. What practice adds is **assembly**: choosing which blocks a problem needs, in what shape, and explaining why, under time pressure.
 
-This chapter works through three designs with chapter 15.1's six steps. Each one reuses different parts of the handbook, and each has one genuinely hard problem at its centre. Read each problem statement, and try the first two steps yourself before reading on.
+This chapter works through three designs with [chapter 15.1](./system-design-method.mdx)'s six steps. Each one reuses different parts of the handbook, and each has one genuinely hard problem at its centre. Read each problem statement, and try the first two steps yourself before reading on.
 
 ## What you'll learn
 
@@ -34,7 +34,7 @@ The key requirement is the first non-functional one. Customers' servers go down,
 
 ### Estimates
 
-Say 1 million links created a day, 20% of owners use webhooks, and each link produces about 2 events over its life: roughly **400,000 events a day, about 5 a second**, peaking at perhaps 50. Tiny for storage and CPU. The real load is **waiting**: a slow customer endpoint can take 10 seconds to answer, and retries multiply attempts. At 50 events a second and 10 seconds each, that's 500 requests in flight at once (Little's law, chapter 8.5).
+Say 1 million links created a day, 20% of owners use webhooks, and each link produces about 2 events over its life: roughly **400,000 events a day, about 5 a second**, peaking at perhaps 50. Tiny for storage and CPU. The real load is **waiting**: a slow customer endpoint can take 10 seconds to answer, and retries multiply attempts. At 50 events a second and 10 seconds each, that's 500 requests in flight at once (Little's law, [chapter 8.5](../distributed/performance-and-load-testing.mdx)).
 
 ### Design
 
@@ -46,19 +46,19 @@ flowchart LR
   W -->|"record attempt"| DB
 ```
 
-- **Never deliver inside the API request.** Creating a link must not wait on a customer's server. The event goes on a queue (chapter 8.2).
-- **The outbox pattern** (chapter 8.2) prevents losing events: the API writes the link *and* an event row in the same database transaction, and a relay moves event rows to the queue. Writing to the database and then to the queue separately means a crash between them loses the event. That's the dual-write problem.
+- **Never deliver inside the API request.** Creating a link must not wait on a customer's server. The event goes on a queue ([chapter 8.2](../distributed/queues-and-background-work.mdx)).
+- **The outbox pattern** ([chapter 8.2](../distributed/queues-and-background-work.mdx)) prevents losing events: the API writes the link *and* an event row in the same database transaction, and a relay moves event rows to the queue. Writing to the database and then to the queue separately means a crash between them loses the event. That's the dual-write problem.
 - **Delivery workers** take events off the queue and POST them, with a short timeout (5–10 seconds).
 
 ### Deep dives
 
-**Retries.** On a timeout, a connection error or a `5xx` response, retry with **exponential backoff and jitter** (chapter 8.1): after 30 seconds, then 2 minutes, 10 minutes, an hour, and so on for a day or two. Then give up, mark the endpoint as failing, and email its owner. Events that exhaust their retries go to a **dead-letter** store (chapter 8.2), where the customer can see and replay them. A `4xx` response usually means the customer's endpoint rejected it deliberately, so don't hammer it.
+**Retries.** On a timeout, a connection error or a `5xx` response, retry with **exponential backoff and jitter** ([chapter 8.1](../distributed/distributed-survival-kit.mdx)): after 30 seconds, then 2 minutes, 10 minutes, an hour, and so on for a day or two. Then give up, mark the endpoint as failing, and email its owner. Events that exhaust their retries go to a **dead-letter** store ([chapter 8.2](../distributed/queues-and-background-work.mdx)), where the customer can see and replay them. A `4xx` response usually means the customer's endpoint rejected it deliberately, so don't hammer it.
 
-**At least once means duplicates.** If a customer's server processes an event but its response times out, snip retries, and the event arrives twice. Exactly-once delivery over a network isn't possible (chapter 8.1), so the design gives each event a unique ID, and the documentation tells customers to **deduplicate by ID** (idempotency, chapter 8.1).
+**At least once means duplicates.** If a customer's server processes an event but its response times out, snip retries, and the event arrives twice. Exactly-once delivery over a network isn't possible ([chapter 8.1](../distributed/distributed-survival-kit.mdx)), so the design gives each event a unique ID, and the documentation tells customers to **deduplicate by ID** (idempotency, [chapter 8.1](../distributed/distributed-survival-kit.mdx)).
 
-**One bad customer mustn't hurt the rest.** If every worker is stuck waiting on one customer's dead endpoint, everyone's events stall. Per-customer limits on concurrent deliveries (a **bulkhead**, chapter 8.4), and a circuit breaker per endpoint: after repeated failures, stop trying for a while and push its events to the slow retry schedule.
+**One bad customer mustn't hurt the rest.** If every worker is stuck waiting on one customer's dead endpoint, everyone's events stall. Per-customer limits on concurrent deliveries (a **bulkhead**, [chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)), and a circuit breaker per endpoint: after repeated failures, stop trying for a while and push its events to the slow retry schedule.
 
-**Security, both ways.** Customers must be able to verify a webhook really came from snip: sign each body with an **HMAC** (chapter 7.1) using a secret per endpoint, sent in a header, with a timestamp to prevent replays. And snip must not become a tool for attacking internal networks: a customer who registers `http://169.254.169.254/` is attempting **SSRF** (chapter 7.5). Validate endpoint addresses on registration *and* on every delivery, as snipai's `fetch_page` does (chapter 14.4).
+**Security, both ways.** Customers must be able to verify a webhook really came from snip: sign each body with an **HMAC** ([chapter 7.1](../security/security-literacy.mdx)) using a secret per endpoint, sent in a header, with a timestamp to prevent replays. And snip must not become a tool for attacking internal networks: a customer who registers `http://169.254.169.254/` is attempting **SSRF** ([chapter 7.5](../security/web-attacks.mdx)). Validate endpoint addresses on registration *and* on every delivery, as snipai's `fetch_page` does ([chapter 14.4](../ai/calling-models-from-code.mdx)).
 
 ### Trade-offs
 
@@ -81,7 +81,7 @@ Say 10 services with a combined **50,000 requests a second** at peak, each needi
 
 ### Design
 
-This is snip's own limiter (chapter 8.4), generalised: a library that each service calls, keeping counters in a shared Redis.
+This is snip's own limiter ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)), generalised: a library that each service calls, keeping counters in a shared Redis.
 
 ```mermaid
 flowchart LR
@@ -95,11 +95,11 @@ A **library** rather than a separate limiter service is deliberate: a service wo
 
 ### Deep dives
 
-**The algorithm** (chapter 8.4). A fixed window ("60 per calendar minute") is simplest, but allows bursts of 120 across a minute boundary. A **sliding window** or a **token bucket** smooths that out. The token bucket also expresses "bursts of 10, then 1 a second" naturally, which suits APIs.
+**The algorithm** ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)). A fixed window ("60 per calendar minute") is simplest, but allows bursts of 120 across a minute boundary. A **sliding window** or a **token bucket** smooths that out. The token bucket also expresses "bursts of 10, then 1 a second" naturally, which suits APIs.
 
-**Atomicity.** "Read the counter, check it, increment it" as three separate commands is a race condition (chapter 6.5): two copies of a service both read 59, both allow the request, and the limit is exceeded. The check and the increment must happen as **one atomic operation**, either Redis's `INCR` (which returns the new value) or a small script that Redis runs as a single step.
+**Atomicity.** "Read the counter, check it, increment it" as three separate commands is a race condition ([chapter 6.5](../data/transactions.mdx)): two copies of a service both read 59, both allow the request, and the limit is exceeded. The check and the increment must happen as **one atomic operation**, either Redis's `INCR` (which returns the new value) or a small script that Redis runs as a single step.
 
-**When Redis is down: fail open or fail closed?** Failing **open** (allow everything) keeps the services working, with no protection until Redis returns. Failing **closed** (refuse everything) turns a limiter outage into a total outage. For most limits, failing open is right, and it's what snip does (ADR 6). For limits that protect against real harm, such as login attempts (brute-force protection, chapters 7.1 and 8.4), a local, per-copy fallback limit is a good middle ground: less accurate, but never unlimited.
+**When Redis is down: fail open or fail closed?** Failing **open** (allow everything) keeps the services working, with no protection until Redis returns. Failing **closed** (refuse everything) turns a limiter outage into a total outage. For most limits, failing open is right, and it's what snip does (ADR 6). For limits that protect against real harm, such as login attempts (brute-force protection, chapters [7.1](../security/security-literacy.mdx) and [8.4](../distributed/rate-limiting-and-resilience.mdx)), a local, per-copy fallback limit is a good middle ground: less accurate, but never unlimited.
 
 **Hot keys.** One abusive key making 20,000 requests a second hits one Redis key at that rate. Redis handles it, but a small in-process cache ("this key is blocked for the next second") saves the round trips entirely.
 
@@ -111,7 +111,7 @@ Slight inaccuracy (a few requests over the limit under races between replicas, o
 
 ## Design 3: ask the company's documents
 
-**The problem.** A company of 5,000 people wants an internal assistant that answers questions from its documents: the wiki, policies, engineering runbooks and design docs. It's Part 14's "ask the handbook", at company scale. Some documents are confidential to certain teams.
+**The problem.** A company of 5,000 people wants an internal assistant that answers questions from its documents: the wiki, policies, engineering runbooks and design docs. It's [Part 14](../ai/python-for-ai-engineers.mdx)'s "ask the handbook", at company scale. Some documents are confidential to certain teams.
 
 ### Requirements
 
@@ -122,7 +122,7 @@ The first non-functional requirement is the one that makes this hard, and the on
 
 ### Estimates
 
-- **Corpus:** 200,000 documents, averaging 5 chunks each: **1 million chunks**. With 1,024-dimensional embeddings as 4-byte numbers, that's 4 KB per chunk, **about 4 GB** of vectors. Brute-force search over a million vectors is slow enough per query that an approximate index (HNSW, chapter 14.7) is worth it; pgvector or a vector database handles this size comfortably.
+- **Corpus:** 200,000 documents, averaging 5 chunks each: **1 million chunks**. With 1,024-dimensional embeddings as 4-byte numbers, that's 4 KB per chunk, **about 4 GB** of vectors. Brute-force search over a million vectors is slow enough per query that an approximate index (HNSW, [chapter 14.7](../ai/embeddings-and-vector-search.mdx)) is worth it; pgvector or a vector database handles this size comfortably.
 - **Questions:** 5,000 people, perhaps 3,000 questions a day. With about 4,000 input tokens (the retrieved passages) and 400 output tokens each, at a mid-range price of $2 and $10 per million, that's roughly $0.012 per question, **about $36 a day, around $1,100 a month**. A useful number to put in front of whoever approves the budget, labelled as an estimate.
 
 ### Design
@@ -140,17 +140,17 @@ flowchart LR
 
 ### Deep dives
 
-**Permissions.** Each chunk is stored with the **access list** of the document it came from, and the search filters by the asking user's groups **inside the query**, before anything is ranked or sent to the model. Filtering *after* retrieval is wrong twice: it leaks through side channels (answers, citations, timing), and the top results may all be forbidden, leaving nothing. A system prompt saying "don't reveal confidential documents" is not access control (chapter 14.8). And the access lists must be updated when document permissions change, which is as important as updating the text.
+**Permissions.** Each chunk is stored with the **access list** of the document it came from, and the search filters by the asking user's groups **inside the query**, before anything is ranked or sent to the model. Filtering *after* retrieval is wrong twice: it leaks through side channels (answers, citations, timing), and the top results may all be forbidden, leaving nothing. A system prompt saying "don't reveal confidential documents" is not access control ([chapter 14.8](../ai/rag.mdx)). And the access lists must be updated when document permissions change, which is as important as updating the text.
 
 **Freshness.** An hour's staleness allows batching: the indexer listens for change events from the wiki and document stores (or polls every few minutes), re-chunks and re-embeds only changed documents, and deletes the chunks of deleted ones. Deletion is easy to forget, and a deleted confidential document that remains searchable is a serious incident.
 
-**Quality.** A labelled set of real employee questions, with the documents that answer them, measuring retrieval and answers separately (chapter 14.10). Hybrid search (keywords plus vectors, chapter 14.7) matters here, because company documents are full of project names, ticket numbers and acronyms that embeddings handle poorly.
+**Quality.** A labelled set of real employee questions, with the documents that answer them, measuring retrieval and answers separately ([chapter 14.10](../ai/evals.mdx)). Hybrid search (keywords plus vectors, [chapter 14.7](../ai/embeddings-and-vector-search.mdx)) matters here, because company documents are full of project names, ticket numbers and acronyms that embeddings handle poorly.
 
-**Safety.** Documents are untrusted input too: anyone who can edit a wiki page can plant instructions in it (chapter 14.13). The assistant has no tools that act, only search, and it renders answers as plain text with citations built by code.
+**Safety.** Documents are untrusted input too: anyone who can edit a wiki page can plant instructions in it ([chapter 14.13](../ai/ai-in-production.mdx)). The assistant has no tools that act, only search, and it renders answers as plain text with citations built by code.
 
 ### Trade-offs
 
-Up to an hour of staleness in exchange for simple batch indexing. A hosted model, with the data processing agreement that implies, or a self-hosted one at a much higher fixed cost (chapter 14.11). Citations and "I don't know" over fluent answers.
+Up to an hour of staleness in exchange for simple batch indexing. A hosted model, with the data processing agreement that implies, or a self-hosted one at a much higher fixed cost ([chapter 14.11](../ai/serving-open-models.mdx)). Citations and "I don't know" over fluent answers.
 
 ---
 
@@ -168,23 +168,23 @@ The traps that sink good engineers:
 
 - **Diving into boxes** before understanding the problem.
 - **Buzzword architecture**: naming technologies instead of explaining what each piece does and why ("we'll use Kafka" instead of "we need a durable queue so events survive a crash; Kafka or SQS would both work, and here's why I'd pick one").
-- **Designing for Google** when the numbers say a single server would do (chapter 15.1).
+- **Designing for Google** when the numbers say a single server would do ([chapter 15.1](./system-design-method.mdx)).
 - **Ignoring failure.** Every arrow can fail. "What happens when this is down?" is the question most likely to come next.
 - **Silence.** A long silent think looks like being stuck. Say what you're weighing.
 - **Defending instead of listening.** When the interviewer pushes back, they're usually giving you a hint, or testing whether you can change your mind with good reason.
 
 :::info[In the real world]
-At work, design isn't a 45-minute performance, but the same things matter, spread over days: a written design document (chapter 15.2) instead of a whiteboard, reviewers instead of an interviewer, and real numbers from production instead of assumptions. The interview is a compressed rehearsal of the real job, which is why practising it makes you better at the job too.
+At work, design isn't a 45-minute performance, but the same things matter, spread over days: a written design document ([chapter 15.2](./adrs-tradeoffs-c4.mdx)) instead of a whiteboard, reviewers instead of an interviewer, and real numbers from production instead of assumptions. The interview is a compressed rehearsal of the real job, which is why practising it makes you better at the job too.
 :::
 
 ---
 
 ## Lab
 
-Practice, ideally with a partner. Each design: 45 minutes, using the six steps and time boxes from chapter 15.1, speaking out loud.
+Practice, ideally with a partner. Each design: 45 minutes, using the six steps and time boxes from [chapter 15.1](./system-design-method.mdx), speaking out loud.
 
 1. **Pick one and design it:**
-   - A **pastebin** with expiring pastes (if you didn't do it in chapter 15.1).
+   - A **pastebin** with expiring pastes (if you didn't do it in [chapter 15.1](./system-design-method.mdx)).
    - A **notification service** that sends email, SMS and push notifications for other services, respecting each user's preferences and quiet hours.
    - A **file-sharing service**: upload a file, get a link, the link expires after 7 days.
    - A **leaderboard** for a game with 10 million players: top 100 globally, and each player's own rank.
@@ -280,14 +280,14 @@ Most systems choose 1 and 2. The decision, with its trade-off, belongs in an ADR
 
 How: the indexer handles creations and updates, but a deletion either never produced a change event it listened to, or the event was processed without removing the document's chunks. The vectors (and the text stored with them) stayed in the index, with their old access list, so anyone in the original access list, or everyone if the list wasn't copied, could still retrieve it.
 
-Immediate response: remove the chunks, check the access logs to see who retrieved them (chapter 13.1), and treat it as a data incident, involving the security and privacy people.
+Immediate response: remove the chunks, check the access logs to see who retrieved them ([chapter 13.1](../observability/logs.mdx)), and treat it as a data incident, involving the security and privacy people.
 
 Systemic fixes:
 
 - **Deletion as a first-class path**, tested like the others: a test that deletes a document and asserts it can't be retrieved.
 - **Periodic reconciliation**: regularly compare the index's document IDs against the sources, and delete anything that no longer exists (or whose permissions changed). Event-driven updates are fast; reconciliation catches what events miss.
 - **Store references, not copies**, where possible: check the document still exists and is still permitted at query time before showing it.
-- **A metric** for documents in the index but missing at the source, with an alert (chapter 13.4).
-- A **postmortem** (chapter 13.5), blameless, with these actions tracked.
+- **A metric** for documents in the index but missing at the source, with an alert ([chapter 13.4](../observability/slos-alerting-on-call.mdx)).
+- A **postmortem** ([chapter 13.5](../observability/incidents-and-postmortems.mdx)), blameless, with these actions tracked.
 
 </details>

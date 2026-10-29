@@ -20,7 +20,7 @@ When you rent machines in the cloud, they don't sit on the open internet by defa
 
 ## Addresses and CIDR
 
-Chapter 1.4 introduced IP addresses: four numbers from 0 to 255, like `10.20.10.37`. Each is 8 bits, so an IPv4 address is 32 bits. Networks are described as **ranges** of addresses, written in **CIDR notation**: an address, a slash, and the number of leading bits that are **fixed**.
+[Chapter 1.4](../foundations/networks-from-zero.mdx) introduced IP addresses: four numbers from 0 to 255, like `10.20.10.37`. Each is 8 bits, so an IPv4 address is 32 bits. Networks are described as **ranges** of addresses, written in **CIDR notation**: an address, a slash, and the number of leading bits that are **fixed**.
 
 ```text
 10.20.0.0/16   first 16 bits fixed (10.20),     last 16 free → 2^16 = 65,536 addresses: 10.20.0.0 – 10.20.255.255
@@ -81,7 +81,7 @@ flowchart TB
   I <--> PB
 ```
 
-Every tier exists in **both zones**, so losing one zone (chapter 12.1) leaves a working copy of everything.
+Every tier exists in **both zones**, so losing one zone ([chapter 12.1](./cloud-from-zero.mdx)) leaves a working copy of everything.
 
 ### What makes a subnet public or private
 
@@ -97,7 +97,7 @@ Every route table also has an implicit rule that the VPC's own range (`10.20.0.0
 - An **internet gateway** is the VPC's door to the internet, in both directions.
 - A **NAT gateway** (network address translation) lets private resources make outgoing connections, which appear to come from the NAT's public IP, while blocking incoming ones. It's the same trick your home router does for your laptop.
 
-snip puts only the load balancer and the NAT gateway in public subnets. snip's tasks, Postgres and Redis live in private subnets with **no public IP at all**. They can't be reached from the internet even if every other setting were wrong. That's **defence in depth** (chapter 7.4).
+snip puts only the load balancer and the NAT gateway in public subnets. snip's tasks, Postgres and Redis live in private subnets with **no public IP at all**. They can't be reached from the internet even if every other setting were wrong. That's **defence in depth** ([chapter 7.4](../security/authorization-multi-tenancy.mdx)).
 
 :::warning[What can go wrong]
 - **NAT gateway costs**: they bill per hour *and* per GB processed, and a busy private subnet pulling large images or talking to cloud APIs through NAT can run up a surprising bill. **VPC endpoints** (below) send traffic to cloud services privately and more cheaply.
@@ -130,7 +130,7 @@ resource "aws_vpc_security_group_ingress_rule" "db_from_app" {
 }
 ```
 
-The result is a chain: internet → load balancer → snip → database, with each hop allowed only from the one before it. It's the same shape as chapter 10.3's NetworkPolicies, and chapter 8.3's "only nginx is exposed".
+The result is a chain: internet → load balancer → snip → database, with each hop allowed only from the one before it. It's the same shape as [chapter 10.3](../kubernetes/networking-and-ingress.mdx)'s NetworkPolicies, and [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)'s "only nginx is exposed".
 
 **Network ACLs** (NACLs) are a second, coarser layer: stateless allow/deny rules on whole subnets. Most teams leave them at the default (allow all) and do the real work in security groups, using NACLs only for broad blocks.
 
@@ -142,7 +142,7 @@ The two classic network mistakes behind real breaches: a database security group
 
 ## Getting traffic in: load balancers
 
-snip's users reach it through an **Application Load Balancer** (ALB), a managed version of chapter 8.3's nginx. It lives in the public subnets of both zones, receives HTTP(S) from the internet, and forwards requests to healthy snip tasks in the private subnets. It checks each task's `/readyz`, exactly like a readiness probe (chapter 10.2). Cloud load balancers come in two main kinds: **layer 7** (HTTP-aware: routing by host and path, TLS termination, like ALB) and **layer 4** (TCP/UDP, very fast, like AWS's NLB). In Kubernetes on a cloud, a Gateway or a `LoadBalancer` Service creates one of these for you (chapter 10.3).
+snip's users reach it through an **Application Load Balancer** (ALB), a managed version of [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)'s nginx. It lives in the public subnets of both zones, receives HTTP(S) from the internet, and forwards requests to healthy snip tasks in the private subnets. It checks each task's `/readyz`, exactly like a readiness probe ([chapter 10.2](../kubernetes/core-objects.mdx)). Cloud load balancers come in two main kinds: **layer 7** (HTTP-aware: routing by host and path, TLS termination, like ALB) and **layer 4** (TCP/UDP, very fast, like AWS's NLB). In Kubernetes on a cloud, a Gateway or a `LoadBalancer` Service creates one of these for you ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)).
 
 ## Reaching cloud services privately
 
@@ -151,7 +151,7 @@ snip's tasks read their database URL from Secrets Manager and send logs to Cloud
 To connect networks together: **VPC peering** (two VPCs, directly), **transit gateways** (a hub for many VPCs and on-premises networks), and **VPN** or **dedicated links** (Direct Connect, ExpressRoute) to an office or data centre.
 
 :::info[In the real world]
-Companies plan IP address space across all their accounts and regions centrally, like a city plans postcodes, so any two networks can be connected later. A typical production VPC has three tiers of subnets (public, private application, private data) in three zones, NAT per zone, VPC endpoints for the main cloud services, and flow logs recording connection metadata for security investigations. And it's all defined in Terraform modules (chapter 12.6), because nobody can review a network built by clicking.
+Companies plan IP address space across all their accounts and regions centrally, like a city plans postcodes, so any two networks can be connected later. A typical production VPC has three tiers of subnets (public, private application, private data) in three zones, NAT per zone, VPC endpoints for the main cloud services, and flow logs recording connection metadata for security investigations. And it's all defined in Terraform modules ([chapter 12.6](./terraform-in-real-life.mdx)), because nobody can review a network built by clicking.
 :::
 
 ---
@@ -176,7 +176,7 @@ Free, and **no cloud account needed**. You'll plan addresses with two tools and 
    [IPv4Network('10.20.0.0/24'), IPv4Network('10.20.1.0/24')]
    ```
 
-2. **Terraform's CIDR functions**, the ones snip's module uses. With Terraform installed (chapter 12.5), in any empty directory:
+2. **Terraform's CIDR functions**, the ones snip's module uses. With Terraform installed ([chapter 12.5](./terraform-from-zero.mdx)), in any empty directory:
    ```bash
    echo 'cidrsubnet("10.20.0.0/16", 8, 10)' | terraform console     # "10.20.10.0/24"
    echo 'cidrhost("10.20.10.0/24", 5)' | terraform console          # "10.20.10.5"

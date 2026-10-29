@@ -6,7 +6,7 @@ description: "The login form is only one door into an account. This chapter cove
 
 # 7.8 Sessions, recovery & account takeover
 
-Attackers don't care *how* they get into an account, only that they do. A strong password and MFA (chapter 7.7) protect one door, the login form. But an account has others: the "forgot password" link, the session cookie that stays valid for weeks, the email-change form, the support desk, the device that was never logged out. **Account takeover** (**ATO**) is the name for any of these ending with someone else in control of the account.
+Attackers don't care *how* they get into an account, only that they do. A strong password and MFA ([chapter 7.7](./mfa-and-passkeys.mdx)) protect one door, the login form. But an account has others: the "forgot password" link, the session cookie that stays valid for weeks, the email-change form, the support desk, the device that was never logged out. **Account takeover** (**ATO**) is the name for any of these ending with someone else in control of the account.
 
 This chapter walks through each door, how it's attacked, and how to defend it, with snip's labs implementing the two pieces most often done wrong: password-reset tokens and breached-password checks.
 
@@ -48,11 +48,11 @@ Each door needs its own lock. The rest of this chapter goes through them in turn
 
 Defences, in layers:
 
-- **MFA** (chapter 7.7). The single biggest defence: a correct password is no longer enough.
-- **Rate limits per account and per source** (chapter 8.4). Several failed logins for one account in a short time slows that account down; many failures from one network slows that network down.
+- **MFA** ([chapter 7.7](./mfa-and-passkeys.mdx)). The single biggest defence: a correct password is no longer enough.
+- **Rate limits per account and per source** ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)). Several failed logins for one account in a short time slows that account down; many failures from one network slows that network down.
 - **Throttling, not lockout.** Locking an account after 5 failures sounds safe, but it lets an attacker lock anyone out on purpose: a **denial of service** against your users. Prefer growing delays (the realm file for this chapter's Keycloak lab uses Keycloak's brute-force protection: after 5 failures, a wait that grows with each further failure) and extra checks (a challenge, or requiring MFA) over hard lockouts.
 - **Breached-password checks**, at sign-up and password change, and optionally at login.
-- **Bot detection and monitoring**: a sudden rise in failed logins across many accounts is an attack in progress, and a metric worth alerting on (chapter 13.4).
+- **Bot detection and monitoring**: a sudden rise in failed logins across many accounts is an attack in progress, and a metric worth alerting on ([chapter 13.4](../observability/slos-alerting-on-call.mdx)).
 
 ### Checking passwords against breaches, without sending them
 
@@ -105,18 +105,18 @@ snip's reset code follows the same principle: one error, `ErrInvalidToken`, whet
 
 ## Sessions: the door that stays open
 
-After login, the **session** (chapter 7.2) *is* the user, as far as your server is concerned. Stealing it is as good as stealing the password and the second factor, which is why modern phishing kits aim for the session cookie rather than the password. Treat the session lifecycle as carefully as the login:
+After login, the **session** ([chapter 7.2](./authentication.mdx)) *is* the user, as far as your server is concerned. Stealing it is as good as stealing the password and the second factor, which is why modern phishing kits aim for the session cookie rather than the password. Treat the session lifecycle as carefully as the login:
 
-- **New ID at login.** Always issue a fresh random session ID when someone logs in, and discard any ID from before. Otherwise an attacker who planted a known session ID in the victim's browser before login is logged in with them: **session fixation**. (The chapter 7.9 relying party does this.)
+- **New ID at login.** Always issue a fresh random session ID when someone logs in, and discard any ID from before. Otherwise an attacker who planted a known session ID in the victim's browser before login is logged in with them: **session fixation**. (The [chapter 7.9](./single-sign-on.mdx) relying party does this.)
 - **Two timeouts.** An **idle timeout** (no activity for, say, 30 minutes on a banking site, days on a low-risk one) and an **absolute timeout** (re-authenticate after, say, 30 days, however active).
 - **Server-side revocation.** Logout must delete the session on the server, not just the cookie in the browser.
 - **"Log out everywhere"** and a **list of active sessions** (device, location, last seen), so users can spot and end one they don't recognise.
 - **End all sessions on password change or reset**, except perhaps the current one. If an attacker was in the account, a password change must throw them out.
-- **Re-authenticate for sensitive actions** (step-up, chapter 7.7).
+- **Re-authenticate for sensitive actions** (step-up, [chapter 7.7](./mfa-and-passkeys.mdx)).
 
 ### Refresh tokens: rotate them, and notice reuse
 
-With token-based logins (chapters 7.2 and 7.3), a short-lived **access token** is paired with a long-lived **refresh token**. The refresh token is the valuable one: it can mint new access tokens for weeks. Two practices limit the damage if it's stolen:
+With token-based logins (chapters [7.2](./authentication.mdx) and [7.3](./oauth-and-oidc.mdx)), a short-lived **access token** is paired with a long-lived **refresh token**. The refresh token is the valuable one: it can mint new access tokens for weeks. Two practices limit the damage if it's stolen:
 
 - **Rotation**: every time a refresh token is used, issue a new one and invalidate the old one.
 - **Reuse detection**: if an *old*, already-used refresh token is presented again, two parties have a copy, the user and a thief. You can't tell which is which, so revoke the whole chain of tokens and make the user log in again.
@@ -160,7 +160,7 @@ The rules, and the test that checks each:
 
 | Rule | Why |
 |---|---|
-| **32 random bytes** from a cryptographic source (chapter 7.1) | Unguessable. Sequential IDs or timestamps can be predicted |
+| **32 random bytes** from a cryptographic source ([chapter 7.1](./security-literacy.mdx)) | Unguessable. Sequential IDs or timestamps can be predicted |
 | **Store only a hash** of the token | A database leak can't be used to reset anyone's password |
 | **Expire quickly** (15 minutes to an hour) | Old emails in a compromised inbox stay harmless |
 | **Single use**, and **a new link cancels older ones** | A link forwarded, logged or cached can't be used again |
@@ -170,7 +170,7 @@ The rules, and the test that checks each:
 And three classic bugs to avoid:
 
 - **Host header injection.** If the reset email's link is built from the incoming request's `Host` header, an attacker can request a reset for the victim with `Host: evil.example`, and the victim receives a genuine email with a link to the attacker's domain, carrying a valid token. Build links from **configuration** (snip's `SNIP_BASE_URL`), never from the request.
-- **Token leaks through the Referer header.** If the reset page loads a third-party script or image, the browser may send the full URL, token included, to that third party. Use a `Referrer-Policy: no-referrer` header on the reset page (chapter 7.5's security headers), and exchange the token for a short-lived form immediately.
+- **Token leaks through the Referer header.** If the reset page loads a third-party script or image, the browser may send the full URL, token included, to that third party. Use a `Referrer-Policy: no-referrer` header on the reset page ([chapter 7.5](./web-attacks.mdx)'s security headers), and exchange the token for a short-lived form immediately.
 - **Sending the link to an address from the request.** Always send it to the address already on the account.
 
 "Magic link" sign-in (a login link emailed instead of a password) is the same mechanism, with the same rules.
@@ -196,10 +196,10 @@ No defence is perfect, so watch for the signs:
 - **A burst of sensitive changes** after login: email, password, MFA and payout details changed within minutes.
 - **Failed-login patterns** across many accounts (stuffing) or many failed MFA prompts on one (fatigue).
 
-Record security events in an **audit log** (chapter 7.4), send the user a notification for each one, and alert your own team on the patterns. The user is often the first to notice, if you tell them.
+Record security events in an **audit log** ([chapter 7.4](./authorization-multi-tenancy.mdx)), send the user a notification for each one, and alert your own team on the patterns. The user is often the first to notice, if you tell them.
 
 :::info[Honesty label]
-**Exists today:** snip's `accountsec` package (reset tokens and the k-anonymity breach check) with tests, and a CI step that queries the real Pwned Passwords service. The Keycloak lab realm has brute-force protection on. **Not built:** snip itself has no user passwords, sessions or reset flow: its API uses API keys (chapter 7.2). These are the patterns you'd apply, or check that your identity provider applies, in a product with user logins.
+**Exists today:** snip's `accountsec` package (reset tokens and the k-anonymity breach check) with tests, and a CI step that queries the real Pwned Passwords service. The Keycloak lab realm has brute-force protection on. **Not built:** snip itself has no user passwords, sessions or reset flow: its API uses API keys ([chapter 7.2](./authentication.mdx)). These are the patterns you'd apply, or check that your identity provider applies, in a product with user logins.
 :::
 
 ---
@@ -307,8 +307,8 @@ This is exactly the call an attacker would make, so the process must work withou
 <details>
 <summary>Your login endpoint takes 250 ms for existing users and 5 ms for unknown ones. Why is that a problem, and how do you fix it?</summary>
 
-It's an account enumeration leak through **timing**: anyone can measure the response time and learn which emails have accounts, even if the error message is identical. The difference comes from the slow password hash (chapter 7.1), which only runs when the user exists.
+It's an account enumeration leak through **timing**: anyone can measure the response time and learn which emails have accounts, even if the error message is identical. The difference comes from the slow password hash ([chapter 7.1](./security-literacy.mdx)), which only runs when the user exists.
 
-Fix: always do the same work. When the user doesn't exist, verify the submitted password against a fixed dummy hash created with the same algorithm and cost settings, and discard the result. Both paths now take about 250 ms. Also keep the response identical (status code, body, headers, cookies), rate-limit the endpoint (chapter 8.4), and add a test that compares the two paths so a future refactor doesn't reintroduce the difference.
+Fix: always do the same work. When the user doesn't exist, verify the submitted password against a fixed dummy hash created with the same algorithm and cost settings, and discard the result. Both paths now take about 250 ms. Also keep the response identical (status code, body, headers, cookies), rate-limit the endpoint ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)), and add a test that compares the two paths so a future refactor doesn't reintroduce the difference.
 
 </details>

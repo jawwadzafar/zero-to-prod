@@ -33,15 +33,15 @@ flowchart LR
 A car factory doesn't build a car and then check whether it works. Every part is inspected as it arrives, every station tests its own step, and a finished car goes through a test track before it's shipped. A problem found at the station costs minutes; the same problem found by a customer costs a recall. A delivery pipeline is the software version of that production line, and the rule is the same: **catch it as early as possible**.
 :::
 
-**1. A branch.** Work happens on a short-lived branch off `main` (chapter 3.2), so `main` stays releasable and you can experiment freely.
+**1. A branch.** Work happens on a short-lived branch off `main` ([chapter 3.2](../git/branches-merges-conflicts.mdx)), so `main` stays releasable and you can experiment freely.
 
-**2. A pull request (PR).** You propose merging your branch (chapter 3.3). The PR is where two things happen:
+**2. A pull request (PR).** You propose merging your branch ([chapter 3.3](../git/pull-requests-and-review.mdx)). The PR is where two things happen:
 - **Code review**: a teammate reads the change. Reviews catch bugs, but just as importantly they spread knowledge and keep the codebase consistent. Small PRs get better reviews: a 50-line change gets read, a 2,000-line change gets skimmed.
 - **CI checks**: automated builds and tests run on the PR, and their results show next to it. Repositories usually **protect** `main` so a PR can't merge until checks pass and someone has approved it.
 
-**3. Merge to main.** `main` now contains the change. In **trunk-based development**, the common modern practice, everyone merges small changes to `main` at least daily, and unfinished features hide behind **feature flags** (chapter 11.3) rather than living on long-running branches. Long-lived branches that merge rarely produce painful, risky merges.
+**3. Merge to main.** `main` now contains the change. In **trunk-based development**, the common modern practice, everyone merges small changes to `main` at least daily, and unfinished features hide behind **feature flags** ([chapter 11.3](./delivery-and-deployment.mdx)) rather than living on long-running branches. Long-lived branches that merge rarely produce painful, risky merges.
 
-**4. Build the artefact, once.** The pipeline builds the deployable thing, snip's container image (chapter 9.4), tags it with the commit, and pushes it to a registry. **This exact artefact** is what gets tested and deployed everywhere afterwards. It's never rebuilt per environment, because a rebuild could differ (newer base image, newer dependency) from what was tested.
+**4. Build the artefact, once.** The pipeline builds the deployable thing, snip's container image ([chapter 9.4](../containers/images-in-production.mdx)), tags it with the commit, and pushes it to a registry. **This exact artefact** is what gets tested and deployed everywhere afterwards. It's never rebuilt per environment, because a rebuild could differ (newer base image, newer dependency) from what was tested.
 
 **5. Environments.** The same artefact moves through environments that get closer to the real thing:
 
@@ -52,9 +52,9 @@ A car factory doesn't build a car and then check whether it works. Every part is
 | **Staging** (or pre-production) | Production-like: same configuration shape, real integrations, final checks | Realistic, not real users' |
 | **Production** | Real users | Real |
 
-What differs between environments is **configuration** (chapter 10.4): the database address, the log level, the number of replicas. Not the code, and not the image.
+What differs between environments is **configuration** ([chapter 10.4](../kubernetes/config-secrets-storage.mdx)): the database address, the log level, the number of replicas. Not the code, and not the image.
 
-**6. Release.** The artefact reaches production, ideally gradually and reversibly (chapter 11.3).
+**6. Release.** The artefact reaches production, ideally gradually and reversibly ([chapter 11.3](./delivery-and-deployment.mdx)).
 
 ---
 
@@ -74,12 +74,12 @@ Continuous deployment sounds scary, and it only works with a trustworthy pipelin
 
 ## This repository's pipeline
 
-This repository has three workflows (in `.github/workflows/`), run by GitHub Actions (chapter 11.2):
+This repository has three workflows (in `.github/workflows/`), run by GitHub Actions ([chapter 11.2](./ci-with-github-actions.mdx)):
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `ci.yml` | Every push to `main` and every PR | Typechecks and builds the site (PRs); vets and tests snip against real Postgres and Redis; builds snip's image and checks it starts; lints the OpenAPI contract; runs the whole Compose stack end to end; deploys snip to a Kubernetes cluster (kind) and runs every Part 10 lab; scans for vulnerabilities |
-| `image.yml` | Pushes to `main` touching `snip/`, and `snip-v*` tags | Builds snip's image for two CPU architectures and publishes it to `ghcr.io` with an SBOM and provenance (chapter 9.4) |
+| `ci.yml` | Every push to `main` and every PR | Typechecks and builds the site (PRs); vets and tests snip against real Postgres and Redis; builds snip's image and checks it starts; lints the OpenAPI contract; runs the whole Compose stack end to end; deploys snip to a Kubernetes cluster (kind) and runs every [Part 10](../kubernetes/why-orchestration.mdx) lab; scans for vulnerabilities |
+| `image.yml` | Pushes to `main` touching `snip/`, and `snip-v*` tags | Builds snip's image for two CPU architectures and publishes it to `ghcr.io` with an SBOM and provenance ([chapter 9.4](../containers/images-in-production.mdx)) |
 | `deploy.yml` | Every push to `main` | Builds the handbook and deploys it to GitHub Pages (continuous deployment) |
 
 The CI jobs run **in parallel**: each is independent, so a run finishes in the time of the slowest job (a few minutes) rather than the sum of them.
@@ -88,9 +88,9 @@ The CI jobs run **in parallel**: each is independent, so a run finishes in the t
 
 Pipelines prove their worth when they fail. Three real failures from this repository's history, each caught before it reached a reader:
 
-- **A test that tested the wrong thing.** The Compose job's load-balancing check created a short link with the slug `lb`, and failed with HTTP 400. snip requires slugs of 3 to 32 characters (chapter 5.3), so the check itself was wrong, and so was the chapter 8.3 lab that used the same slug. Both were fixed in one commit. Without CI, readers would have hit a confusing 400 while following the lab.
-- **A Kubernetes security setting that couldn't be satisfied.** The first time snip's manifests ran on a real cluster, no Pod started: `runAsNonRoot` can't be verified for an image whose user is a *name* (chapter 10.2). The manifests passed every static check; only running them for real found it.
-- **A tool that needed a newer toolchain.** The new vulnerability-scan job failed because the scanner's latest release required a newer Go than the one snip is built with (chapter 9.4). The fix was to build the tool with the toolchain it needs, and still analyse snip with its own.
+- **A test that tested the wrong thing.** The Compose job's load-balancing check created a short link with the slug `lb`, and failed with HTTP 400. snip requires slugs of 3 to 32 characters ([chapter 5.3](../apis/validation-errors-status-codes.mdx)), so the check itself was wrong, and so was the [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx) lab that used the same slug. Both were fixed in one commit. Without CI, readers would have hit a confusing 400 while following the lab.
+- **A Kubernetes security setting that couldn't be satisfied.** The first time snip's manifests ran on a real cluster, no Pod started: `runAsNonRoot` can't be verified for an image whose user is a *name* ([chapter 10.2](../kubernetes/core-objects.mdx)). The manifests passed every static check; only running them for real found it.
+- **A tool that needed a newer toolchain.** The new vulnerability-scan job failed because the scanner's latest release required a newer Go than the one snip is built with ([chapter 9.4](../containers/images-in-production.mdx)). The fix was to build the tool with the toolchain it needs, and still analyse snip with its own.
 
 None of these was a bug in snip's Go code. Pipelines catch problems in **everything around the code**: tests, configuration, infrastructure and tooling. That's where many real-world outages come from.
 
@@ -100,7 +100,7 @@ None of these was a bug in snip's Go code. Pipelines catch problems in **everyth
 
 A release needs a name. Two complementary kinds:
 
-- **Commit-based tags** (`sha-0309539`) identify every build exactly. Deploy these, or digests (chapter 9.4).
+- **Commit-based tags** (`sha-0309539`) identify every build exactly. Deploy these, or digests ([chapter 9.4](../containers/images-in-production.mdx)).
 - **Semantic versions** (**SemVer**, `MAJOR.MINOR.PATCH`, like `1.4.2`) communicate *meaning* to people and to other software:
   - **PATCH** (1.4.2 → 1.4.3): bug fixes only, nothing breaks.
   - **MINOR** (1.4 → 1.5): new features, nothing breaks.
@@ -132,7 +132,7 @@ The key finding: **speed and stability go together.** Teams that deploy small ch
 :::
 
 :::info[In the real world]
-A mature pipeline makes the safe path the easy path. Protected `main`, required checks and reviews, one artefact per commit, automatic deploys to staging, a one-click (or automatic) production release with gradual rollout and automatic rollback on bad metrics (chapter 11.3), and dashboards of the DORA metrics so the team sees whether things are getting better. It's built incrementally: most teams start with "run the tests on every PR", which is already the biggest single win.
+A mature pipeline makes the safe path the easy path. Protected `main`, required checks and reviews, one artefact per commit, automatic deploys to staging, a one-click (or automatic) production release with gradual rollout and automatic rollback on bad metrics ([chapter 11.3](./delivery-and-deployment.mdx)), and dashboards of the DORA metrics so the team sees whether things are getting better. It's built incrementally: most teams start with "run the tests on every PR", which is already the biggest single win.
 :::
 
 ---
@@ -143,7 +143,7 @@ Free, with a browser and your clone of this repository.
 
 1. **Read the pipeline.** Open `.github/workflows/ci.yml` and list its jobs. For each, write one line: what would it catch? Which job would have caught a typo in a Kubernetes manifest? (`snip-k8s`, which applies them to a real cluster.) Which would catch a broken SQL example in a chapter? (`site`, via `npm run check:sql`, on pull requests; the `deploy` workflow runs it too.)
 
-2. **Watch it run.** On GitHub, open the repository's **Actions** tab. Open the latest **CI** run: see the jobs running in parallel, their durations, and the steps inside the Kubernetes job, which match Part 10's labs one to one.
+2. **Watch it run.** On GitHub, open the repository's **Actions** tab. Open the latest **CI** run: see the jobs running in parallel, their durations, and the steps inside the Kubernetes job, which match [Part 10](../kubernetes/why-orchestration.mdx)'s labs one to one.
 
 3. **Find a failure and its fix.** In the Actions history, find a red CI run. Open the failed job, read the error, then find the next commit (`git log --oneline`) and read its diff (`git show <commit>`). This is the everyday loop: red, read, fix, green.
 
@@ -251,7 +251,7 @@ Free, with a browser and your clone of this repository.
 - Deploy that image to **staging** automatically, run the smoke test against staging, and alert if it fails.
 
 **On release** (a tag like `snip-v1.4.0`, or a button):
-- Promote the **same** image (by digest) to production, gradually (chapter 11.3), watching error rates and latency, with automatic rollback if they worsen.
+- Promote the **same** image (by digest) to production, gradually ([chapter 11.3](./delivery-and-deployment.mdx)), watching error rates and latency, with automatic rollback if they worsen.
 - Publish version tags (`1.4.0`, `1.4`) and the changelog.
 
 **On a schedule** (nightly): slower suites (full end-to-end, load tests), and re-scanning deployed images for newly published vulnerabilities.

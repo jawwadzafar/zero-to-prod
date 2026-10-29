@@ -20,7 +20,7 @@ snip v0 worked — in a demo. The reference snip in `cmd/snip` does the same job
 
 ## Layers: the domain in the middle
 
-snip's packages (chapter 4.3) form layers, like an onion:
+snip's packages ([chapter 4.3](../go/packages-modules-interfaces.mdx)) form layers, like an onion:
 
 ```mermaid
 flowchart TB
@@ -41,9 +41,9 @@ flowchart TB
 
 - The **core** (`internal/links`) knows what a link *is* and the rules for it. It knows nothing about HTTP, JSON, SQL or Redis. It declares **interfaces** for what it needs (`Store`, `Cache`, `ClickRecorder`).
 - The **edges** translate between the core and the outside world: `httpapi` turns HTTP requests into calls on `links.Service`; `store/postgres` turns `Store` calls into SQL.
-- **`main`** is the only place that knows about everything. It reads configuration, builds the concrete pieces, and injects them (chapter 4.3's dependency injection).
+- **`main`** is the only place that knows about everything. It reads configuration, builds the concrete pieces, and injects them ([chapter 4.3](../go/packages-modules-interfaces.mdx)'s dependency injection).
 
-The key rule: **dependencies point inward.** `httpapi` imports `links`; `links` never imports `httpapi`. That's why you could add a command-line interface or swap Postgres for another database without touching the business rules — and why the core can be tested in microseconds with fakes (chapter 4.4).
+The key rule: **dependencies point inward.** `httpapi` imports `links`; `links` never imports `httpapi`. That's why you could add a command-line interface or swap Postgres for another database without touching the business rules — and why the core can be tested in microseconds with fakes ([chapter 4.4](../go/testing.mdx)).
 
 :::note[Everyday anchor]
 Think of a restaurant. The **kitchen** (core) knows recipes and food safety rules. The **front of house** (HTTP layer) takes orders in whatever language customers speak and turns them into kitchen tickets. The **suppliers** (database, cache) deliver ingredients to the kitchen's back door. The **manager** (main) hires everyone and sets up who talks to whom. The kitchen never needs to know whether orders arrived by phone, app or in person.
@@ -57,7 +57,7 @@ You'll hear this idea called **clean architecture**, **hexagonal architecture** 
 
 ## Configuration from the environment
 
-A service runs in many places — your laptop, CI, staging, production — each with different database addresses, log levels and secrets. The **same built program** must run in all of them (chapter 2.2), so settings come from **environment variables**, never from code. From `internal/config/config.go`:
+A service runs in many places — your laptop, CI, staging, production — each with different database addresses, log levels and secrets. The **same built program** must run in all of them ([chapter 2.2](../linux/users-permissions-processes.mdx)), so settings come from **environment variables**, never from code. From `internal/config/config.go`:
 
 ```go
 // Config holds every setting snip reads at startup.
@@ -93,20 +93,20 @@ Three habits:
 This follows the **Twelve-Factor App** guidelines (12factor.net), a widely used checklist for services that run well on modern platforms. Two of its factors show up constantly in this handbook: *store config in the environment*, and *treat logs as event streams*.
 
 :::danger
-Secrets like `SNIP_DATABASE_URL` (which contains a password) come from the environment too — but never from a file committed to Git. Chapter 7.6 covers where secrets should actually live.
+Secrets like `SNIP_DATABASE_URL` (which contains a password) come from the environment too — but never from a file committed to Git. [Chapter 7.6](../security/secrets-management.mdx) covers where secrets should actually live.
 :::
 
 ---
 
 ## Structured logs
 
-A log line like `user 42 created link godoc in 12ms` is easy for a human to read and hard for a computer to search. "Show me every request slower than 500 ms" means writing fragile text-matching. **Structured logging** writes each event as **named fields** — usually as JSON (chapter 1.3):
+A log line like `user 42 created link godoc in 12ms` is easy for a human to read and hard for a computer to search. "Show me every request slower than 500 ms" means writing fragile text-matching. **Structured logging** writes each event as **named fields** — usually as JSON ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)):
 
 ```json
 {"time":"2026-09-24T19:56:19Z","level":"INFO","msg":"request","request_id":"3f9a2c71d0b4e815","method":"POST","route":"POST /api/links","path":"/api/links","status":201,"duration_ms":12}
 ```
 
-Now "slow requests" is `jq 'select(.duration_ms > 500)'` (chapter 2.3), and log platforms (chapter 13.1) can filter, count and graph any field. Go has this built in, in the **`log/slog`** package. snip creates its logger from config (`internal/config/config.go`):
+Now "slow requests" is `jq 'select(.duration_ms > 500)'` ([chapter 2.3](../linux/pipes-and-text-tools.mdx)), and log platforms ([chapter 13.1](../observability/logs.mdx)) can filter, count and graph any field. Go has this built in, in the **`log/slog`** package. snip creates its logger from config (`internal/config/config.go`):
 
 ```go
 func (c Config) Logger() *slog.Logger {
@@ -125,12 +125,12 @@ log.Info("snip listening", "addr", cfg.HTTPAddr, "base_url", cfg.BaseURL)
 log.Warn("click not recorded", "slug", slug, "err", err)
 ```
 
-Notice snip writes to **stdout** and never manages log files. Whatever runs it — your terminal, systemd's journal (chapter 2.5), Docker, Kubernetes — collects stdout. The service does one job; the platform handles the logs.
+Notice snip writes to **stdout** and never manages log files. Whatever runs it — your terminal, systemd's journal ([chapter 2.5](../linux/running-a-linux-server.mdx)), Docker, Kubernetes — collects stdout. The service does one job; the platform handles the logs.
 
 **Log levels** let you control the volume: `DEBUG` (very detailed, off in production), `INFO` (normal events), `WARN` (something odd, but handled), `ERROR` (something failed and needs attention).
 
 :::warning
-Never log secrets: passwords, full API keys, tokens, or personal data you don't need. Logs are copied, shipped and kept far longer than you expect, and are read by many people (chapter 13.1).
+Never log secrets: passwords, full API keys, tokens, or personal data you don't need. Logs are copied, shipped and kept far longer than you expect, and are read by many people ([chapter 13.1](../observability/logs.mdx)).
 :::
 
 ---
@@ -174,9 +174,9 @@ func (s *Server) observe(next http.Handler) http.Handler {
 
 - It wraps the `ResponseWriter` in a `statusRecorder` so it can learn which status code the handler wrote.
 - The `defer` runs after the handler finishes — or panics — so every request gets exactly one log line and one metric, whatever happened.
-- It logs the **route pattern** (`GET /{slug}`), not just the path (`/k7Qz2a`): patterns are few, so they make good metric labels (chapter 13.2).
+- It logs the **route pattern** (`GET /{slug}`), not just the path (`/k7Qz2a`): patterns are few, so they make good metric labels ([chapter 13.2](../observability/metrics.mdx)).
 
-`requireKey` (chapter 7.2) is middleware too, applied only to the `/api/…` routes:
+`requireKey` ([chapter 7.2](../security/authentication.mdx)) is middleware too, applied only to the `/api/…` routes:
 
 ```go
 mux.HandleFunc("POST /api/links", s.requireKey(s.createLink))
@@ -190,7 +190,7 @@ Express's `app.use(...)`, Django's middleware and ASP.NET's pipeline are the sam
 
 ## Timeouts: protecting yourself from slow clients
 
-`http.ListenAndServe(":8080", nil)` (snip v0) has **no timeouts**. A client can open a connection and send one byte every minute, forever, holding a goroutine and a file descriptor (chapter 2.2) the whole time. A few thousand of those — an attack called **Slowloris** — can exhaust a server without much traffic at all. The real snip configures every timeout (`cmd/snip/main.go`):
+`http.ListenAndServe(":8080", nil)` (snip v0) has **no timeouts**. A client can open a connection and send one byte every minute, forever, holding a goroutine and a file descriptor ([chapter 2.2](../linux/users-permissions-processes.mdx)) the whole time. A few thousand of those — an attack called **Slowloris** — can exhaust a server without much traffic at all. The real snip configures every timeout (`cmd/snip/main.go`):
 
 ```go
 srv := &http.Server{
@@ -203,7 +203,7 @@ srv := &http.Server{
 }
 ```
 
-Every wait needs a limit — inbound (these), and outbound: database calls carry the request's context (chapter 4.5), and readiness pings have their own 2-second timeout. **A service with no timeouts has no upper bound on how long it can hang.**
+Every wait needs a limit — inbound (these), and outbound: database calls carry the request's context ([chapter 4.5](../go/concurrency.mdx)), and readiness pings have their own 2-second timeout. **A service with no timeouts has no upper bound on how long it can hang.**
 
 ---
 
@@ -224,20 +224,20 @@ GET /readyz → 503
 {"ready": false, "checks": {"postgres": "unavailable", "redis": "ok"}}
 ```
 
-You'll wire these into Kubernetes' liveness and readiness probes in chapter 10.2.
+You'll wire these into Kubernetes' liveness and readiness probes in [chapter 10.2](../kubernetes/core-objects.mdx).
 
 ---
 
 ## Graceful shutdown, revisited
 
-Chapter 4.5 walked through the code; here's why it matters operationally. Services are stopped **all the time**: every deployment, every scale-down, every machine maintenance. If stopping means killing the process mid-request, every deploy drops some users' requests. snip instead:
+[Chapter 4.5](../go/concurrency.mdx) walked through the code; here's why it matters operationally. Services are stopped **all the time**: every deployment, every scale-down, every machine maintenance. If stopping means killing the process mid-request, every deploy drops some users' requests. snip instead:
 
 1. Receives **SIGTERM** from systemd, Docker or Kubernetes.
 2. Stops accepting new connections (the platform is also moving traffic elsewhere).
 3. Lets in-flight requests finish — for up to 10 seconds.
 4. Exits cleanly with code 0.
 
-The result: deploying a new version many times a day (Part 11) causes **zero** failed requests.
+The result: deploying a new version many times a day ([Part 11](../shipping/how-software-ships.mdx)) causes **zero** failed requests.
 
 :::warning[What can go wrong]
 - **Config in code.** A database address hard-coded "just for now" ends up in production — pointing at the wrong database, or leaking a password into Git.
@@ -260,13 +260,13 @@ Free, on your own computer, in `~/code/zero-to-prod/snip`.
    SNIP_HTTP_ADDR=:9000 SNIP_LOG_FORMAT=text go run ./cmd/snip   # valid: listens on 9000, human-friendly logs
    ```
 
-2. **Read structured logs.** Run snip with JSON logs, sending them through `jq` (chapter 2.3):
+2. **Read structured logs.** Run snip with JSON logs, sending them through `jq` ([chapter 2.3](../linux/pipes-and-text-tools.mdx)):
    ```bash
    go run ./cmd/snip 2>&1 | jq -c 'select(.msg == "request") | {route, status, duration_ms, request_id}'
    ```
    In another terminal, make a few requests (`curl localhost:8080/healthz`, `curl localhost:8080/nope123`, `curl localhost:8080/`). Notice `/healthz` isn't logged — snip skips it on purpose so health checks don't drown real traffic.
 
-3. **Watch a timeout defend the server.** With snip running, open a raw connection and send nothing (chapter 1.4):
+3. **Watch a timeout defend the server.** With snip running, open a raw connection and send nothing ([chapter 1.4](../foundations/networks-from-zero.mdx)):
    ```bash
    time nc localhost 8080 < /dev/null   # connect, send nothing, wait for the server to hang up
    ```
@@ -277,7 +277,7 @@ Free, on your own computer, in `~/code/zero-to-prod/snip`.
    curl -s localhost:8080/healthz; echo
    curl -s localhost:8080/readyz; echo      # in-memory mode: no dependencies to check → ready
    ```
-   Once you run snip with Postgres (chapter 6.6), stop Postgres and try again: `/healthz` stays `ok`, `/readyz` turns `503`. That's the difference that prevents restart storms.
+   Once you run snip with Postgres ([chapter 6.6](../data/postgres-from-go.mdx)), stop Postgres and try again: `/healthz` stays `ok`, `/readyz` turns `503`. That's the difference that prevents restart storms.
 
 ## Self-check
 

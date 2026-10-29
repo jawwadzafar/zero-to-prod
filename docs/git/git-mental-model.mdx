@@ -22,9 +22,9 @@ Most people learn Git as a set of spells: `git add .`, `git commit -m "stuff"`, 
 
 Picture a folder full of files named `report.docx`, `report-final.docx`, `report-final-v2.docx`, `report-final-REALLY-final.docx`. That's version control done by hand: you want to keep history, go back to an earlier version, and see what changed. Now imagine five people editing the same files at once. It falls apart immediately.
 
-**Version control** solves this properly. **Git** is by far the most widely used version control system. It keeps a complete history of every change to a project — who made it, when, and why — lets you jump back to any point, and lets many people work in parallel and combine their work safely (chapter 3.2).
+**Version control** solves this properly. **Git** is by far the most widely used version control system. It keeps a complete history of every change to a project — who made it, when, and why — lets you jump back to any point, and lets many people work in parallel and combine their work safely ([chapter 3.2](./branches-merges-conflicts.mdx)).
 
-For engineers it's not optional. Your code, your configuration, your infrastructure (Part 12), and even this handbook live in Git. Git is also what triggers automated tests and deployments (Part 11).
+For engineers it's not optional. Your code, your configuration, your infrastructure ([Part 12](../cloud/cloud-from-zero.mdx)), and even this handbook live in Git. Git is also what triggers automated tests and deployments ([Part 11](../shipping/how-software-ships.mdx)).
 
 :::note[Everyday anchor]
 Git is a photo album of your project. Every time you reach a good point, you take a photo of the *whole* project — every file exactly as it is — and write a caption on the back: what changed and why. The album is in order, each photo remembers which one came before it, and you can always pull out any old photo and look at, or restore, the project exactly as it was.
@@ -41,7 +41,7 @@ A **commit** is one photo in the album. It records:
 - a **message** saying what changed and why,
 - a pointer to its **parent** — the commit that came before it.
 
-Each commit gets a unique ID: a long **hash** like `4f3c9a1e7b…` (chapter 7.1 explains hashes), usually shortened to the first seven characters, `4f3c9a1`. The hash is calculated from the commit's content, so it doubles as a tamper seal: change anything in history and every hash after it changes.
+Each commit gets a unique ID: a long **hash** like `4f3c9a1e7b…` ([chapter 7.1](../security/security-literacy.mdx) explains hashes), usually shortened to the first seven characters, `4f3c9a1`. The hash is calculated from the commit's content, so it doubles as a tamper seal: change anything in history and every hash after it changes.
 
 Because each commit points to its parent, commits form a chain — the project's history:
 
@@ -51,7 +51,7 @@ flowchart LR
     H["main"] -.-> D
 ```
 
-(The arrows here show time moving forward; inside Git, each commit actually points *back* to its parent.) `main` is the name of the current line of history — a **branch** — and it points at the latest commit. Chapter 3.2 is all about branches.
+(The arrows here show time moving forward; inside Git, each commit actually points *back* to its parent.) `main` is the name of the current line of history — a **branch** — and it points at the latest commit. [Chapter 3.2](./branches-merges-conflicts.mdx) is all about branches.
 
 :::info[If you've written code]
 Git stores snapshots, not diffs. When you ask for a diff, Git computes it by comparing two snapshots. (Internally it's efficient: unchanged files are shared between snapshots rather than copied.) Thinking "snapshots" rather than "changes" makes commands like `checkout`, `reset` and `revert` much easier to reason about.
@@ -108,7 +108,7 @@ git blame README.md       # who last changed each line, and in which commit
 ```
 
 :::tip
-Run `git diff --staged` right before every commit. It's the last chance to catch a debugging line, a stray file, or — worst of all — a password (chapter 7.6).
+Run `git diff --staged` right before every commit. It's the last chance to catch a debugging line, a stray file, or — worst of all — a password ([chapter 7.6](../security/secrets-management.mdx)).
 :::
 
 ---
@@ -130,12 +130,12 @@ build/
 .DS_Store
 ```
 
-(Like systemd files in chapter 2.5, a `.gitignore` only treats `#` as a comment at the **start** of a line.)
+(Like systemd files in [chapter 2.5](../linux/running-a-linux-server.mdx), a `.gitignore` only treats `#` as a comment at the **start** of a line.)
 
 The handbook's own `.gitignore` and snip's (`snip/.gitignore`) are real examples.
 
 :::danger[Secrets in Git are forever]
-If you commit a password or API key, deleting it in a later commit **doesn't remove it** — it's still in history, visible to anyone with a copy of the repository. Bots scan public repositories for leaked keys within minutes. If a secret is ever committed: **treat it as leaked. Revoke it and create a new one.** Then clean it up. Prevention — `.gitignore` for `.env`, and reviewing `git diff --staged` — is far easier (chapter 7.6).
+If you commit a password or API key, deleting it in a later commit **doesn't remove it** — it's still in history, visible to anyone with a copy of the repository. Bots scan public repositories for leaked keys within minutes. If a secret is ever committed: **treat it as leaked. Revoke it and create a new one.** Then clean it up. Prevention — `.gitignore` for `.env`, and reviewing `git diff --staged` — is far easier ([chapter 7.6](../security/secrets-management.mdx)).
 :::
 
 ---
@@ -155,7 +155,7 @@ Most Git panic is about undoing. Here's the calm version, organised by *where* t
 Two rules keep you safe:
 
 1. **Uncommitted work is the only work Git can't save you from losing.** `git restore` on a file throws away edits that were never committed. Commit early and often — small commits are free.
-2. **Don't rewrite history other people already have.** `--amend` (and `reset`, and `rebase`, chapter 3.2) rewrite commits. Fine on your own, unpushed work; painful for teammates if they've already pulled it. For shared history, use `revert`.
+2. **Don't rewrite history other people already have.** `--amend` (and `reset`, and `rebase`, [chapter 3.2](./branches-merges-conflicts.mdx)) rewrite commits. Fine on your own, unpushed work; painful for teammates if they've already pulled it. For shared history, use `revert`.
 
 :::tip[Almost nothing committed is ever truly lost]
 Git keeps a diary of where your branch pointed, called the **reflog**. If you `reset` or `amend` and regret it, `git reflog` shows recent positions, and you can return to any of them. Once work is committed, it's very hard to lose.
@@ -187,7 +187,7 @@ Many teams also use **Conventional Commits** prefixes like `feat:`, `fix:`, `doc
 - **`git add .` without looking.** It stages *everything* — including that `.env` file or a 500 MB video. Check `git status` first, and keep `.gitignore` up to date.
 - **Giant commits.** A commit touching 60 files with the message "updates" can't be reviewed, understood or cleanly reverted. Commit small, commit often.
 - **Losing uncommitted work.** `git restore .` or `git checkout .` discards every uncommitted change in the folder with no undo. Commit (or `git stash`) first.
-- **Working in the wrong folder.** If `git status` says "not a git repository", you're outside the project. `pwd` (chapter 2.1).
+- **Working in the wrong folder.** If `git status` says "not a git repository", you're outside the project. `pwd` ([chapter 2.1](../linux/shell-and-filesystem.mdx)).
 :::
 
 ---
@@ -254,7 +254,7 @@ The last command deletes the practice directory with `rm -rf`, which asks no que
    git log --oneline                 # history kept, plus a "Revert …" commit
    cat README.md                     # the notes line is gone again
    ```
-   `HEAD` means "the commit you're currently on" — you'll meet it properly in chapter 3.2.
+   `HEAD` means "the commit you're currently on" — you'll meet it properly in [chapter 3.2](./branches-merges-conflicts.mdx).
 
 4. **Try the safety net.**
    ```bash

@@ -39,7 +39,7 @@ flowchart LR
 5. **Deep dives.** The two or three places where this design could break: bottlenecks, failures, the genuinely hard part.
 6. **Trade-offs and evolution.** What you chose, what you gave up, and what changes at ten or a hundred times the load.
 
-In a 45-minute interview, roughly: 5 minutes on requirements, 5 on estimates, 5 on API and data, 10 on the high-level design, 15 on deep dives, and 5 on trade-offs. At work, the same steps take days, and end in a written design document (chapter 15.2).
+In a 45-minute interview, roughly: 5 minutes on requirements, 5 on estimates, 5 on API and data, 10 on the high-level design, 15 on deep dives, and 5 on trade-offs. At work, the same steps take days, and end in a written design document ([chapter 15.2](./adrs-tradeoffs-c4.mdx)).
 
 The order matters. Most bad designs come from skipping the first two steps: a beautifully detailed answer to the wrong question, or a design for Google's scale when the system will see twelve writes a second.
 
@@ -56,11 +56,11 @@ The order matters. Most bad designs come from skipping the first two steps: a be
 
 **Non-functional requirements** are *how well*: speed, availability, scale, security, cost. These drive the design far more than the features do. For snip:
 
-- **Redirects are fast**: 99% within 250 ms (snip's SLO, chapter 13.4). A redirect is in front of every click, so it's the hot path.
+- **Redirects are fast**: 99% within 250 ms (snip's SLO, [chapter 13.4](../observability/slos-alerting-on-call.mdx)). A redirect is in front of every click, so it's the hot path.
 - **Redirects are highly available**; creating links can be a little less so. A broken redirect breaks every link ever shared. A failing "create" blocks one person for a minute.
 - **Read-heavy**: each link is created once and followed many times.
 - **Click counts can lag** by a few seconds, and can be approximate under extreme failure. Nobody's bank balance depends on them.
-- **Abuse-resistant**: spammers and phishing links are a real threat to a link shortener's reputation (chapters 8.4 and 14.2).
+- **Abuse-resistant**: spammers and phishing links are a real threat to a link shortener's reputation (chapters [8.4](../distributed/rate-limiting-and-resilience.mdx) and [14.2](../ai/ml-foundations.mdx)).
 
 And **out of scope**, said out loud: user accounts with passwords (API keys are enough), link editing, detailed analytics by country and device, custom domains. Naming what you won't build keeps the design focused, and in an interview, it shows judgment.
 
@@ -87,18 +87,18 @@ Assume a successful service: **1 million new links a day**, and each link follow
 
 What those numbers say:
 
-- **Writes are tiny.** 12 a second is nothing for Postgres (chapter 6). No need for a special write path, a distributed database or sharding.
-- **Reads are the load**, and 6,000 a second at peak is well within reach of a few servers. In chapter 8.5, one snip process answered about **51,000 redirects a second** from memory on a 4-core test machine. So the web tier isn't the problem; the question is how many of those reads reach the database.
+- **Writes are tiny.** 12 a second is nothing for Postgres ([chapter 6](../data/why-databases.mdx)). No need for a special write path, a distributed database or sharding.
+- **Reads are the load**, and 6,000 a second at peak is well within reach of a few servers. In [chapter 8.5](../distributed/performance-and-load-testing.mdx), one snip process answered about **51,000 redirects a second** from memory on a 4-core test machine. So the web tier isn't the problem; the question is how many of those reads reach the database.
 - **Storage is small**: 180 GB a year fits on one database server for many years.
 - **Random slugs won't run out**, and collisions are rare: after a billion links, a new random slug collides with an existing one about once in 1,700 tries. snip simply retries.
 
-Numbers worth memorising for estimates (chapter 1.1 has the full table): a day is about **100,000 seconds** (86,400); reading memory takes around 100 nanoseconds, an SSD around 100 microseconds, a round trip inside a data centre around half a millisecond, and across a continent around 100 milliseconds. Round freely: the point is to be within a factor of a few, not precise.
+Numbers worth memorising for estimates ([chapter 1.1](../foundations/what-a-computer-does.mdx) has the full table): a day is about **100,000 seconds** (86,400); reading memory takes around 100 nanoseconds, an SSD around 100 microseconds, a round trip inside a data centre around half a millisecond, and across a continent around 100 milliseconds. Round freely: the point is to be within a factor of a few, not precise.
 
 ---
 
 ## Step 3: API and data model
 
-The **API** is the contract (Part 5). snip's, in brief:
+The **API** is the contract ([Part 5](../apis/first-http-server.mdx)). snip's, in brief:
 
 ```text
 POST   /api/links          {"url": "...", "slug": "optional"}  → 201 {slug, url, short_url, ...}
@@ -110,7 +110,7 @@ GET    /{slug}             → 302 Found, Location: <url>
 
 One decision in there deserves attention: **302 Found, not 301 Moved Permanently**. A 301 tells browsers and caches that the redirect never changes, so they remember it and skip snip next time. That's faster for the user, but snip never sees those clicks (so counts are wrong), and a deleted or changed link keeps redirecting from people's browser caches. A 302 costs one request to snip per click, and keeps snip in control. It's a small choice with real consequences, which is exactly what interviewers like to probe.
 
-The **data model** is one main table (chapter 6.3), with the slug as its primary key, so the redirect lookup is a primary-key lookup:
+The **data model** is one main table ([chapter 6.3](../data/designing-schemas.mdx)), with the slug as its primary key, so the redirect lookup is a primary-key lookup:
 
 ```sql
 CREATE TABLE links (
@@ -137,10 +137,10 @@ flowchart LR
 
 Then check it against the non-functional requirements. At 6,000 redirects a second, every one a Postgres query, plus a click-count **update** on every redirect (6,000 writes a second to hot rows, locking them), the database becomes the bottleneck and the redirect waits on a write. So, two changes, each driven by a requirement:
 
-- **Reads are 100× writes → cache them.** Redis in front of Postgres for slug → URL lookups (chapter 6.7). Most redirects never touch Postgres.
-- **Click counts can lag → take them off the hot path.** The redirect appends a click event to a Redis stream and returns; a worker adds them up in batches and writes totals to Postgres (chapter 8.2).
+- **Reads are 100× writes → cache them.** Redis in front of Postgres for slug → URL lookups ([chapter 6.7](../data/redis-and-caching.mdx)). Most redirects never touch Postgres.
+- **Click counts can lag → take them off the hot path.** The redirect appends a click event to a Redis stream and returns; a worker adds them up in batches and writes totals to Postgres ([chapter 8.2](../distributed/queues-and-background-work.mdx)).
 
-And to survive a server failure and absorb peaks, several copies of snip behind a load balancer (chapters 8.3 and 8.6). The result is snip as you built it:
+And to survive a server failure and absorb peaks, several copies of snip behind a load balancer (chapters [8.3](../distributed/reverse-proxies-and-nginx.mdx) and [8.6](../distributed/scaling.mdx)). The result is snip as you built it:
 
 ```mermaid
 flowchart LR
@@ -162,9 +162,9 @@ With the whole picture in place, go deep where it matters. For snip, the interes
 
 **A viral link.** One slug getting 50,000 requests a second is a **hot key**. The cache absorbs it (one Redis key read many times is Redis's best case), and each snip copy could keep a tiny in-process cache for the hottest slugs too.
 
-**The cache fails.** This one you know from experience. In chapter 13.5's game day, a frozen Redis made snip's redirects hang for 15 to 20 seconds and failed its readiness checks, because a cache had quietly become a hard dependency. The fix is a design principle: a **soft dependency** must fail fast and degrade (redirect from Postgres, skip the cache fill), never take the service down with it.
+**The cache fails.** This one you know from experience. In [chapter 13.5](../observability/incidents-and-postmortems.mdx)'s game day, a frozen Redis made snip's redirects hang for 15 to 20 seconds and failed its readiness checks, because a cache had quietly become a hard dependency. The fix is a design principle: a **soft dependency** must fail fast and degrade (redirect from Postgres, skip the cache fill), never take the service down with it.
 
-**Abuse.** Rate limits per API key (chapter 8.4) stop mass creation; checking destinations against known-bad lists and a phishing classifier (chapter 14.2) protect the service's reputation; and a short link that turns out to be phishing must be disabled everywhere at once, which the cache must respect (delete the cache entry when the link is deleted).
+**Abuse.** Rate limits per API key ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)) stop mass creation; checking destinations against known-bad lists and a phishing classifier ([chapter 14.2](../ai/ml-foundations.mdx)) protect the service's reputation; and a short link that turns out to be phishing must be disabled everywhere at once, which the cache must respect (delete the cache entry when the link is deleted).
 
 In an interview, you won't have time for all four. Pick the one or two most tied to the requirements, say which you're choosing and why, and mention the others in a sentence.
 
@@ -178,16 +178,16 @@ Finish by being explicit about what the design gives up, and what would change a
 - **Chose** approximate, slightly late click counts; **gave up** exact real-time analytics.
 - **Chose** 302 redirects; **gave up** browser caching of redirects.
 
-At **10×** (60,000 redirects a second at peak): more snip copies, a bigger Redis, Postgres **read replicas** for cache misses (chapters 8.6 and 12.3). Nothing fundamental changes.
+At **10×** (60,000 redirects a second at peak): more snip copies, a bigger Redis, Postgres **read replicas** for cache misses (chapters [8.6](../distributed/scaling.mdx) and [12.3](../cloud/compute-storage-databases.mdx)). Nothing fundamental changes.
 
-At **100×**, or with users worldwide: redirects served from regions close to users (a copy of the slug → URL data in each region, or redirects at a CDN's edge), and eventually **partitioning** links across several Postgres servers by slug (chapter 8.6). Each of these adds real complexity, so each waits until the numbers demand it.
+At **100×**, or with users worldwide: redirects served from regions close to users (a copy of the slug → URL data in each region, or redirects at a CDN's edge), and eventually **partitioning** links across several Postgres servers by slug ([chapter 8.6](../distributed/scaling.mdx)). Each of these adds real complexity, so each waits until the numbers demand it.
 
 :::warning[What can go wrong]
 The most common system design failure, in interviews and at work, is **designing for a scale nobody asked for**. Kafka, Cassandra and twelve microservices for a service with twelve writes a second. It sounds impressive, and it's worse: more to build, more to operate, more ways to fail, and slower to change. The second most common is the opposite: never asking the numbers, and designing something that falls over at launch. Step 2 exists to prevent both.
 :::
 
 :::info[Honesty label]
-**Exists today:** everything in snip's design above, as built and tested through this handbook (single region, Postgres, Redis cache, click stream and worker, rate limits), and the measured numbers cited from chapters 8.5 and 13.5. **Hypothetical:** the traffic assumptions (a million links a day) and the 10× and 100× evolutions. snip has never run at that scale.
+**Exists today:** everything in snip's design above, as built and tested through this handbook (single region, Postgres, Redis cache, click stream and worker, rate limits), and the measured numbers cited from chapters [8.5](../distributed/performance-and-load-testing.mdx) and [13.5](../observability/incidents-and-postmortems.mdx). **Hypothetical:** the traffic assumptions (a million links a day) and the 10× and 100× evolutions. snip has never run at that scale.
 :::
 
 ---
@@ -221,7 +221,7 @@ Pen and paper, or a text file. About an hour.
    storage_per_year_gb = pastes_per_day * 365 * avg_size_bytes / 1e9
    print(f"{writes_per_s:.0f} writes/s, {reads_per_s:.0f} reads/s, {storage_per_year_gb:,.0f} GB/year")
    ```
-   **What to notice:** which number is big here that was small for snip, and how that changes the design. (Hint: where do 10 KB texts belong, in Postgres rows or in object storage, chapter 12.3?)
+   **What to notice:** which number is big here that was small for snip, and how that changes the design. (Hint: where do 10 KB texts belong, in Postgres rows or in object storage, [chapter 12.3](../cloud/compute-storage-databases.mdx)?)
 
 3. **Compare with snip.** List three places where your pastebin design differs from snip's, and for each, the requirement or number that caused the difference.
 
@@ -297,7 +297,7 @@ Questions first, because they decide the design:
 - **Exact or approximate?** Approximate counts allow sampling and cheaper data structures.
 - **Who sees it?** Every link owner (many small dashboards) or an internal team (a few big queries)?
 
-Then the design change: the click event already flows through a stream (chapter 8.2). Add the country (from the IP address, looked up at the edge) and device (from the User-Agent header) to each event, and have a second consumer aggregate events into per-link, per-minute counts by country and device, stored in a table designed for that query (or a time-series or analytics database, if the volume justifies it). The redirect path doesn't change at all, which is the point: the earlier decision to move clicks off the hot path made this feature cheap to add.
+Then the design change: the click event already flows through a stream ([chapter 8.2](../distributed/queues-and-background-work.mdx)). Add the country (from the IP address, looked up at the edge) and device (from the User-Agent header) to each event, and have a second consumer aggregate events into per-link, per-minute counts by country and device, stored in a table designed for that query (or a time-series or analytics database, if the volume justifies it). The redirect path doesn't change at all, which is the point: the earlier decision to move clicks off the hot path made this feature cheap to add.
 
 Privacy is part of the answer too: IP addresses are personal data, so look up the country and discard the IP rather than storing it.
 
@@ -312,6 +312,6 @@ Start with the numbers and the requirements, not with opinions about technologie
 - Three regions only make sense if a requirement demands it: users on several continents with strict latency needs, or an availability target that must survive a whole region failing. Ask whether that requirement exists, and what it's worth. Multi-region data is one of the hardest problems in the field.
 - Microservices solve an **organisational** problem (many teams needing to deploy independently) more than a technical one. How many teams will work on this?
 
-A reasonable answer: one service, one database, deployed in one region with backups and a tested restore, designed so the pieces *could* be split later (clean module boundaries, chapter 5.4). Write down the numbers that would trigger each next step (more copies, read replicas, a second region), so the decision to grow is made from data, not taste. That's also exactly what an architecture decision record is for (chapter 15.2).
+A reasonable answer: one service, one database, deployed in one region with backups and a tested restore, designed so the pieces *could* be split later (clean module boundaries, [chapter 5.4](../apis/structuring-a-real-service.mdx)). Write down the numbers that would trigger each next step (more copies, read replicas, a second region), so the decision to grow is made from data, not taste. That's also exactly what an architecture decision record is for ([chapter 15.2](./adrs-tradeoffs-c4.mdx)).
 
 </details>

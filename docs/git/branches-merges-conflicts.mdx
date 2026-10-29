@@ -20,7 +20,7 @@ Real work doesn't happen in a straight line. You're halfway through a new featur
 
 ## A branch is a label that moves
 
-In chapter 3.1, history was a chain of commits. A **branch** is simply a **name pointing at one commit** — the latest commit on that line of work. When you commit on a branch, the label moves forward to the new commit automatically.
+In [chapter 3.1](./git-mental-model.mdx), history was a chain of commits. A **branch** is simply a **name pointing at one commit** — the latest commit on that line of work. When you commit on a branch, the label moves forward to the new commit automatically.
 
 ```mermaid
 gitGraph
@@ -172,7 +172,7 @@ Git is **distributed**: every clone is a complete copy of the history. GitHub is
 :::warning[What can go wrong]
 - **`git push` rejected ("non-fast-forward").** Someone pushed new commits to that branch since you last pulled. Don't force it. `git pull` (merge their work into yours, resolving any conflicts), then push again.
 - **Force-pushing shared branches.** `git push --force` replaces the remote branch with yours, **throwing away** commits others pushed. Never force-push `main` or a branch other people use. If you must on your own branch, use `git push --force-with-lease`, which refuses if someone else pushed in the meantime.
-- **Committing directly to `main`.** On a team, `main` is usually protected: changes arrive through reviewed pull requests (chapter 3.3). Always start work with `git switch -c <branch>`.
+- **Committing directly to `main`.** On a team, `main` is usually protected: changes arrive through reviewed pull requests ([chapter 3.3](./pull-requests-and-review.mdx)). Always start work with `git switch -c <branch>`.
 - **Long-lived branches.** A branch that lives for a month drifts far from `main`, and merging it becomes a nightmare. Merge small pieces often.
 :::
 
@@ -196,7 +196,7 @@ git rebase main          # re-apply this branch's commits on top of main's tip
 Both are fine; teams pick a convention. The golden rule of rebasing: **never rebase commits other people already have.** Rebasing rewrites them, and everyone else's copies stop matching.
 
 :::info[In the real world]
-Many teams merge pull requests with **"squash and merge"**: all of a branch's commits are combined into one tidy commit on `main`. The branch's messy "fix typo" commits disappear, and `main` gets one commit per feature. You'll meet that in chapter 3.3.
+Many teams merge pull requests with **"squash and merge"**: all of a branch's commits are combined into one tidy commit on `main`. The branch's messy "fix typo" commits disappear, and `main` gets one commit per feature. You'll meet that in [chapter 3.3](./pull-requests-and-review.mdx).
 :::
 
 ---

@@ -20,7 +20,7 @@ The cloud's greatest strength is that anyone can create a hundred servers with o
 
 ## Where the money goes: snip's staging, itemised
 
-Chapter 12.1 said hourly resources bill whether or not anyone uses them. Here's what that means for snip's AWS staging configuration (`snip/infra/aws` with `envs/staging.tfvars`), using typical list prices for a European region:
+[Chapter 12.1](./cloud-from-zero.mdx) said hourly resources bill whether or not anyone uses them. Here's what that means for snip's AWS staging configuration (`snip/infra/aws` with `envs/staging.tfvars`), using typical list prices for a European region:
 
 ```text
 NAT gateway (hourly)                       $  35.04
@@ -42,7 +42,7 @@ Look at the shape:
 
 - **The biggest line isn't snip.** The NAT gateway, which exists so private tasks can pull images and call AWS APIs, costs more than all of snip's compute. The load balancer and the public IPv4 addresses together cost more than the database. That's typical: **fixed infrastructure** often outweighs the application at small scale.
 - **Nothing here scales to zero.** Every line bills at 3 a.m. with no users. A staging environment used during working hours still pays for all 730 hours.
-- **The fixes are architectural.** VPC endpoints instead of NAT for AWS APIs (chapter 12.2), one shared load balancer for several services, a serverless container platform that scales to zero for low-traffic environments, or simply **destroying** staging when it isn't needed. Terraform makes that one command (chapter 12.5).
+- **The fixes are architectural.** VPC endpoints instead of NAT for AWS APIs ([chapter 12.2](./cloud-networking.mdx)), one shared load balancer for several services, a serverless container platform that scales to zero for low-traffic environments, or simply **destroying** staging when it isn't needed. Terraform makes that one command ([chapter 12.5](./terraform-from-zero.mdx)).
 
 Production adds more lines: Multi-AZ doubles the database, more tasks, more NAT gateways (one per zone), data transfer, logs, backups. And at real traffic, **per-use** charges (NAT and load-balancer data processing, egress, requests) start to matter as much as hourly ones.
 
@@ -54,7 +54,7 @@ Production adds more lines: Multi-AZ doubles the database, more tasks, more NAT 
 A household that never opens its bank statement doesn't have a spending problem, yet. It has a *visibility* problem: the subscription it forgot, the energy tariff that changed, the gym it stopped going to. The first step isn't cutting back; it's reading the statement, sorting it into categories, and setting a limit that sends an alert.
 :::
 
-1. **Budgets and alerts.** Set a monthly budget per account with alerts at, say, 50%, 80% and 100% of expected spend, and on the *forecast* ("you're on track to exceed…"). This is the one control every account needs from day one (chapter 12.1).
+1. **Budgets and alerts.** Set a monthly budget per account with alerts at, say, 50%, 80% and 100% of expected spend, and on the *forecast* ("you're on track to exceed…"). This is the one control every account needs from day one ([chapter 12.1](./cloud-from-zero.mdx)).
 2. **Anomaly detection.** Providers can alert when spending jumps unusually, for example a service costing 5× its normal daily amount. This catches leaked keys running crypto-miners and runaway loops within hours, not at month end.
 3. **Tags and cost allocation.** Tag every resource with who owns it and why it exists. snip's Terraform does it automatically for everything it creates:
    ```hcl
@@ -69,7 +69,7 @@ A household that never opens its bank statement doesn't have a spending problem,
    }
    ```
    Activate these as **cost allocation tags**, and the bill can be grouped by project and environment: "staging costs $107, production $640, and this untagged $300 belongs to… nobody knows". Untagged spend is where waste hides.
-4. **Separate accounts** per environment and team (chapter 12.4) make the bill split itself.
+4. **Separate accounts** per environment and team ([chapter 12.4](./iam.mdx)) make the bill split itself.
 
 ---
 
@@ -81,13 +81,13 @@ In rough order of effort versus payoff:
 |---|---|---|
 | **Delete what's unused** | Old environments, unattached disks, idle load balancers, forgotten snapshots, test databases | Often the biggest, and free to do |
 | **Scale to zero / schedule** | Serverless for spiky workloads; stop dev and staging outside working hours (a 50-hour week is 70% less than 168 hours) | Up to ~70% of non-production |
-| **Rightsize** | Match instance sizes to measured use (chapter 8.5's load tests, and CPU/memory metrics). Oversized "to be safe" is the norm | Commonly 30–50% on the resized resources |
+| **Rightsize** | Match instance sizes to measured use ([chapter 8.5](../distributed/performance-and-load-testing.mdx)'s load tests, and CPU/memory metrics). Oversized "to be safe" is the norm | Commonly 30–50% on the resized resources |
 | **Use cheaper hardware** | ARM processors (snip's Fargate tasks use them), newer instance generations | ~20% for the same work |
 | **Commit** | Savings plans or reserved instances: commit to steady baseline usage for 1–3 years | Often 30–60% on the committed part |
 | **Spot / preemptible** | Spare capacity at deep discounts that can be reclaimed at short notice. Fine for CI, batch jobs and stateless workers that tolerate interruption | Often 60–90% |
-| **Storage classes & lifecycle** | Move old objects to infrequent-access or archive classes; expire logs and snapshots (chapter 12.3) | Large, for storage-heavy systems |
+| **Storage classes & lifecycle** | Move old objects to infrequent-access or archive classes; expire logs and snapshots ([chapter 12.3](./compute-storage-databases.mdx)) | Large, for storage-heavy systems |
 | **Reduce data transfer** | CDNs for public content, keep chatty services in the same zone, VPC endpoints instead of NAT for cloud APIs | Varies; egress can dominate |
-| **Log and metric volume** | Observability data is billed by ingestion and retention. Debug-level logs in production, and high-cardinality metrics (chapter 13.2) are classic budget-eaters | Often surprisingly large |
+| **Log and metric volume** | Observability data is billed by ingestion and retention. Debug-level logs in production, and high-cardinality metrics ([chapter 13.2](../observability/metrics.mdx)) are classic budget-eaters | Often surprisingly large |
 
 Two principles decide where to start: **fix the biggest line first**, and **don't spend an engineer-week to save $20 a month**. Cost work competes with product work like everything else.
 
@@ -109,8 +109,8 @@ Companies regularly find that a large share of their cloud spend is waste: idle 
 
 Most readers of this handbook will use a personal account to learn. The rules that keep it safe:
 
-- **MFA on the root user, a budget alert at a small amount, anomaly alerts on.** (Chapter 12.1, and do it first.)
-- **No long-lived access keys**, and never in code (chapter 12.4). This is the single most expensive mistake.
+- **MFA on the root user, a budget alert at a small amount, anomaly alerts on.** ([Chapter 12.1](./cloud-from-zero.mdx), and do it first.)
+- **No long-lived access keys**, and never in code ([chapter 12.4](./iam.mdx)). This is the single most expensive mistake.
 - **One region** for experiments, so nothing hides elsewhere.
 - **Create with Terraform, finish with `terraform destroy`.** Then check the console for anything left over (a snapshot from `skip_final_snapshot = false`, a log group, an Elastic IP).
 - **Know what's free and what isn't.** Free tiers cover specific services, sizes and amounts, sometimes for 12 months only. NAT gateways, load balancers, public IPv4 addresses and most managed databases are typically **not** free.
@@ -240,6 +240,6 @@ The right choice depends on how staging is used. If it's needed around the clock
 1. **Find it**: the billing console's cost breakdown by service, region and usage type for the last day. A spike usually points straight at one service (e.g. EC2 in a region you never use, or data transfer).
 2. **If it looks like abuse** (unfamiliar regions, huge instances, GPU machines): treat it as a security incident. Deactivate access keys, check CloudTrail for who created what, delete the resources in **every** region, rotate credentials, and contact support.
 3. **If it's your own system** (a runaway loop, a logging explosion, a misconfigured autoscaler, a recursive function calling itself): stop the cause first (scale down, disable the trigger), then fix it properly.
-4. **Prevent recurrence**: anomaly alerts with a low threshold, budgets per account, service quotas that cap how many instances can exist, and a postmortem (chapter 13.5).
+4. **Prevent recurrence**: anomaly alerts with a low threshold, budgets per account, service quotas that cap how many instances can exist, and a postmortem ([chapter 13.5](../observability/incidents-and-postmortems.mdx)).
 
 </details>

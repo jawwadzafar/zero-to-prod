@@ -52,7 +52,7 @@ A restaurant doesn't make you stand at the kitchen door while your meal is cooke
 | **Consumer** | Takes messages and does the work | `snip-worker` |
 | **Acknowledgement (ack)** | The consumer telling the broker "done — you can forget this one" | `XACK` |
 
-The acknowledgement is the key to reliability. A broker hands a message to a consumer but **keeps it** until acknowledged. If the consumer crashes before acking, the message is still there to be delivered again. That's how queues give **at-least-once** delivery (chapter 8.1): nothing is lost, at the price of occasional duplicates.
+The acknowledgement is the key to reliability. A broker hands a message to a consumer but **keeps it** until acknowledged. If the consumer crashes before acking, the message is still there to be delivered again. That's how queues give **at-least-once** delivery ([chapter 8.1](./distributed-survival-kit.mdx)): nothing is lost, at the price of occasional duplicates.
 
 ---
 
@@ -75,9 +75,9 @@ func (r *Recorder) Record(ctx context.Context, slug string) error {
 }
 ```
 
-A **Redis stream** is an append-only log (chapter 6.7): each entry gets an ID based on the time it was added (like `1790284427236-0`), and entries stay in order. `MaxLen` caps the stream at about a million entries, so a stopped worker can't fill Redis's memory forever — a trade-off we'll come back to.
+A **Redis stream** is an append-only log ([chapter 6.7](../data/redis-and-caching.mdx)): each entry gets an ID based on the time it was added (like `1790284427236-0`), and entries stay in order. `MaxLen` caps the stream at about a million entries, so a stopped worker can't fill Redis's memory forever — a trade-off we'll come back to.
 
-If this append fails (Redis is down), the redirect **still succeeds** — snip logs a warning and counts a `snip_click_record_errors_total` metric (chapter 5.4). Losing a click is better than failing a visitor.
+If this append fails (Redis is down), the redirect **still succeeds** — snip logs a warning and counts a `snip_click_record_errors_total` metric ([chapter 5.4](../apis/structuring-a-real-service.mdx)). Losing a click is better than failing a visitor.
 
 ### Consuming: consumer groups
 
@@ -129,7 +129,7 @@ That middle step was missing for a long time, and the bug it fixes is worth unde
 
 ### Workers are just a loop
 
-`cmd/snip-worker/main.go` runs `ProcessOnce` in a loop until it's told to stop (chapter 4.5's signal context), with **exponential backoff** when processing fails (chapter 8.1). You can run one worker or ten; the consumer group divides the work.
+`cmd/snip-worker/main.go` runs `ProcessOnce` in a loop until it's told to stop ([chapter 4.5](../go/concurrency.mdx)'s signal context), with **exponential backoff** when processing fails ([chapter 8.1](./distributed-survival-kit.mdx)). You can run one worker or ten; the consumer group divides the work.
 
 ---
 
@@ -137,7 +137,7 @@ That middle step was missing for a long time, and the bug it fixes is worth unde
 
 ### Duplicates
 
-At-least-once means a message can be processed twice. For snip's counts, the code accepts a rare small overcount — and says so in a comment. When duplicates matter, make processing **idempotent** (chapter 8.1): record each processed message ID in the database in the same transaction as the work, and skip IDs already seen.
+At-least-once means a message can be processed twice. For snip's counts, the code accepts a rare small overcount — and says so in a comment. When duplicates matter, make processing **idempotent** ([chapter 8.1](./distributed-survival-kit.mdx)): record each processed message ID in the database in the same transaction as the work, and skip IDs already seen.
 
 ### Poison messages and dead-letter queues
 
@@ -147,7 +147,7 @@ snip handles the most likely case directly — clicks on a link deleted in the m
 
 ### Backpressure and unbounded queues
 
-If producers add messages faster than consumers process them, the queue **grows**. Brief growth is the point — that's absorbing a burst. Sustained growth means you need more workers, faster processing, or to shed load. Two numbers to watch (chapter 13.2):
+If producers add messages faster than consumers process them, the queue **grows**. Brief growth is the point — that's absorbing a burst. Sustained growth means you need more workers, faster processing, or to shed load. Two numbers to watch ([chapter 13.2](../observability/metrics.mdx)):
 
 - **Queue depth / lag** — how many messages are waiting (`XLEN`, and the group's `lag` in `XINFO GROUPS`).
 - **Oldest message age** — how far behind the consumers are.
@@ -165,9 +165,9 @@ store.Create(ctx, link)        // 1. write to Postgres
 queue.Publish("link.created")  // 2. publish to the queue — what if this fails? Or we crash between the two?
 ```
 
-If the process crashes between the two lines, the database has the link but the event is never sent — or, reversing the order, the event goes out for a link that was never saved. Two systems, no shared transaction: that's the **dual-write problem** (chapter 6.8 warned about it).
+If the process crashes between the two lines, the database has the link but the event is never sent — or, reversing the order, the event goes out for a link that was never saved. Two systems, no shared transaction: that's the **dual-write problem** ([chapter 6.8](../data/choosing-a-datastore.mdx) warned about it).
 
-The **outbox pattern** fixes it using what you already have — a database transaction (chapter 6.5):
+The **outbox pattern** fixes it using what you already have — a database transaction ([chapter 6.5](../data/transactions.mdx)):
 
 1. In the **same transaction** as the business change, insert the event into an **`outbox`** table.
 2. A separate **relay** process reads unsent rows from `outbox`, publishes them to the queue, and marks them sent.
@@ -211,7 +211,7 @@ Two shapes to recognise: a **job queue** (each message is a task done once by on
 
 ## Lab
 
-Free, on your own computer, with Postgres and Redis running (chapters 6.6 and 6.7 labs).
+Free, on your own computer, with Postgres and Redis running (chapters [6.6](../data/postgres-from-go.mdx) and [6.7](../data/redis-and-caching.mdx) labs).
 
 1. **Start the API without a worker, and make a link go viral.**
    ```bash
@@ -298,7 +298,7 @@ Free, on your own computer, with Postgres and Redis running (chapters 6.6 and 6.
 <details>
 <summary>How does batching in snip's worker reduce database load? Give numbers.</summary>
 
-Without batching, 5,000 clicks per second on a viral link would mean 5,000 `UPDATE` statements per second, all fighting over **the same row's lock** (chapter 6.5) — slow and contended. snip's worker reads up to 500 events at a time and **sums them per slug** first, so a batch of 500 clicks on one link becomes **one** `UPDATE links SET clicks = clicks + 500`. At 5,000 clicks per second that's about 10 updates per second instead of 5,000 — a 500× reduction in writes and lock contention, for a delay of at most a couple of seconds in the displayed count.
+Without batching, 5,000 clicks per second on a viral link would mean 5,000 `UPDATE` statements per second, all fighting over **the same row's lock** ([chapter 6.5](../data/transactions.mdx)) — slow and contended. snip's worker reads up to 500 events at a time and **sums them per slug** first, so a batch of 500 clicks on one link becomes **one** `UPDATE links SET clicks = clicks + 500`. At 5,000 clicks per second that's about 10 updates per second instead of 5,000 — a 500× reduction in writes and lock contention, for a delay of at most a couple of seconds in the displayed count.
 
 </details>
 

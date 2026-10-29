@@ -25,7 +25,7 @@ CREATE POLICY tenant_isolation ON links
 
 # 7.4 Authorization & multi-tenancy
 
-Chapter 7.2 answered *who is this?* Now the harder question: *what may they do?* Authentication is usually one well-tested piece of code at the front door. **Authorization** is scattered through every endpoint and every query: may this user see this link, delete that one, change these settings, read that invoice? Miss the check in just one place and one customer can read — or delete — another customer's data. That's not a hypothetical: **broken object-level authorization** has topped the OWASP list of API security risks since the list began. This chapter shows how to get authorization right, how snip does it, and how systems that serve many customers from one database — **multi-tenant** systems — keep each customer's data walled off.
+[Chapter 7.2](./authentication.mdx) answered *who is this?* Now the harder question: *what may they do?* Authentication is usually one well-tested piece of code at the front door. **Authorization** is scattered through every endpoint and every query: may this user see this link, delete that one, change these settings, read that invoice? Miss the check in just one place and one customer can read — or delete — another customer's data. That's not a hypothetical: **broken object-level authorization** has topped the OWASP list of API security risks since the list began. This chapter shows how to get authorization right, how snip does it, and how systems that serve many customers from one database — **multi-tenant** systems — keep each customer's data walled off.
 
 ## What you'll learn
 
@@ -41,7 +41,7 @@ Chapter 7.2 answered *who is this?* Now the harder question: *what may they do?*
 
 Three rules cover most of authorization:
 
-1. **Enforce on the server.** Hiding a "Delete" button in the app is decoration, not security — anyone can call the API directly (chapter 5.3).
+1. **Enforce on the server.** Hiding a "Delete" button in the app is decoration, not security — anyone can call the API directly ([chapter 5.3](../apis/validation-errors-status-codes.mdx)).
 2. **Deny by default.** Access is refused unless a rule explicitly allows it. Forgetting a rule then fails *closed* (a bug report) rather than *open* (a breach).
 3. **Check every request, on every object.** Not "the user logged in, so they can do things" — "this user may perform *this action* on *this specific object*, right now."
 
@@ -71,11 +71,11 @@ Checking a role is simple (`if user.Role == "admin"`), and roles map well onto o
 
 ### Attributes and policies: ABAC
 
-**Attribute-based access control** decides from attributes of the user, the object, the action and the context: *"editors may delete links in their own team's workspace, created in the last 30 days, during business hours."* Powerful, and harder to reason about. Large systems often move such rules into a dedicated **policy engine** (for example Open Policy Agent, Cedar, or relationship-based systems modelled on Google's Zanzibar) so they're written once and tested. Chapter 7.10 builds both for snip: an OPA policy with tests, and a small relationship checker.
+**Attribute-based access control** decides from attributes of the user, the object, the action and the context: *"editors may delete links in their own team's workspace, created in the last 30 days, during business hours."* Powerful, and harder to reason about. Large systems often move such rules into a dedicated **policy engine** (for example Open Policy Agent, Cedar, or relationship-based systems modelled on Google's Zanzibar) so they're written once and tested. [Chapter 7.10](./authorization-at-scale.mdx) builds both for snip: an OPA policy with tests, and a small relationship checker.
 
 ### Scopes
 
-OAuth **scopes** (chapter 7.3) limit what a *token* may do, independently of what the *user* may do: a dashboard token with `links:read` can't delete links even if its user could. Effective access is the **intersection** of both.
+OAuth **scopes** ([chapter 7.3](./oauth-and-oidc.mdx)) limit what a *token* may do, independently of what the *user* may do: a dashboard token with `links:read` can't delete links even if its user could. Effective access is the **intersection** of both.
 
 ---
 
@@ -116,14 +116,14 @@ func (s *Service) Get(ctx context.Context, ownerID int64, slug string) (Link, er
 }
 ```
 
-Listing: `SELECT … WHERE owner_id = $1`. And `ownerID` always comes from the **authenticated key** placed in the request context by `requireKey` (chapter 7.2) — **never** from the request body or URL, which the caller controls.
+Listing: `SELECT … WHERE owner_id = $1`. And `ownerID` always comes from the **authenticated key** placed in the request context by `requireKey` ([chapter 7.2](./authentication.mdx)) — **never** from the request body or URL, which the caller controls.
 
 Two details matter:
 
-- **Same answer for "not yours" and "doesn't exist"**: `404 not_found`. A `403` would confirm the object exists, letting attackers map other customers' data (chapter 5.2).
+- **Same answer for "not yours" and "doesn't exist"**: `404 not_found`. A `403` would confirm the object exists, letting attackers map other customers' data ([chapter 5.2](../apis/designing-rest-apis.mdx)).
 - **The owner comes from authentication, not input.** An API that accepts `{"owner_id": 7}` in the request and trusts it has handed authorization to the attacker.
 
-snip's HTTP tests check this path (chapter 4.4), and it's exactly the kind of test worth adding for every endpoint: *user B tries user A's object and must fail.*
+snip's HTTP tests check this path ([chapter 4.4](../go/testing.mdx)), and it's exactly the kind of test worth adding for every endpoint: *user B tries user A's object and must fail.*
 
 ---
 
@@ -203,7 +203,7 @@ Real systems need people who can see across tenants: support engineers, administ
 - **Checks only in the frontend.** Hidden buttons don't stop API calls.
 - **Inconsistent checks.** Five endpoints check ownership, the sixth (added in a hurry) doesn't. Centralise checks in shared code, and test "user B tries user A's object" for every endpoint.
 - **403 that reveals existence.** Prefer 404 for objects the caller shouldn't know about.
-- **Mass assignment.** Binding a JSON body straight onto a database row lets a caller set fields like `role` or `owner_id`. Accept only the fields you intend (snip's strict decoding, chapter 5.3).
+- **Mass assignment.** Binding a JSON body straight onto a database row lets a caller set fields like `role` or `owner_id`. Accept only the fields you intend (snip's strict decoding, [chapter 5.3](../apis/validation-errors-status-codes.mdx)).
 :::
 
 ---
@@ -225,7 +225,7 @@ Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
    ```
    Policies for the same command are combined with **OR**, so support gets visibility without write access.
 
-3. **Attack snip's authorization.** With snip running (Postgres mode, chapter 6.6), create **two** keys and a link with the first:
+3. **Attack snip's authorization.** With snip running (Postgres mode, [chapter 6.6](../data/postgres-from-go.mdx)), create **two** keys and a link with the first:
    ```bash
    go run ./cmd/snip keys create alice     # KEY_A
    go run ./cmd/snip keys create bob       # KEY_B

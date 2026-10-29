@@ -52,7 +52,7 @@ Compare two ways of logging the same event:
 
 The first is readable to a person and a puzzle to a machine: to find all requests slower than 500 ms, you'd write a fragile regular expression and hope nobody changes the wording. The second is **structured**: each fact is a named field. Tools can filter (`status >= 500`), group (`count by route`) and chart (`p99 of duration_ms`) without parsing prose. That's why production logs are almost always **JSON**, one object per line.
 
-snip uses Go's standard **`log/slog`** package. The format is a setting (chapter 7.6): JSON by default, or `SNIP_LOG_FORMAT=text` for friendlier local reading:
+snip uses Go's standard **`log/slog`** package. The format is a setting ([chapter 7.6](../security/secrets-management.mdx)): JSON by default, or `SNIP_LOG_FORMAT=text` for friendlier local reading:
 
 ```go
 func (c Config) Logger() *slog.Logger {
@@ -74,7 +74,7 @@ s.log.InfoContext(ctx, "request",
 
 Notice the **`route`** field (`GET /{slug}`, the pattern) alongside **`path`** (`/logs`, the actual URL). Grouping by route answers "how is the redirect endpoint doing?", however many different slugs there are.
 
-Structure has a security benefit too: **log injection**. If a program writes user input straight into free-text logs, an attacker can include a newline and a fake line (`\n2026-09-24 INFO admin login succeeded`) to mislead investigators. A JSON encoder escapes the newline, so it stays inside the field as data (chapter 7.5's rule: untrusted input is never code).
+Structure has a security benefit too: **log injection**. If a program writes user input straight into free-text logs, an attacker can include a newline and a fake line (`\n2026-09-24 INFO admin login succeeded`) to mislead investigators. A JSON encoder escapes the newline, so it stays inside the field as data ([chapter 7.5](../security/web-attacks.mdx)'s rule: untrusted input is never code).
 
 ---
 
@@ -89,11 +89,11 @@ Structure has a security benefit too: **log injection**. If a program writes use
 | **WARN** | Something unexpected that was handled, but may need attention | `SNIP_DATABASE_URL not set: using in-memory storage` |
 | **ERROR** | Something failed and a human may need to act | `processing clicks failed; retrying`, a recovered panic |
 
-Good log lines record **events with context**: what happened, to what, with what result, and enough identifiers to connect them. Write them for the person reading them at 3 a.m. during an incident (chapter 13.5): specific messages, the relevant IDs, the actual error.
+Good log lines record **events with context**: what happened, to what, with what result, and enough identifiers to connect them. Write them for the person reading them at 3 a.m. during an incident ([chapter 13.5](./incidents-and-postmortems.mdx)): specific messages, the relevant IDs, the actual error.
 
 What to leave out:
 
-- **Noise.** snip skips logging `/healthz` and `/metrics`: Kubernetes probes and Prometheus call them every few seconds (chapters 10.2 and 13.2), and logging them would bury real traffic.
+- **Noise.** snip skips logging `/healthz` and `/metrics`: Kubernetes probes and Prometheus call them every few seconds (chapters [10.2](../kubernetes/core-objects.mdx) and [13.2](./metrics.mdx)), and logging them would bury real traffic.
 - **Secrets**: passwords, API keys, tokens, full connection strings, cookies, `Authorization` headers.
 - **Personal data** you don't need: email addresses, names, IP addresses in some jurisdictions. Logs get copied to many systems and kept for months, and data-protection law applies to them.
 
@@ -104,7 +104,7 @@ Look at snip's own start-up log in in-memory mode:
 {"level":"INFO","msg":"in-memory mode: created a development API key (valid until snip stops)","api_key":"snip_…"}
 ```
 
-That's a secret in a log, and it's **deliberate**: in-memory mode is for learning on your laptop, the key is generated fresh on every start, it grants access only to that throwaway process, and printing it is how you find it. In Postgres mode, snip never logs keys; it stores only their hashes (chapter 7.2). The judgment is the point: this is acceptable for a local development convenience, and would be an incident in any shared environment. Real systems redact at source, and many log pipelines add a second layer of pattern-based redaction for anything that slips through.
+That's a secret in a log, and it's **deliberate**: in-memory mode is for learning on your laptop, the key is generated fresh on every start, it grants access only to that throwaway process, and printing it is how you find it. In Postgres mode, snip never logs keys; it stores only their hashes ([chapter 7.2](../security/authentication.mdx)). The judgment is the point: this is acceptable for a local development convenience, and would be an incident in any shared environment. Real systems redact at source, and many log pipelines add a second layer of pattern-based redaction for anything that slips through.
 :::
 
 ---
@@ -121,27 +121,27 @@ if !validRequestID(id) {          // empty, over 64 characters, or anything but 
 w.Header().Set("X-Request-ID", id)
 ```
 
-Reusing an ID a proxy in front of snip already assigned lets one ID follow the request through every system. But the header comes from outside, and snip copies it into its logs and its response, so it only accepts short, plain IDs; anything else gets a fresh one. (Chapter 7.5's rule: never trust input just because it's a header.)
+Reusing an ID a proxy in front of snip already assigned lets one ID follow the request through every system. But the header comes from outside, and snip copies it into its logs and its response, so it only accepts short, plain IDs; anything else gets a fresh one. ([Chapter 7.5](../security/web-attacks.mdx)'s rule: never trust input just because it's a header.)
 
 This makes three things possible:
 
 1. **Support**: a user reports an error and quotes the `X-Request-Id` from the response (or the error page shows it). You search for exactly that request.
 2. **Correlation**: every line logged while handling the request carries the same ID, so you can pull out one request's story from millions of lines.
-3. **Propagation**: if a caller already sent an `X-Request-ID` (a proxy, or another service), snip keeps it, so one ID can follow a request across services. Tracing (chapter 13.3) formalises this with **trace IDs**, and many systems log the trace ID for exactly this reason.
+3. **Propagation**: if a caller already sent an `X-Request-ID` (a proxy, or another service), snip keeps it, so one ID can follow a request across services. Tracing ([chapter 13.3](./tracing.mdx)) formalises this with **trace IDs**, and many systems log the trace ID for exactly this reason.
 
 ---
 
 ## Where logs go
 
-snip doesn't open log files, rotate them or ship them anywhere. It writes to **stdout**, one JSON object per line, and stops thinking about it (chapter 5.4). Whatever runs snip decides where the lines go:
+snip doesn't open log files, rotate them or ship them anywhere. It writes to **stdout**, one JSON object per line, and stops thinking about it ([chapter 5.4](../apis/structuring-a-real-service.mdx)). Whatever runs snip decides where the lines go:
 
 | Where snip runs | Who collects stdout | Where you read it |
 |---|---|---|
 | Your terminal | Your terminal | The screen, or `\| jq` |
-| systemd (chapter 2.5) | journald | `journalctl -u snip` |
-| Docker / Compose (chapter 9.3) | The container runtime | `docker compose logs api` |
-| Kubernetes (chapter 10.5) | The kubelet, to files on the node | `kubectl logs`; a log agent ships them on |
-| ECS on AWS (chapter 12.3) | The `awslogs` driver | CloudWatch Logs, snip's log group |
+| systemd ([chapter 2.5](../linux/running-a-linux-server.mdx)) | journald | `journalctl -u snip` |
+| Docker / Compose ([chapter 9.3](../containers/docker-compose.mdx)) | The container runtime | `docker compose logs api` |
+| Kubernetes ([chapter 10.5](../kubernetes/operating-and-debugging.mdx)) | The kubelet, to files on the node | `kubectl logs`; a log agent ships them on |
+| ECS on AWS ([chapter 12.3](../cloud/compute-storage-databases.mdx)) | The `awslogs` driver | CloudWatch Logs, snip's log group |
 
 In production, a **log pipeline** collects everything centrally, because nobody can `kubectl logs` across 200 Pods that were replaced an hour ago:
 
@@ -152,7 +152,7 @@ flowchart LR
   S --> Q["Search & dashboards<br/>(Grafana, Kibana)"]
 ```
 
-The **collector** runs on every node (a DaemonSet, chapter 10.2), reads container output, adds metadata (namespace, Pod, node), and ships it. The **store** indexes it for search. With structured logs, a query is precise. In Grafana **Loki**'s query language (LogQL), "5xx responses from snip's API in the last hour, by route" is:
+The **collector** runs on every node (a DaemonSet, [chapter 10.2](../kubernetes/core-objects.mdx)), reads container output, adds metadata (namespace, Pod, node), and ships it. The **store** indexes it for search. With structured logs, a query is precise. In Grafana **Loki**'s query language (LogQL), "5xx responses from snip's API in the last hour, by route" is:
 
 ```text
 sum by (route) (count_over_time({namespace="snip", app="api"} | json | status >= 500 [1h]))
@@ -162,12 +162,12 @@ sum by (route) (count_over_time({namespace="snip", app="api"} | json | status >=
 
 Logs are usually the most expensive observability signal, because their volume grows with traffic and they're billed on **ingestion** and **storage**. The standard controls:
 
-- **Levels**: `info` in production, `debug` only when investigating (chapter 10.4 showed switching it with a rollout).
+- **Levels**: `info` in production, `debug` only when investigating ([chapter 10.4](../kubernetes/config-secrets-storage.mdx) showed switching it with a rollout).
 - **Don't log what metrics can count.** A counter for "redirect served" costs the same at a million requests a second as at one; a log line per redirect doesn't. snip logs each request today, which is fine at its scale. A very high-traffic service might sample request logs (keep 1 in 100 successes, all errors).
 - **Retention by value**: 7–30 days searchable for operations, longer (and cheaper, in object storage) only for what audits or law require.
 
 :::info[In the real world]
-Mature teams standardise one structured format and a common set of fields across all services (service name, version, environment, request or trace ID), so a single query spans everything. Logs flow through a pipeline that parses, enriches and redacts, into a store with sensible retention, and every alert (chapter 13.4) links to the logs for the right time and service. Many are moving to **OpenTelemetry** for all three signals, so logs, metrics and traces share IDs and can be jumped between (chapter 13.3).
+Mature teams standardise one structured format and a common set of fields across all services (service name, version, environment, request or trace ID), so a single query spans everything. Logs flow through a pipeline that parses, enriches and redacts, into a store with sensible retention, and every alert ([chapter 13.4](./slos-alerting-on-call.mdx)) links to the logs for the right time and service. Many are moving to **OpenTelemetry** for all three signals, so logs, metrics and traces share IDs and can be jumped between ([chapter 13.3](./tracing.mdx)).
 :::
 
 ---
@@ -191,7 +191,7 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
    kill %1
    ```
 
-2. **Query the logs with jq** (chapter 2.3):
+2. **Query the logs with jq** ([chapter 2.3](../linux/pipes-and-text-tools.mdx)):
    ```bash
    L=/tmp/snip-logs.json
    jq -c 'select(.status >= 400) | {status, route, request_id}' $L       # every error

@@ -42,7 +42,7 @@ snip works beautifully on your laptop with 20 links. Then it gets popular. At 10
 
 ## Why queries get slow: scanning everything
 
-Without any help, how does Postgres answer `WHERE owner_id = 42`? It reads **every row** in the table and checks each one. That's a **sequential scan** (seq scan). With 20 rows it's instant. With 10 million, it's reading gigabytes (chapter 1.1's slow storage) to return 20 rows.
+Without any help, how does Postgres answer `WHERE owner_id = 42`? It reads **every row** in the table and checks each one. That's a **sequential scan** (seq scan). With 20 rows it's instant. With 10 million, it's reading gigabytes ([chapter 1.1](../foundations/what-a-computer-does.mdx)'s slow storage) to return 20 rows.
 
 The time grows **in proportion to the table**. Double the links, double the time for every such query. That's why systems that were fast at launch slow down month after month with no code changes at all.
 
@@ -66,7 +66,7 @@ flowchart TB
 
 The magic is how little work a lookup takes. Each level of the tree cuts the candidates by a large factor, so even **a billion rows** needs only a handful of steps to find one value. Where a sequential scan's cost grows with the table, an index lookup's cost barely grows at all.
 
-You've already been using indexes without creating them: **every `PRIMARY KEY` and `UNIQUE` constraint automatically gets one** (chapter 6.3). That's why looking up a link by its slug — snip's hottest query, run on every redirect — is fast from day one.
+You've already been using indexes without creating them: **every `PRIMARY KEY` and `UNIQUE` constraint automatically gets one** ([chapter 6.3](./designing-schemas.mdx)). That's why looking up a link by its slug — snip's hottest query, run on every redirect — is fast from day one.
 
 ---
 
@@ -160,7 +160,7 @@ For `WHERE owner_id = 42 ORDER BY created_at DESC LIMIT 20`, Postgres jumps to o
 If indexes are so good, why not index every column?
 
 - **Writes get slower.** Every `INSERT`, and every `UPDATE` of an indexed column, must update *every* index on the table too. A table with ten indexes does roughly ten times the index work on every write.
-- **They take space** — on disk and, more importantly, in memory, where the hot parts of indexes need to live to be fast (chapter 1.1).
+- **They take space** — on disk and, more importantly, in memory, where the hot parts of indexes need to live to be fast ([chapter 1.1](../foundations/what-a-computer-does.mdx)).
 - **Unused indexes are pure cost.** Postgres tracks index usage (`pg_stat_user_indexes`); teams periodically drop indexes nothing uses.
 
 So: index what your **real, frequent queries** need, and measure. snip has exactly three indexes: the two automatic ones (`links.slug`, `api_keys.key_hash`) and the composite one for listing links.
@@ -173,7 +173,7 @@ Postgres ignores an index, or can't use it, when:
 
 | Query | Why the index doesn't help | What to do |
 |---|---|---|
-| `WHERE url LIKE '%docs%'` | A leading `%` means "anywhere" — a sorted list can't find the middle of strings | Full-text search or a trigram index (chapter 6.8) |
+| `WHERE url LIKE '%docs%'` | A leading `%` means "anywhere" — a sorted list can't find the middle of strings | Full-text search or a trigram index ([chapter 6.8](./choosing-a-datastore.mdx)) |
 | `WHERE lower(slug) = 'godoc'` | The index is on `slug`, not `lower(slug)` | An **expression index**: `CREATE INDEX … ON links (lower(slug))` |
 | `WHERE clicks > 0` when 99% of rows match | Reading nearly everything via the index is *slower* than just scanning | Nothing — the planner is right |
 | A tiny table | Scanning 50 rows is faster than using any index | Nothing — also right |
@@ -194,11 +194,11 @@ for each link:
     owner := SELECT name FROM api_keys WHERE id = ?  -- + 20 queries
 ```
 
-That's **21 queries** — "N+1". Each is fast, but each is a network round trip (chapter 1.1's "weeks" in CPU time), and at 200 items it's 201 round trips. The fix is to ask once, with a `JOIN` (chapter 6.2) or `WHERE id = ANY($1)` with all the IDs. N+1 is extremely common with ORMs (libraries that generate SQL for you), which can make it invisible in the code.
+That's **21 queries** — "N+1". Each is fast, but each is a network round trip ([chapter 1.1](../foundations/what-a-computer-does.mdx)'s "weeks" in CPU time), and at 200 items it's 201 round trips. The fix is to ask once, with a `JOIN` ([chapter 6.2](./sql-from-zero.mdx)) or `WHERE id = ANY($1)` with all the IDs. N+1 is extremely common with ORMs (libraries that generate SQL for you), which can make it invisible in the code.
 
 ### Deep OFFSET pagination
 
-`… ORDER BY created_at DESC LIMIT 20 OFFSET 100000` asks Postgres to find and **throw away** 100,000 rows before returning 20. Page 5,000 is thousands of times slower than page 1. **Cursor pagination** (chapter 5.2) — "rows older than the last one I saw" — uses the index directly and stays fast at any depth:
+`… ORDER BY created_at DESC LIMIT 20 OFFSET 100000` asks Postgres to find and **throw away** 100,000 rows before returning 20. Page 5,000 is thousands of times slower than page 1. **Cursor pagination** ([chapter 5.2](../apis/designing-rest-apis.mdx)) — "rows older than the last one I saw" — uses the index directly and stays fast at any depth:
 
 ```sql
 SELECT slug, created_at FROM links
@@ -217,10 +217,10 @@ LIMIT 20;
 CREATE INDEX CONCURRENTLY links_owner_created_idx ON links (owner_id, created_at DESC);
 ```
 
-It takes longer and can't run inside a transaction, but reads and writes carry on while it builds. It's how the pull request from chapter 3.3's self-check would add the index safely.
+It takes longer and can't run inside a transaction, but reads and writes carry on while it builds. It's how the pull request from [chapter 3.3](../git/pull-requests-and-review.mdx)'s self-check would add the index safely.
 
 :::info[In the real world]
-Teams find slow queries with Postgres's **`pg_stat_statements`** extension (which records every query's total and average time) and the **slow query log** (`log_min_duration_statement`). The workflow is always the same: find the query that costs the most *in total*, `EXPLAIN ANALYZE` it, fix it (usually an index or a rewritten query), and measure again. Managed databases (chapter 12.3) show this in a dashboard.
+Teams find slow queries with Postgres's **`pg_stat_statements`** extension (which records every query's total and average time) and the **slow query log** (`log_min_duration_statement`). The workflow is always the same: find the query that costs the most *in total*, `EXPLAIN ANALYZE` it, fix it (usually an index or a rewritten query), and measure again. Managed databases ([chapter 12.3](../cloud/compute-storage-databases.mdx)) show this in a dashboard.
 :::
 
 :::warning[What can go wrong]

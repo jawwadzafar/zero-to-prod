@@ -8,7 +8,7 @@ description: "Enough Python to build real AI features, taught by comparison with
 
 Welcome to Part 14. Everything so far has been built in Go, and Go is a great language for services like snip. But nearly the whole AI world runs on **Python**: every model provider's official library, the numerical tools (NumPy), the machine learning frameworks (PyTorch), the notebooks researchers share their work in, and most examples you'll find online. So AI engineers read and write Python every day, and most teams end up with both: services in Go (or Java, or TypeScript) and AI work in Python. That's exactly what we'll do. Part 14's code lives in a new folder, **`ai/`**, a Python project called **snipai** that adds AI features to snip, starting in this chapter with a typed client for snip's API.
 
-You already know how to program from Part 4. So this chapter doesn't start from zero. It teaches Python by **comparison with Go**, and spends its time on the things that are genuinely different, and the tools that keep a Python project healthy.
+You already know how to program from [Part 4](../go/why-go-first-program.mdx). So this chapter doesn't start from zero. It teaches Python by **comparison with Go**, and spends its time on the things that are genuinely different, and the tools that keep a Python project healthy.
 
 ## What you'll learn
 
@@ -94,7 +94,7 @@ Same logic, line for line. The differences you can see:
 
 Two of these deserve a closer look.
 
-**Exceptions instead of returned errors.** In Go, a function that can fail returns an `error`, and the caller checks it on the next line. In Python, a failing function **raises an exception**, which travels up the call stack until some caller **catches** it with `try`/`except`, or the program crashes with a **traceback** (Python's stack trace, chapter 13.6). Less typing, but you can't see from a function's signature whether it can fail, so read docstrings, and catch specific exceptions rather than everything:
+**Exceptions instead of returned errors.** In Go, a function that can fail returns an `error`, and the caller checks it on the next line. In Python, a failing function **raises an exception**, which travels up the call stack until some caller **catches** it with `try`/`except`, or the program crashes with a **traceback** (Python's stack trace, [chapter 13.6](../observability/debugging-playbook.mdx)). Less typing, but you can't see from a function's signature whether it can fail, so read docstrings, and catch specific exceptions rather than everything:
 
 ```python
 def is_valid_slug(slug: str) -> bool:
@@ -188,7 +188,7 @@ short_url
   Field required [type=missing, ...]
 ```
 
-And good data comes out as real Python types: `created_at` becomes a `datetime`, not a string. This will matter a lot in chapter 14.6, where the data you're validating is a language model's output, which is *often* not quite what you asked for.
+And good data comes out as real Python types: `created_at` becomes a `datetime`, not a string. This will matter a lot in [chapter 14.6](./structured-output-and-tools.mdx), where the data you're validating is a language model's output, which is *often* not quite what you asked for.
 
 ---
 
@@ -202,7 +202,7 @@ Go downloads dependencies into a shared cache, but each project's `go.mod` and `
 
 - A **virtual environment** (a `.venv` folder inside the project): a private copy of the Python setup with its own installed packages. Each project gets its own toolbox.
 - **`pyproject.toml`**: the project's description and the dependencies it needs, with minimum versions (like `go.mod`).
-- A **lock file** (`uv.lock`): the *exact* version of every package, including dependencies of dependencies, with hashes (like `go.sum`, and like Terraform's lock file in chapter 12.5). Committed to Git, so everyone and CI install the identical set.
+- A **lock file** (`uv.lock`): the *exact* version of every package, including dependencies of dependencies, with hashes (like `go.sum`, and like Terraform's lock file in [chapter 12.5](../cloud/terraform-from-zero.mdx)). Committed to Git, so everyone and CI install the identical set.
 
 The tool that manages all three is **uv**. It's newer than the classic `pip` + `venv` combination, much faster, and it can install Python itself. snipai's `pyproject.toml`:
 
@@ -240,7 +240,7 @@ You don't need to "activate" the environment: `uv run` always uses the project's
 
 ## A real client for snip's API
 
-snipai's first module, `ai/src/snipai/client.py`, is a Python client for the API you built in Part 5. It uses **httpx**, a modern HTTP library. Here's the core of it:
+snipai's first module, `ai/src/snipai/client.py`, is a Python client for the API you built in [Part 5](../apis/first-http-server.mdx). It uses **httpx**, a modern HTTP library. Here's the core of it:
 
 ```python
 class SnipClient:
@@ -276,9 +276,9 @@ class SnipClient:
 Things to notice, all of them Python habits worth copying:
 
 - **`*` in the parameter list** means everything after it must be passed **by name**: `SnipClient(url, key, timeout=2)`, never `SnipClient(url, key, 2)`. Call sites stay readable.
-- **One place turns HTTP errors into exceptions** (`_request`), carrying snip's own error `code` from chapter 5.3, so callers can write `except SnipError as e: if e.code == "slug_taken": ...`.
+- **One place turns HTTP errors into exceptions** (`_request`), carrying snip's own error `code` from [chapter 5.3](../apis/validation-errors-status-codes.mdx), so callers can write `except SnipError as e: if e.code == "slug_taken": ...`.
 - **Never trust the error body's shape.** If something between you and snip (nginx, a load balancer) answers with an HTML page, `res.json()` fails. The code catches that and still raises a useful `SnipError`.
-- **A timeout by default.** httpx's default is 5 seconds; we make it explicit, and configurable. You learned why in chapter 13.5.
+- **A timeout by default.** httpx's default is 5 seconds; we make it explicit, and configurable. You learned why in [chapter 13.5](../observability/incidents-and-postmortems.mdx).
 
 Using it feels like this, against a running snip:
 
@@ -296,7 +296,7 @@ snipai.client.SnipError: 400 invalid_slug: slug must be 3-32 letters, digits, '-
 
 ## Tests and tidiness: pytest and ruff
 
-**pytest** is Python's standard test runner. Tests are plain functions whose names start with `test_`, using the ordinary `assert` statement. One feature you'll use constantly is **parametrize**: one test, many inputs. It's the Python version of Go's table-driven tests (chapter 4.4), and snipai's slug test uses exactly the same cases as snip's Go test:
+**pytest** is Python's standard test runner. Tests are plain functions whose names start with `test_`, using the ordinary `assert` statement. One feature you'll use constantly is **parametrize**: one test, many inputs. It's the Python version of Go's table-driven tests ([chapter 4.4](../go/testing.mdx)), and snipai's slug test uses exactly the same cases as snip's Go test:
 
 ```python
 @pytest.mark.parametrize(
@@ -314,7 +314,7 @@ def test_is_valid_slug(slug: str, ok: bool) -> None:
     assert is_valid_slug(slug) is ok
 ```
 
-To test the client **without a running snip**, the tests hand httpx a **mock transport**: a plain function that receives each request and returns a made-up response. It's the same trick as Go's `httptest` (chapter 4.4), from the other side: a fake server, not a real one:
+To test the client **without a running snip**, the tests hand httpx a **mock transport**: a plain function that receives each request and returns a made-up response. It's the same trick as Go's `httptest` ([chapter 4.4](../go/testing.mdx)), from the other side: a fake server, not a real one:
 
 ```python
 def fake_snip(request: httpx.Request) -> httpx.Response:
@@ -343,7 +343,7 @@ Free, on your own computer. You'll install Python's tools, run snipai's checks, 
    ```bash
    curl -LsSf https://astral.sh/uv/install.sh | sh
    ```
-   (Or `brew install uv` on macOS.) Piping a script from the internet into `sh` runs it with your permissions. It's a common way to install developer tools (chapter 0.2 installed Docker the same way), but it's worth opening the URL in your browser first to see what it does. Open a new terminal, then check: `uv --version`.
+   (Or `brew install uv` on macOS.) Piping a script from the internet into `sh` runs it with your permissions. It's a common way to install developer tools ([chapter 0.2](../start/set-up-your-machine.mdx) installed Docker the same way), but it's worth opening the URL in your browser first to see what it does. Open a new terminal, then check: `uv --version`.
 
 2. **Set up snipai and run every check:**
    ```bash
@@ -353,7 +353,7 @@ Free, on your own computer. You'll install Python's tools, run snipai's checks, 
    ```
    `uv sync` downloads a suitable Python if you don't have one, creates `.venv`, and installs exactly what `uv.lock` lists. **What to notice:** one test is `skipped`. That's the live test, waiting for a real snip.
 
-3. **Run the live test against a real snip.** In a second terminal, start snip in memory mode (chapter 5.1); it prints a development API key:
+3. **Run the live test against a real snip.** In a second terminal, start snip in memory mode ([chapter 5.1](../apis/first-http-server.mdx)); it prints a development API key:
    ```bash
    cd ~/code/zero-to-prod/snip && go run ./cmd/snip serve
    ```
@@ -465,7 +465,7 @@ slugs = [link.slug for link in links if link.clicks > 0]
 - **No error check**: in Python, a failure raises an exception, which carries on up to whoever can handle it. If *this* function should handle it, wrap the call in `try`/`except` with the specific exception.
 - **The loop becomes a list comprehension**: `[expression for item in iterable if condition]`. It's idiomatic for "build a list by filtering and transforming". For anything more complicated than one condition and one expression, a plain `for` loop is clearer.
 - **Naming**: `owner_id`, `limit=50` as a keyword argument, so the call says what 50 means.
-- **No `ctx`**: Python has no standard equivalent of Go's `context` for cancellation in ordinary code. Timeouts are usually set on the client (like `SnipClient(timeout=...)`). Async code (chapter 14.4) has its own cancellation.
+- **No `ctx`**: Python has no standard equivalent of Go's `context` for cancellation in ordinary code. Timeouts are usually set on the client (like `SnipClient(timeout=...)`). Async code ([chapter 14.4](./calling-models-from-code.mdx)) has its own cancellation.
 
 </details>
 

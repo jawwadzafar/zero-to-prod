@@ -42,13 +42,13 @@ A restaurant changing its menu doesn't swap every dish on the busiest night. It 
 | **Blue-green** | Run the new version (green) fully alongside the old (blue), then switch all traffic at once | Switch back: **instant** | Double capacity during the switch | Everyone switches at once, but can switch back instantly |
 | **Canary** | Send a small share of traffic (1%, 10%) to the new version, watch, then increase | Set the share to 0 | Small extra capacity | Only a fraction of users meet a bad version, briefly |
 
-**Rolling** is Kubernetes' default and what snip's Deployment does (chapter 10.2): with `maxUnavailable: 0`, a new version that never becomes ready can't take down the old one. But readiness only checks "does it respond?", not "is it correct?". A version that responds quickly with wrong answers rolls out to 100% happily.
+**Rolling** is Kubernetes' default and what snip's Deployment does ([chapter 10.2](../kubernetes/core-objects.mdx)): with `maxUnavailable: 0`, a new version that never becomes ready can't take down the old one. But readiness only checks "does it respond?", not "is it correct?". A version that responds quickly with wrong answers rolls out to 100% happily.
 
 **Blue-green** gives an instant, complete rollback, because the old version is still running, untouched. It's popular where a mixed state is unacceptable or where you want to test the new stack fully before any user touches it. The cost is running two full copies at the switch, and everyone moves at once.
 
 **Canary** limits the **blast radius**: if the new version is bad, only its small share of users are affected, and only until you notice. It's the most common strategy for services with real traffic, because it tests the new version with *real* users and *real* data, which no test environment can fully reproduce.
 
-Both blue-green and canary need something that can **steer traffic** between versions: a load balancer, a Gateway API route with **weights** (chapter 10.3), a service mesh, or a DNS switch.
+Both blue-green and canary need something that can **steer traffic** between versions: a load balancer, a Gateway API route with **weights** ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)), a service mesh, or a DNS switch.
 
 ### A canary in Gateway API
 
@@ -85,7 +85,7 @@ if flags.Enabled(ctx, "link-previews", user) {
 }
 ```
 
-The code for link previews can be deployed weeks before anyone sees it (a **dark launch**), then turned on for staff, then 5% of users, then everyone, all **without a deployment**. And turned off instantly if it misbehaves. Flags make trunk-based development work (chapter 11.1). They move *release* decisions to whoever controls the flags, often product managers. And they give the fastest possible rollback for a feature: flipping a switch.
+The code for link previews can be deployed weeks before anyone sees it (a **dark launch**), then turned on for staff, then 5% of users, then everyone, all **without a deployment**. And turned off instantly if it misbehaves. Flags make trunk-based development work ([chapter 11.1](./how-software-ships.mdx)). They move *release* decisions to whoever controls the flags, often product managers. And they give the fastest possible rollback for a feature: flipping a switch.
 
 Flags need discipline: they're conditional code, so every flag doubles the paths to test. Remove a flag as soon as its feature is fully launched. Managed flag services (LaunchDarkly, Unleash, Flagsmith, and the vendor-neutral **OpenFeature** standard) add targeting, audit logs and gradual rollouts.
 
@@ -93,7 +93,7 @@ Flags need discipline: they're conditional code, so every flag doubles the paths
 
 ## Progressive delivery: let the numbers decide
 
-A human watching a canary dashboard for twenty minutes is slow and error-prone. **Progressive delivery** automates it. A controller shifts traffic step by step and, at each step, checks **metrics** against thresholds, often the same ones behind your alerts (chapter 13.4):
+A human watching a canary dashboard for twenty minutes is slow and error-prone. **Progressive delivery** automates it. A controller shifts traffic step by step and, at each step, checks **metrics** against thresholds, often the same ones behind your alerts ([chapter 13.4](../observability/slos-alerting-on-call.mdx)):
 
 ```text
 10% for 5 min → error rate < 1% and p99 < 300 ms?  → 25% → 50% → 100%
@@ -120,7 +120,7 @@ The standard technique is **expand and contract** (also called parallel change).
 | 3. | (wait until no old code runs) | Make `target_url` required | New code |
 | 4. **Contract** | Code v3, then migration | Stop writing `url`; later, drop `url` | New code |
 
-Each step is backwards compatible with the version before it, so every deployment in the sequence can be rolled back safely. It's slower than a single "rename column" migration, and it's how teams change schemas without downtime. snip's own migrations run at startup under an advisory lock (chapter 6.6), so many API Pods starting at once apply each migration exactly once. They also have to follow this discipline once snip has real users.
+Each step is backwards compatible with the version before it, so every deployment in the sequence can be rolled back safely. It's slower than a single "rename column" migration, and it's how teams change schemas without downtime. snip's own migrations run at startup under an advisory lock ([chapter 6.6](../data/postgres-from-go.mdx)), so many API Pods starting at once apply each migration exactly once. They also have to follow this discipline once snip has real users.
 
 :::warning[What can go wrong]
 - **Canaries without metrics**: sending 10% of traffic to a new version and not watching it is just a slower rollout.
@@ -138,7 +138,7 @@ A common shape: code reaches production continuously but switched off behind fla
 
 ## Lab: a canary release of snip
 
-Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `snip:dev` image loaded (chapter 10.2). Every step runs in snip's CI.
+Free, on your kind cluster with snip, the Gateway from [chapter 10.3](../kubernetes/networking-and-ingress.mdx), and the `snip:dev` image loaded ([chapter 10.2](../kubernetes/core-objects.mdx)). Every step runs in snip's CI.
 
 1. **Deploy the canary.** It's a small, separate Deployment and Service. In a real release it would run the new image; here it runs the same image, and the route labels each response so you can see where it went.
    ```bash
@@ -160,7 +160,7 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
 
 3. **Promote it.** Edit `route.yaml` to weights 50/50, apply, and count again. Then 0/100: every response says `canary`. That's a release, with no Pod restarted.
 
-4. **Roll back instantly.** Set the weights back to 100/0 (or re-apply chapter 10.3's plain route with `kubectl apply -f deploy/k8s/gateway/gateway.yaml`), and count once more. Everything is `stable` again within seconds. Clean up with `kubectl delete -f deploy/k8s/canary/canary.yaml`.
+4. **Roll back instantly.** Set the weights back to 100/0 (or re-apply [chapter 10.3](../kubernetes/networking-and-ingress.mdx)'s plain route with `kubectl apply -f deploy/k8s/gateway/gateway.yaml`), and count once more. Everything is `stable` again within seconds. Clean up with `kubectl delete -f deploy/k8s/canary/canary.yaml`.
 
 5. **Think it through.** Which metrics would you watch before moving from 10% to 50% for snip? (Suggestions: the rate of 5xx responses and p99 latency for the canary versus stable, the redirect success rate, and whether the canary's Pods are restarting.)
 
@@ -238,7 +238,7 @@ Free, on your kind cluster with snip, the Gateway from chapter 10.3, and the `sn
 
 1. **Expand**: a migration adds `title TEXT` as **nullable** (or with a default). Old code ignores it, so it's safe to deploy on its own.
 2. **Code v2**: writes `title` for new links (e.g. from the request, or a default), and reads it where available, treating NULL as "no title". Deploy with a canary. v1 and v2 can run side by side.
-3. **Backfill**: a one-off Job fills `title` for existing rows, in batches to avoid long locks (chapter 6.5).
+3. **Backfill**: a one-off Job fills `title` for existing rows, in batches to avoid long locks ([chapter 6.5](../data/transactions.mdx)).
 4. **Contract**: once no v1 is running and every row has a title, a migration adds `NOT NULL`. Only now does the database enforce "required".
 
 Each step is independently deployable and reversible. Doing it in one migration (`ADD COLUMN title TEXT NOT NULL`) would fail on existing rows or, with a default, lock the table on a large database. Either way, old code keeps inserting links without a title, which breaks.

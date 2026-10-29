@@ -20,7 +20,7 @@ On your laptop, an image is something you build and run a minute later. In produ
 
 ## Tags, digests, and knowing what's running
 
-Chapter 9.1 introduced the difference: a **tag** is a movable label; a **digest** (`sha256:…`) identifies exact contents, forever. In production, that difference decides whether you can answer "what's running?".
+[Chapter 9.1](./what-a-container-is.mdx) introduced the difference: a **tag** is a movable label; a **digest** (`sha256:…`) identifies exact contents, forever. In production, that difference decides whether you can answer "what's running?".
 
 :::note[Everyday anchor]
 A tag is like "the current edition" of a textbook: useful when ordering, but "page 42 of the current edition" means different things in 2024 and 2026. A digest is the ISBN of one specific printing. If a student reports a mistake on page 42, you need the ISBN to find it.
@@ -55,13 +55,13 @@ Tools like **Dependabot** and **Renovate** then open a pull request whenever a n
 
 ## Registries in practice
 
-A **registry** stores images and serves them over HTTPS (chapter 9.1). The main choices:
+A **registry** stores images and serves them over HTTPS ([chapter 9.1](./what-a-container-is.mdx)). The main choices:
 
 | Registry | Notes |
 |---|---|
 | **Docker Hub** | The default for `docker pull postgres`. Anonymous and free accounts are **rate-limited** |
 | **GitHub Container Registry** (`ghcr.io`) | Integrated with GitHub repos and Actions; snip publishes here |
-| **Amazon ECR**, **Google Artifact Registry**, **Azure Container Registry** | Each cloud's own; fast, private, IAM-integrated pulls from inside that cloud (chapter 12.4) |
+| **Amazon ECR**, **Google Artifact Registry**, **Azure Container Registry** | Each cloud's own; fast, private, IAM-integrated pulls from inside that cloud ([chapter 12.4](../cloud/iam.mdx)) |
 | **Harbor**, **Quay**, **JFrog Artifactory** | Self-hosted or commercial, with scanning and policies |
 
 Things that bite in production:
@@ -69,13 +69,13 @@ Things that bite in production:
 - **Rate limits.** While this chapter was being written, the test machine's anonymous pulls from Docker Hub were refused with `429 Too Many Requests`. A fleet that pulls public images directly can fail to start during an incident, exactly when it matters. The fix is to **mirror** the public images you depend on into your own registry (or use a *pull-through cache*), and pull from there.
 - **Authentication.** Pushing, and pulling private images, requires logging in (`docker login ghcr.io`). In CI, use short-lived, narrowly scoped credentials. snip's workflow uses the automatic `GITHUB_TOKEN`, with only `packages: write`.
 - **Cleanup.** Every commit that produces an image adds hundreds of megabytes of storage. Registries offer **retention policies** ("keep the last 50 untagged images, keep every version tag forever"). Without them, storage bills grow forever.
-- **Pull time.** A new machine can't start a container until it has pulled the image. Small images and shared base layers (chapter 9.2) make autoscaling and recovery faster.
+- **Pull time.** A new machine can't start a container until it has pulled the image. Small images and shared base layers ([chapter 9.2](./writing-dockerfiles.mdx)) make autoscaling and recovery faster.
 
 ---
 
 ## One image, many CPU types
 
-Laptops and servers increasingly use **ARM** processors (Apple Silicon Macs, AWS Graviton, Ampere) alongside **x86-64** (`amd64`). A binary compiled for one won't run on the other: that's chapter 9.1's `exec format error`. Registries solve this with a **multi-architecture image**: one name that points to an **index** listing a separate image per platform. The client pulls the one matching its CPU automatically.
+Laptops and servers increasingly use **ARM** processors (Apple Silicon Macs, AWS Graviton, Ampere) alongside **x86-64** (`amd64`). A binary compiled for one won't run on the other: that's [chapter 9.1](./what-a-container-is.mdx)'s `exec format error`. Registries solve this with a **multi-architecture image**: one name that points to an **index** listing a separate image per platform. The client pulls the one matching its CPU automatically.
 
 ```bash
 docker buildx imagetools inspect gcr.io/distroless/static-debian12:nonroot
@@ -128,7 +128,7 @@ Detected OS  family="debian" version="12.15"
 └───────────────────────────────┴──────────┴─────────────────┘
 ```
 
-Note `pkg_num=5`: distroless contains just **five** OS packages to worry about. A typical Debian- or Ubuntu-based image has a hundred or more, and scanners routinely find dozens of findings in them. Choosing a minimal base (chapter 9.2) is the single most effective way to keep this table at zero. A clean result today isn't permanent, though. New vulnerabilities are published every day, which is why the job runs on every push.
+Note `pkg_num=5`: distroless contains just **five** OS packages to worry about. A typical Debian- or Ubuntu-based image has a hundred or more, and scanners routinely find dozens of findings in them. Choosing a minimal base ([chapter 9.2](./writing-dockerfiles.mdx)) is the single most effective way to keep this table at zero. A clean result today isn't permanent, though. New vulnerabilities are published every day, which is why the job runs on every push.
 
 :::info[If you've written code]
 Scanning is **triage**, not a verdict. A CRITICAL CVE in a package your image contains but never executes may not matter; a MEDIUM one in your request-parsing path may matter a lot. Useful habits: scan in CI **and** regularly re-scan what's already deployed (new CVEs are published about old images every day); fail builds on what you can act on (fixable, reachable, high severity); and use `--ignore-unfixed`-style filters so the build doesn't fail on issues nobody can fix yet. Most findings are fixed by **rebuilding on an updated base image** and **updating dependencies** (`go get -u`, `npm update`), which is another reason for automated update PRs.
@@ -144,13 +144,13 @@ A **software bill of materials** (**SBOM**) is an ingredient list for software: 
 
 ### 4. Prove who published it: signing
 
-**Signing** attaches a cryptographic signature to an image digest (chapter 7.1), so a deployment system can refuse anything not signed by your pipeline. **Sigstore's cosign** is the common tool. With "keyless" signing, CI proves its identity through an OIDC token instead of guarding a long-lived private key. Kubernetes admission policies (chapter 10) can then enforce "only run signed images from our registry".
+**Signing** attaches a cryptographic signature to an image digest ([chapter 7.1](../security/security-literacy.mdx)), so a deployment system can refuse anything not signed by your pipeline. **Sigstore's cosign** is the common tool. With "keyless" signing, CI proves its identity through an OIDC token instead of guarding a long-lived private key. Kubernetes admission policies ([chapter 10](../kubernetes/why-orchestration.mdx)) can then enforce "only run signed images from our registry".
 
 ---
 
 ## Least privilege at run time
 
-Assume that, one day, someone finds a bug that lets them run commands inside your container. What they can do next depends on how the container runs. Chapter 7.4's least privilege, applied to containers:
+Assume that, one day, someone finds a bug that lets them run commands inside your container. What they can do next depends on how the container runs. [Chapter 7.4](../security/authorization-multi-tenancy.mdx)'s least privilege, applied to containers:
 
 | Setting | `docker run` flag | Effect |
 |---|---|---|
@@ -246,7 +246,7 @@ Manifests:
 
 Two runnable images, one per architecture, and two **attestation** manifests carrying the SBOM and provenance for each. (Your digest will differ: every build of `main` publishes a new one.) The workflow then pulls the image **by digest**, runs it and checks `/healthz`, proving that what was published actually works.
 
-Part 11 builds on this: CI tests every change, this workflow publishes the image, and deployment uses the published digest.
+[Part 11](../shipping/how-software-ships.mdx) builds on this: CI tests every change, this workflow publishes the image, and deployment uses the published digest.
 
 :::warning[What can go wrong]
 - **Deploying `latest`**: nobody can say what's running, and rollbacks are guesswork.

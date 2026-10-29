@@ -26,7 +26,7 @@ A large office building. Staff have **ID cards** (users). Cards belong to depart
 
 | Identity | What it is | Credentials | Use it for |
 |---|---|---|---|
-| **Root user** | The account owner | Password + MFA | Almost nothing: a few account-level tasks (chapter 12.1) |
+| **Root user** | The account owner | Password + MFA | Almost nothing: a few account-level tasks ([chapter 12.1](./cloud-from-zero.mdx)) |
 | **IAM user** | A long-lived identity with its own credentials | Password, and possibly **access keys** (long-lived) | Increasingly avoided: prefer SSO for people and roles for machines |
 | **Group** | A set of users sharing permissions | (none: it's a container) | Assigning permissions to teams |
 | **Role** | A set of permissions that trusted identities can **assume** temporarily | **Temporary** credentials, issued when assumed, expiring in minutes to hours | People via single sign-on; applications; CI; cross-account access |
@@ -82,7 +82,7 @@ That makes explicit denies powerful guardrails. For example, an organisation-wid
 
 ### Least privilege, concretely
 
-**Least privilege** (chapter 7.4) means granting only what's needed. In IAM policies that means narrowing all three dimensions:
+**Least privilege** ([chapter 7.4](../security/authorization-multi-tenancy.mdx)) means granting only what's needed. In IAM policies that means narrowing all three dimensions:
 
 - **Actions**: `ecs:UpdateService`, not `ecs:*`, and never `*`.
 - **Resources**: this service's ARN, not `*`.
@@ -128,7 +128,7 @@ The cloud SDKs find these credentials automatically. snip's Go code never contai
 
 ### CI without keys: OIDC federation
 
-A CI system isn't running *inside* your cloud, so how does it get a role without a stored key? **OIDC federation** (chapter 11.2). GitHub signs a short-lived **OIDC token** (a JWT, chapter 7.2) describing the workflow run. The cloud is configured to **trust GitHub's signature** and to accept tokens whose **claims** match a condition, then exchanges the token for temporary credentials.
+A CI system isn't running *inside* your cloud, so how does it get a role without a stored key? **OIDC federation** ([chapter 11.2](../shipping/ci-with-github-actions.mdx)). GitHub signs a short-lived **OIDC token** (a JWT, [chapter 7.2](../security/authentication.mdx)) describing the workflow run. The cloud is configured to **trust GitHub's signature** and to accept tokens whose **claims** match a condition, then exchanges the token for temporary credentials.
 
 snip's trust policy says "only workflows from this repository, on `main`":
 
@@ -198,7 +198,7 @@ Free, with a GitHub account. **No cloud account needed.**
    ```
    `iss` is who signed it, `aud` is who it's for, `sub` is the identity the cloud checks, and `exp − iat` shows its lifetime: 300 seconds. Yours will show your account and fork.
 
-2. **Read the workflow.** How does it decode the token? (A JWT is three base64url parts separated by dots, chapter 7.2. The script takes the middle one and decodes it.) Why does it run `::add-mask::` on the token? (So that if it were ever printed, the logs would show `***`.)
+2. **Read the workflow.** How does it decode the token? (A JWT is three base64url parts separated by dots, [chapter 7.2](../security/authentication.mdx). The script takes the middle one and decodes it.) Why does it run `::add-mask::` on the token? (So that if it were ever printed, the logs would show `***`.)
 
 3. **Read snip's roles** in `snip/infra/aws/compute.tf` and `iam-github.tf`, and answer:
    - Which identity is trusted to assume the execution role? (The ECS tasks service, `ecs-tasks.amazonaws.com`.)
@@ -299,7 +299,7 @@ Also: no long-lived keys (the job gets credentials from its task role), and Clou
 1. **Assess**: check CloudTrail for what the key has been used for and from where. Does anything look unexpected?
 2. **Replace** before removing: set up an OIDC-federated role for CI with least-privilege permissions (like snip's deploy role), switch the pipeline to it, and verify deploys work.
 3. **Deactivate** the old access key (deactivate first, so you can reactivate if something unexpected breaks), watch for failures for a short period, then **delete** it and the user.
-4. If the logs showed anything suspicious, treat it as an **incident** (chapter 13.5): assume the key leaked, investigate what it touched, and rotate anything it could read.
+4. If the logs showed anything suspicious, treat it as an **incident** ([chapter 13.5](../observability/incidents-and-postmortems.mdx)): assume the key leaked, investigate what it touched, and rotate anything it could read.
 5. **Prevent recurrence**: an organisation policy or regular review that flags long-lived keys and administrator access on non-human identities.
 
 </details>

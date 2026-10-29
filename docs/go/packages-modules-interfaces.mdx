@@ -102,7 +102,7 @@ go mod tidy                                  # add anything missing, remove anyt
 go list -m all                               # every module in use, with versions
 ```
 
-Next to `go.mod` sits **`go.sum`**: a list of cryptographic checksums (chapter 7.1) of every dependency's exact contents. Anyone who builds snip gets **exactly** the same code you tested with, and if a downloaded dependency was ever tampered with, the checksum won't match and the build refuses. Commit both files.
+Next to `go.mod` sits **`go.sum`**: a list of cryptographic checksums ([chapter 7.1](../security/security-literacy.mdx)) of every dependency's exact contents. Anyone who builds snip gets **exactly** the same code you tested with, and if a downloaded dependency was ever tampered with, the checksum won't match and the build refuses. Commit both files.
 
 ### Versions
 
@@ -118,7 +118,7 @@ In Go, a new major version gets a new import path (`…/pgx/v5` vs `…/pgx/v6`)
 
 :::warning[What can go wrong]
 - **Dependency bloat.** Every dependency is code you didn't write, didn't review, and now ship. It can have bugs, security holes, or be abandoned. Before adding one, ask: would the standard library do? snip deliberately has only three direct dependencies.
-- **Supply-chain attacks.** Attackers have published malicious packages with names one typo away from popular ones, and have hijacked real packages. Pin versions (Go does), review what you add, and let tools scan dependencies for known vulnerabilities (`govulncheck`, chapter 11.2).
+- **Supply-chain attacks.** Attackers have published malicious packages with names one typo away from popular ones, and have hijacked real packages. Pin versions (Go does), review what you add, and let tools scan dependencies for known vulnerabilities (`govulncheck`, [chapter 11.2](../shipping/ci-with-github-actions.mdx)).
 - **Import cycles.** Package A imports B and B imports A: Go refuses to compile. It's a sign the responsibilities are tangled — usually fixed by moving the shared part into a third package, or by an interface (below).
 :::
 
@@ -142,7 +142,7 @@ type Store interface {
 }
 ```
 
-(`ctx context.Context` is explained in chapter 4.5 — for now, read it as "the request this work belongs to".)
+(`ctx context.Context` is explained in [chapter 4.5](./concurrency.mdx) — for now, read it as "the request this work belongs to".)
 
 The business logic, in `internal/links/service.go`, only ever talks to a `Store`:
 
@@ -213,8 +213,8 @@ svc := links.NewService(st, linkCache, recorder)   // hand the chosen parts to t
 
 This pattern is called **dependency injection**: instead of the Service *creating* its own database connection, it's **handed** its dependencies from outside. The payoffs are enormous:
 
-- **Swappable.** The same Service code runs on memory or Postgres, chosen by one environment variable (chapter 2.2). Tomorrow's store (a different database) needs a new type with five methods — and zero changes to the business logic.
-- **Testable.** Tests hand the Service a fast, simple memory store, or a fake that counts calls (snip's `service_test.go` does exactly this with a fake cache — chapter 4.4).
+- **Swappable.** The same Service code runs on memory or Postgres, chosen by one environment variable ([chapter 2.2](../linux/users-permissions-processes.mdx)). Tomorrow's store (a different database) needs a new type with five methods — and zero changes to the business logic.
+- **Testable.** Tests hand the Service a fast, simple memory store, or a fake that counts calls (snip's `service_test.go` does exactly this with a fake cache — [chapter 4.4](./testing.mdx)).
 - **Clear.** One place, `main`, shows how the whole program is assembled.
 
 :::warning[What can go wrong]
@@ -239,12 +239,12 @@ Free, on your own computer.
    ```
    Notice `go doc` only shows capitalised, exported names. That list *is* the package's front desk.
 
-2. **Swap the store with one environment variable.** If you ran Postgres and Redis for snip in chapter 1.6's optional path, or once you reach chapter 6.6, compare:
+2. **Swap the store with one environment variable.** If you ran Postgres and Redis for snip in [chapter 1.6](../foundations/what-a-server-is.mdx)'s optional path, or once you reach [chapter 6.6](../data/postgres-from-go.mdx), compare:
    ```bash
    go run ./cmd/snip                                                        # in-memory store
    SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable" go run ./cmd/snip   # Postgres store
    ```
-   Same program, same business logic; only the injected Store changed. (Without Postgres running, the second fails with a wrapped `connection refused` — chapter 4.2's breadcrumbs.)
+   Same program, same business logic; only the injected Store changed. (Without Postgres running, the second fails with a wrapped `connection refused` — [chapter 4.2](./types-structs-errors.mdx)'s breadcrumbs.)
 
 3. **Write your own interface.** In `~/code/hello`, replace `main.go` with:
    ```go

