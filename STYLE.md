@@ -60,7 +60,7 @@ rung; never start on rung 3.
 |---|---|---|
 | **0 — Anchor** | "What is this *like*?" | An everyday analogy: apartment numbers, a phone book, a receipt, a restaurant order ticket. |
 | **1 — Plain mechanism** | "What *actually* happens?" | The real behavior in plain words, then the **name** for it (bolded). A small 3–4 box diagram. |
-| **2 — Hands on** | "Where do I *see* it?" | Real commands and real code — in `snip`, the project the reader builds, or in real tools on their own machine. A fuller diagram. |
+| **2 — Hands on** | "Where do I *see* it?" | Real commands and real code — first a **minimal, standalone example** the reader can run with no other context, *then* the same idea in `snip`. A fuller diagram. |
 | **3 — What goes wrong** | "How does it *break*?" | Failure modes, gotchas, and a real incident if we have one. |
 | **4 — Judgment** | "Why *this* way?" | Trade-offs, alternatives, what the industry does, when you'd choose differently. |
 
@@ -83,6 +83,28 @@ who finishes rung 4 can make decisions. Both are wins.
   never expose them directly — the reverse proxy decides what's public.
 
 ---
+
+### Teach the topic, then apply it to snip
+
+`snip` is where readers **apply** what they learn. It is not the way they
+**learn** it. Many readers land on a chapter from a search engine, knowing
+nothing about snip. The chapter must still teach them the topic.
+
+- **The hook and the first half teach the topic itself.** Use the reader's world
+  and the smallest real example that shows the idea: one `nginx` container
+  for Terraform, one `hashicorp/http-echo` Deployment for Kubernetes, one
+  slow function for caching, a two-table schema for SQL. It is runnable on its own.
+- **snip arrives once the idea is understood**, under a heading such as
+  "Apply it to snip" (or as the last rung of a section), as the payoff:
+  "here is the same thing in a real service". In the first half, snip gets
+  at most a one-line pointer ("you'll apply this to snip at the end").
+- **Never open with "snip's …" or "Chapters 12.2–12.4 described …".** Open
+  with the problem the reader recognises.
+- **Never assume earlier reading.** When you build on an earlier chapter,
+  link it *and* recap the one fact you need in a clause: "a container
+  ([chapter 9.1](../containers/what-a-container-is.mdx)), a process
+  with its own filesystem and network".
+- **Labs:** the first steps are standalone; the last step applies it to snip.
 
 ## 3. The ten teaching rules
 
