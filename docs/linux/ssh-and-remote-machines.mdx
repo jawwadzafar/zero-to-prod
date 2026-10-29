@@ -123,7 +123,7 @@ This is called **trust on first use**. That warning means either the server was 
 
 ```text
 # ~/.ssh/config
-Host snip-prod
+Host web-prod
     HostName 203.0.113.10
     User alice
     Port 22
@@ -134,16 +134,16 @@ Host github.com
     IdentityFile ~/.ssh/id_ed25519
 ```
 
-Now `ssh snip-prod` does the same as `ssh -i ~/.ssh/id_ed25519 alice@203.0.113.10`. The names work everywhere SSH is used — in `scp`, `rsync`, `git` and tunnels.
+Now `ssh web-prod` does the same as `ssh -i ~/.ssh/id_ed25519 alice@203.0.113.10`. The names work everywhere SSH is used — in `scp`, `rsync`, `git` and tunnels.
 
 ---
 
 ## Copying files
 
 ```bash
-scp app.tar.gz snip-prod:/tmp/                # copy a file to the server
-scp snip-prod:/var/log/nginx/error.log .      # copy a file from the server to here
-rsync -avz ./site/ snip-prod:/srv/site/       # sync a folder: only sends what changed
+scp app.tar.gz web-prod:/tmp/                # copy a file to the server
+scp web-prod:/var/log/nginx/error.log .      # copy a file from the server to here
+rsync -avz ./site/ web-prod:/srv/site/       # sync a folder: only sends what changed
 ```
 
 **`scp`** is simple copying over SSH. **`rsync`** is smarter: it compares both sides and sends only differences, so re-syncing a big folder is fast. (`-a` keeps permissions and timestamps, `-v` shows progress, `-z` compresses.) Watch the trailing slash on the source folder: `site/` means "the contents of site", `site` means "the folder itself".
@@ -155,13 +155,13 @@ rsync -avz ./site/ snip-prod:/srv/site/       # sync a folder: only sends what c
 [Chapter 2.5](./running-a-linux-server.mdx) said the database should never be exposed to the internet. So how do *you* reach it to run a query? Through an **SSH tunnel** (also called **port forwarding**): SSH carries your traffic, encrypted, to the server, which forwards it on to the private service.
 
 ```bash
-ssh -L 5433:localhost:5432 snip-prod
+ssh -L 5433:localhost:5432 web-prod
 ```
 
 This says: "listen on **my** port 5433; send anything that arrives there through the SSH connection, and have the server connect it to **localhost:5432** — from the server's point of view." Now, on your laptop:
 
 ```bash
-psql -h localhost -p 5433 -U snip snip     # talks to the database on the server, through the tunnel
+psql -h localhost -p 5433 -U app app       # talks to the database on the server, through the tunnel
 ```
 
 ```mermaid
@@ -312,9 +312,9 @@ Free, on your own computer. You'll create a key, use it with GitHub, and SSH int
 />
 
 <details>
-<summary>Explain <code>ssh -L 5433:localhost:5432 snip-prod</code> in plain words — especially what "localhost" means here.</summary>
+<summary>Explain <code>ssh -L 5433:localhost:5432 web-prod</code> in plain words — especially what "localhost" means here.</summary>
 
-"Open an SSH connection to `snip-prod`. On **my laptop**, listen on port **5433**. Anything that connects there gets carried through the encrypted SSH connection to the server, and the **server** then connects it to `localhost:5432`."
+"Open an SSH connection to `web-prod`. On **my laptop**, listen on port **5433**. Anything that connects there gets carried through the encrypted SSH connection to the server, and the **server** then connects it to `localhost:5432`."
 
 The key subtlety: `localhost` is interpreted **from the server's point of view** — it means "the server itself", where Postgres is listening. So `psql -h localhost -p 5433` on your laptop ends up talking to the database on the server, which never had to be exposed to any network.
 
