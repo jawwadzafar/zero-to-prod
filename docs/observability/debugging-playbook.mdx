@@ -6,7 +6,7 @@ description: "Debugging as a method, not a talent: the observe-hypothesise-test 
 
 # 13.6 The debugging playbook
 
-Some people seem to have a gift for debugging: they look at a broken system for five minutes and point at the problem. It isn't a gift. It's a **method** plus **experience**, and the method can be learned in an afternoon. This chapter is that method. It pulls together everything in this part (logs, metrics, traces, runbooks) and adds the techniques that work on *any* problem, from a failing test on your laptop to a slow production cluster: asking the right first questions, reading errors properly, cutting the search space in half until the bug has nowhere left to hide, profiling, and knowing what to do when you're stuck. Every example is a real bug we hit while building snip and this handbook's labs.
+Some people seem to have a gift for debugging: they look at a broken system for five minutes and point at the problem. It isn't a gift. It's a **method** plus **experience**, and the method can be learned in an afternoon. This chapter is that method. It uses the observability tools (logs, metrics, traces and runbooks, chapters [13.1](./logs.mdx)–[13.4](./slos-alerting-on-call.mdx)) where they help, and adds the techniques that work on *any* problem, from a failing test on your laptop to a slow production cluster: asking the right first questions, reading errors properly, cutting the search space in half until the bug has nowhere left to hide, profiling, and knowing what to do when you're stuck. Every example is a real bug we hit while building snip (the URL shortener this handbook builds) and this handbook's labs, and the lab's main exercise needs nothing but Git.
 
 ## What you'll learn
 
@@ -50,7 +50,7 @@ It sounds obvious. The ways people break it are not:
 
 Before touching anything, answer these three. They solve a surprising share of problems on their own.
 
-**1. What exactly is the symptom?** "snip is broken" isn't a symptom. "`POST /api/links` returns 500 for every request since 14:05, for every customer; redirects are fine" is. Be precise about **what** (the exact error or behaviour), **who** (everyone, one customer, one region, one browser?), and **since when**. The shape of the answer points somewhere: "everyone since 14:05" smells like a deploy; "one customer" smells like their data or their API key; "every day at 02:00" smells like a scheduled job.
+**1. What exactly is the symptom?** "The app is broken" isn't a symptom. "`POST /api/links` returns 500 for every request since 14:05, for every customer; redirects are fine" is. Be precise about **what** (the exact error or behaviour), **who** (everyone, one customer, one region, one browser?), and **since when**. The shape of the answer points somewhere: "everyone since 14:05" smells like a deploy; "one customer" smells like their data or their API key; "every day at 02:00" smells like a scheduled job.
 
 **2. What changed?** Working systems usually break because *something changed*: a deploy, a config edit, a dependency upgrade, a certificate expiring, traffic growing, a disk filling up, a new customer with unusual data. Check deploy history, Git log, config history, and the dashboards' "since when". If the timing matches a change, you have a prime suspect, and probably a quick mitigation (roll it back).
 
