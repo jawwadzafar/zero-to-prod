@@ -1,7 +1,7 @@
 ---
 title: "6.2 SQL from zero"
 sidebar_label: "6.2 SQL from zero"
-description: Learn SQL by doing, in a real Postgres running in your browser — SELECT, WHERE, ORDER BY, aggregates and GROUP BY, JOINs, INSERT, UPDATE and DELETE, NULL, and dates — using snip's links, owners and clicks.
+description: Learn SQL by doing, in a real Postgres running in your browser — SELECT, WHERE, ORDER BY, aggregates and GROUP BY, JOINs, INSERT, UPDATE and DELETE, NULL, and dates — using a small link-shortener dataset of owners, links and clicks.
 ---
 
 export const setup = `
@@ -26,7 +26,7 @@ INSERT INTO click_events (slug, clicked_at, country) VALUES
 
 # 6.2 SQL from zero
 
-SQL is one of the most valuable skills in technology. It's been around for fifty years, it will certainly be around for twenty more, and it's used by backend engineers, data analysts, product managers, scientists and AI engineers alike. The good news: the core of SQL is small, readable English, and you can learn it in an afternoon — *by doing*. Every example in this chapter runs in a real PostgreSQL database inside this page, loaded with a small version of snip's data. Run them, change them, break them. Nothing you do here can harm anything.
+SQL is one of the most valuable skills in technology. It's been around for fifty years, it will certainly be around for twenty more, and it's used by backend engineers, data analysts, product managers, scientists and AI engineers alike. The good news: the core of SQL is small, readable English, and you can learn it in an afternoon — *by doing*. Every example in this chapter runs in a real PostgreSQL database inside this page, loaded with a small dataset from a link shortener: people, the short links they created, and the clicks those links received. Run them, change them, break them. Nothing you do here can harm anything.
 
 ## What you'll learn
 
@@ -40,7 +40,7 @@ SQL is one of the most valuable skills in technology. It's been around for fifty
 
 ## The data we'll use
 
-Three tables, modelled on snip:
+Three tables from a small link shortener (the same shape as snip, the project you build in this handbook):
 
 ```mermaid
 erDiagram
@@ -218,7 +218,7 @@ INSERT INTO links (slug, url, owner_id, created_at)
 VALUES ('new1', 'https://example.org', 3, now());
 ```
 
-List the columns you're filling; the others get their **default** (`clicks` defaults to 0) or `NULL`. Add `RETURNING *` to see the inserted row — snip uses `RETURNING` to get values the database filled in ([chapter 6.6](./postgres-from-go.mdx)).
+List the columns you're filling; the others get their **default** (`clicks` defaults to 0) or `NULL`. Add `RETURNING *` to see the inserted row. Programs use `RETURNING` to get back values the database filled in, in the same round trip ([chapter 6.6](./postgres-from-go.mdx)).
 
 ### UPDATE: change rows
 
@@ -294,7 +294,7 @@ ORDER BY day;`} />
 - **`= NULL` instead of `IS NULL`.** Silently matches nothing.
 - **An inner join that drops rows.** Owners with no links, links with no clicks — gone from the results without an error. If "every X" matters, use `LEFT JOIN`.
 - **Joining on the wrong column.** Produces nonsense — often far *more* rows than expected (every row matched with every other). If a count looks suspiciously large, check the `ON` clause.
-- **Building SQL by gluing user input into strings.** The classic security hole called **SQL injection** — [chapter 6.6](./postgres-from-go.mdx) shows how snip avoids it, and [chapter 7.5](../security/web-attacks.mdx) how attackers exploit it.
+- **Building SQL by gluing user input into strings.** The classic security hole called **SQL injection** — [chapter 6.6](./postgres-from-go.mdx) shows how placeholders prevent it, and [chapter 7.5](../security/web-attacks.mdx) how attackers exploit it.
 :::
 
 ---

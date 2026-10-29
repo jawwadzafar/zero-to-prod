@@ -1,7 +1,7 @@
 ---
 title: "6.5 Transactions & concurrency"
 sidebar_label: "6.5 Transactions & concurrency"
-description: How databases stay correct when things fail halfway and when many clients act at once — transactions and ACID, isolation levels and the anomalies they prevent, lost updates, locks, deadlocks, and the concurrency techniques snip uses — with a hands-on two-terminal locking lab.
+description: How databases stay correct when things fail halfway and when many clients act at once — transactions and ACID, isolation levels and the anomalies they prevent, lost updates, locks, deadlocks, and the concurrency techniques a real service uses — with a hands-on two-terminal locking lab.
 ---
 
 export const quotaSetup = `
@@ -22,7 +22,7 @@ INSERT INTO links VALUES ('godoc', 'https://go.dev/doc/', 1, 42);
 
 # 6.5 Transactions & concurrency
 
-Two of the hardest problems in backend engineering hide inside the most ordinary-looking code. **First:** a change needs several steps, and something fails halfway — the power cuts, the network drops, a rule is violated on step three. Are you left with half a change? **Second:** two requests touch the same data at the same moment — two clicks on the same link, two people buying the last ticket. Does one of them silently disappear? You met the second problem in [chapter 1.2](../foundations/programs-processes-threads.mdx) as a race condition in memory. Databases face it at a vastly larger scale, and their answer — **transactions** — is one of the great achievements of computer science. This chapter explains how they work, where they stop protecting you, and how snip stays correct.
+Two of the hardest problems in backend engineering hide inside the most ordinary-looking code. **First:** a change needs several steps, and something fails halfway — the power cuts, the network drops, a rule is violated on step three. Are you left with half a change? **Second:** two requests touch the same data at the same moment — two clicks on the same link, two people buying the last ticket. Does one of them silently disappear? You met the second problem in [chapter 1.2](../foundations/programs-processes-threads.mdx) as a race condition in memory. Databases face it at a vastly larger scale, and their answer — **transactions** — is one of the great achievements of computer science. This chapter explains how they work, where they stop protecting you, and how a real service (snip, the link shortener you build in this handbook) stays correct.
 
 ## What you'll learn
 
@@ -30,7 +30,7 @@ Two of the hardest problems in backend engineering hide inside the most ordinary
 - **Isolation**: what concurrent transactions can see of each other, the **anomalies** that can occur, and Postgres's **isolation levels**.
 - The **lost update** problem and three ways to prevent it: **atomic updates**, **row locks**, and **constraints**.
 - **Deadlocks**, and why transactions should be **short**.
-- Exactly how snip handles clicks, slugs and migrations safely — and a two-terminal lab where you'll watch one transaction block another.
+- **Advisory locks** for "only one of us may do this" jobs, and how snip handles clicks, slugs and migrations safely — plus a two-terminal lab where you'll watch one transaction block another.
 
 ---
 
@@ -98,7 +98,7 @@ Atomicity handles failures. **Isolation** handles *concurrency* — many transac
 
 First, the **anomalies** — the strange things that can happen when isolation is weaker:
 
-| Anomaly | What happens | snip-flavoured example |
+| Anomaly | What happens | Example |
 |---|---|---|
 | **Dirty read** | You see another transaction's *uncommitted* change, which is later rolled back | You count a link that never actually got created |
 | **Non-repeatable read** | You read a row twice in one transaction and get different values | A report reads `clicks` twice and the numbers don't add up |
@@ -124,7 +124,7 @@ Most applications run at the default, **Read Committed**, and handle the dangero
 
 ## The lost update, and three ways to prevent it
 
-Here's [chapter 1.2](../foundations/programs-processes-threads.mdx)'s race condition, now in a database. Two redirects for `godoc` arrive together, and the code does the obvious thing — read the count, add one in the application, write it back:
+Here's [chapter 1.2](../foundations/programs-processes-threads.mdx)'s race condition (two workers changing the same value at once), now in a database. Two visitors click the link `godoc` at the same moment, and the code does the obvious thing — read the count, add one in the application, write it back:
 
 ```mermaid
 sequenceDiagram
@@ -146,18 +146,7 @@ Each statement was its own perfectly fine transaction. The bug is in the **gap b
 UPDATE links SET clicks = clicks + 1 WHERE slug = 'godoc';
 ```
 
-The read, add and write happen inside **one statement**; Postgres locks the row while doing it, so concurrent updates queue up and each sees the previous result. This is exactly what snip does (`internal/store/postgres/postgres.go`):
-
-```go
-// AddClicks adds n in one atomic UPDATE, so concurrent workers never lose a
-// count (chapter 6.5 explains why "read, add, write back" would).
-func (s *Store) AddClicks(ctx context.Context, slug string, n int64) error {
-	tag, err := s.pool.Exec(ctx, `UPDATE links SET clicks = clicks + $2 WHERE slug = $1`, slug, n)
-	// …
-}
-```
-
-And snip has a test proving it — 50 goroutines adding 2 clicks each, concurrently, against real Postgres, must end at exactly 100 (`TestAddClicksIsAtomic` in `postgres_test.go`, [chapter 4.4](../go/testing.mdx)).
+The read, add and write happen inside **one statement**; Postgres locks the row while doing it, so concurrent updates queue up and each sees the previous result. No application code sits in the gap, because there is no gap.
 
 ### 2. Lock the row: `SELECT … FOR UPDATE`
 
@@ -178,7 +167,7 @@ A second transaction running `SELECT … FOR UPDATE` on the same row **waits** u
 
 Sometimes the cleanest fix is to not check at all, and let the database's constraints reject the loser atomically:
 
-- snip doesn't check "is this slug free?" before inserting (two requests could both see "free"). It just inserts; the `PRIMARY KEY` guarantees only one succeeds, and snip turns the other's duplicate-key error into `409 Conflict` ([chapter 6.6](./postgres-from-go.mdx)).
+- A signup form shouldn't check "is this username free?" and then insert: two people can both see "free". Insert directly; a `UNIQUE` constraint guarantees only one succeeds, and the program turns the other's duplicate-key error into "that name is taken" ([chapter 6.6](./postgres-from-go.mdx)).
 - The quota example above works the same way with `CHECK (links_left >= 0)`: `UPDATE owners SET links_left = links_left - 1 WHERE id = 1` can never drive it negative, however many requests race.
 
 :::tip
@@ -207,25 +196,61 @@ Postgres detects this within about a second, aborts one of them with `ERROR: dea
 
 ## Locks that aren't about rows: advisory locks
 
-When snip starts, it runs migrations ([chapter 6.3](./designing-schemas.mdx)). But on Kubernetes, three copies of snip might start at the same moment — and three copies all trying to create the same tables would collide. snip takes a Postgres **advisory lock**: a named lock with no row attached, just "only one of us may do this at a time". From `Migrate` in `postgres.go`:
+Some jobs must run **once**, however many copies of a program exist: a nightly report, a cleanup, a schema migration. Run three copies of a service and all three wake up at 02:00 wanting to send the same report. There's no row to lock. Postgres offers **advisory locks**: locks on a number you choose, which mean whatever your program says they mean.
 
-```go
-// Serialise concurrent migrators (e.g. two pods starting at once).
-if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(7412)`); err != nil {
-	return nil, err
-}
-defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7412)`)
+```sql
+SELECT pg_try_advisory_lock(42);   -- true: you hold lock 42. false: someone else does
+-- … do the once-only job …
+SELECT pg_advisory_unlock(42);     -- release it
 ```
 
-The first copy gets the lock and migrates; the others wait, then find nothing left to do. Each migration also runs inside its own transaction, so a failing one leaves no half-created tables behind.
+`pg_try_advisory_lock` returns immediately, which suits "skip it if someone else is already doing it". `pg_advisory_lock` (without "try") **waits** until the lock is free, which suits "do it after whoever is doing it now". The lock belongs to the **connection** that took it and is released when that connection closes, so a crashed job can't hold it forever.
 
 :::warning[What can go wrong]
 - **Read–modify–write in application code.** Lost updates under load. Use atomic statements, `FOR UPDATE`, or constraints.
-- **Check-then-act.** "If the slug is free, insert it" races. Let the unique constraint decide.
+- **Check-then-act.** "If the username is free, insert it" races. Let the unique constraint decide.
 - **Slow work inside a transaction.** Network calls or user input while holding locks stall everyone else.
 - **Forgetting to retry.** Deadlock victims and serialization failures are *expected* under concurrency; code must retry them (with a limit, [chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)).
 - **Assuming the isolation level protects you.** Postgres's default, Read Committed, does not prevent lost updates or write skew.
 :::
+
+---
+
+## Apply it to snip
+
+snip meets all three kinds of concurrency problem, and uses one technique from this chapter for each. Every snippet is from `snip/internal/store/postgres/postgres.go`.
+
+**Clicks: an atomic update.** Every redirect records a click, and a background worker adds them to the count in batches. Instead of reading the count into Go, snip lets Postgres do the arithmetic:
+
+```go
+// AddClicks adds n in one atomic UPDATE, so concurrent workers never lose a
+// count (chapter 6.5 explains why "read, add, write back" would).
+func (s *Store) AddClicks(ctx context.Context, slug string, n int64) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE links SET clicks = clicks + $2 WHERE slug = $1`, slug, n)
+	// …
+}
+```
+
+A test proves it: `TestAddClicksIsAtomic` (in `postgres_test.go`, [chapter 4.4](../go/testing.mdx)) runs 50 goroutines adding 2 clicks each, concurrently, against a real Postgres, and the count must end at exactly 100.
+
+**Slugs: let the constraint decide.** snip doesn't check "is this slug free?" before creating a link. It inserts, the `PRIMARY KEY` on `slug` accepts exactly one of two racing requests, and snip turns the loser's duplicate-key error into `409 Conflict` ([chapter 6.6](./postgres-from-go.mdx)).
+
+**Migrations: an advisory lock.** On Kubernetes, three copies of snip may start at the same instant, and each runs migrations at startup ([chapter 6.3](./designing-schemas.mdx)). From `Migrate`:
+
+```go
+// Serialise concurrent migrators (e.g. two pods starting at once).
+conn, err := s.pool.Acquire(ctx)
+if err != nil {
+	return nil, err
+}
+defer conn.Release()
+if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(7412)`); err != nil {
+	return nil, err
+}
+defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7412)`) //nolint:errcheck
+```
+
+The waiting form, `pg_advisory_lock`, is the right one here: the second copy *should* wait, then find every migration already recorded and start serving. `Acquire` matters because the lock belongs to one connection, so all the migration work runs on that same connection. And each migration runs inside its own transaction, so a failing one leaves no half-created tables behind.
 
 ---
 
