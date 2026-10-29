@@ -43,10 +43,10 @@ A good tagging scheme, and the one snip's pipeline uses:
 
 **Deploy by an immutable tag or by digest.** Many teams deploy `ghcr.io/org/snip@sha256:…` (the digest), so what runs is exactly what was tested. Registries can also enforce **immutable tags**, so nobody can re-push `1.4.2`.
 
-The same applies to what you build **from**. `FROM golang:1.25-alpine` gets a newer image whenever one is published, which is good for security patches and bad for reproducibility. The common answer is to **pin by digest and let a bot update it**:
+The same applies to what you build **from**. `FROM golang:1.26-alpine` gets a newer image whenever one is published, which is good for security patches and bad for reproducibility. The common answer is to **pin by digest and let a bot update it**:
 
 ```dockerfile
-FROM golang:1.25-alpine@sha256:1ae0735f00daffa3aaf1363a5184c0d2dc55c78e3db4ec70241cdac97bf84b59 AS build
+FROM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS build
 ```
 
 Tools like **Dependabot** and **Renovate** then open a pull request whenever a new digest is published. CI tests the update, and a human merges it. You get both reproducibility and patches, deliberately.
@@ -285,7 +285,7 @@ Free. Steps 1–4 run on your computer with Docker; step 5 needs only a browser.
 3. **Scan snip's Go code for known vulnerabilities** (needs internet access to `vuln.go.dev`):
    ```bash
    cd ~/code/zero-to-prod/snip
-   go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+   go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
    ```
    If you have Trivy installed (see [trivy.dev](https://trivy.dev)), scan an image too: `trivy image --severity HIGH,CRITICAL alpine:3.22`.
 

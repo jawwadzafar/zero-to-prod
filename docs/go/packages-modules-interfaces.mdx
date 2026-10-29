@@ -78,7 +78,9 @@ A **module** is a whole project: a tree of packages with one **`go.mod`** file a
 ```text
 module github.com/jawwadzafar/zero-to-prod/snip
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.10
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
@@ -89,7 +91,8 @@ require (
 ```
 
 - **`module`** — the module's name, which is also the start of every import path inside it.
-- **`go`** — the Go version it needs.
+- **`go`** — the oldest Go version it needs.
+- **`toolchain`** — the Go release to build it with when yours is older; Go downloads it for you. snip names the latest patch so builds get its security fixes.
 - **`require`** — its **dependencies**: other people's modules it uses, each pinned to an exact **version**.
 
 snip depends on three outside libraries: **pgx** (to talk to Postgres), **go-redis** (to talk to Redis) and **client_golang** (to expose Prometheus metrics). Everything else — the web server, JSON, cryptography, time — comes from Go's **standard library**, which is unusually complete.
