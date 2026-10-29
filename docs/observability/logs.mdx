@@ -6,7 +6,7 @@ description: "Logs that help at 3 a.m.: why logs are the first observability sig
 
 # 13.1 Logs
 
-Part 13 is about **observability**: being able to understand what a running system is doing, and *why*, from the outside, without adding new code or attaching a debugger while it's on fire. A system is observable when you can answer questions you didn't think to ask in advance: why were some requests slow between 14:03 and 14:10, only for one customer? Three kinds of signal make that possible: **logs** (this chapter), **metrics** (13.2) and **traces** (13.3). Logs are the oldest and the most familiar: a program writing down what happened, one line at a time. They're also the easiest to do badly: millions of lines of `something went wrong` that nobody can search. This chapter shows what good logs look like, using snip's: structured, correlated by request ID, free of secrets, and cheap enough to keep.
+When an app on your phone misbehaves, you can tap around and see what happens. Engineers running a service used by thousands of people can't: the failure happened ten minutes ago, on a machine they can't see, to a user they'll never meet. What they need is **observability**: being able to understand what a running system is doing, and *why*, from the outside, without adding new code or attaching a debugger while it's on fire. A system is observable when you can answer questions you didn't think to ask in advance: why were some requests slow between 14:03 and 14:10, only for one customer? Three kinds of signal make that possible: **logs** (this chapter), **metrics** ([chapter 13.2](./metrics.mdx)) and **traces** ([chapter 13.3](./tracing.mdx)). Logs are the oldest and the most familiar: a program writing down what happened, one line at a time. They're also the easiest to do badly: millions of lines of `something went wrong` that nobody can search. This chapter shows what good logs look like: structured, correlated by request ID, free of secrets, and cheap enough to keep. Each idea comes with a real example from snip, the URL shortener this handbook builds ([chapter 0.3](../start/meet-snip.mdx)), and the lab queries its logs with `jq`.
 
 ## What you'll learn
 
@@ -31,8 +31,8 @@ The three signals complement each other:
 | Signal | Answers | Detail | Cost |
 |---|---|---|---|
 | **Logs** | What exactly happened, to which request? | Highest: every event | Grows with traffic; the most expensive to store |
-| **Metrics** (13.2) | How much, how often, how fast, overall? | Aggregated numbers over time | Cheap and constant, whatever the traffic |
-| **Traces** (13.3) | Where did the time go in this request, across services? | One request's path | Usually sampled |
+| **Metrics** ([13.2](./metrics.mdx)) | How much, how often, how fast, overall? | Aggregated numbers over time | Cheap and constant, whatever the traffic |
+| **Traces** ([13.3](./tracing.mdx)) | Where did the time go in this request, across services? | One request's path | Usually sampled |
 
 Typically: metrics tell you **something** is wrong ("error rate up since 14:03"), traces tell you **where** ("the database call"), logs tell you **what exactly** ("`relation "links" does not exist`").
 
@@ -82,7 +82,7 @@ Structure has a security benefit too: **log injection**. If a program writes use
 
 **Log levels** mark importance, and a **threshold** decides what's written (snip: `SNIP_LOG_LEVEL`, default `info`):
 
-| Level | Use for | snip example |
+| Level | Use for | Example (from snip) |
 |---|---|---|
 | **DEBUG** | Detail for developers diagnosing a problem; usually off in production | `processed clicks` with counts, from the worker |
 | **INFO** | Normal, significant events | `snip listening`, one `request` line per request |
@@ -111,7 +111,7 @@ That's a secret in a log, and it's **deliberate**: in-memory mode is for learnin
 
 ## Request IDs: following one request
 
-snip gives every request an ID, returns it to the client in a header, and puts it in every log line about that request:
+The idea: give every request a short random ID the moment it arrives, send it back to the client in a response header (conventionally `X-Request-ID`), and put it in every log line written while handling that request. In snip's middleware (`internal/httpapi/middleware.go`) that's four lines:
 
 ```go
 id := r.Header.Get("X-Request-ID")
@@ -121,7 +121,7 @@ if !validRequestID(id) {          // empty, over 64 characters, or anything but 
 w.Header().Set("X-Request-ID", id)
 ```
 
-Reusing an ID a proxy in front of snip already assigned lets one ID follow the request through every system. But the header comes from outside, and snip copies it into its logs and its response, so it only accepts short, plain IDs; anything else gets a fresh one. ([Chapter 7.5](../security/web-attacks.mdx)'s rule: never trust input just because it's a header.)
+Reusing an ID that a proxy in front of the service already assigned lets one ID follow the request through every system. But the header comes from outside, and snip copies it into its logs and its response, so it only accepts short, plain IDs; anything else gets a fresh one. ([Chapter 7.5](../security/web-attacks.mdx)'s rule: never trust input just because it's a header.)
 
 This makes three things possible:
 
@@ -174,9 +174,24 @@ Mature teams standardise one structured format and a common set of fields across
 
 ## Lab
 
-Free, on your own computer. You'll produce real snip logs and query them like a log store would.
+Free, on your own computer. Step 1 needs only `jq`; steps 2–6 produce real snip logs and query them like a log store would.
 
-1. **Generate traffic and capture the logs.** Start snip in in-memory mode, writing its JSON logs to a file:
+1. **Query structured logs you wrote yourself.** Save five log lines from an imaginary shop and ask them questions:
+   ```bash
+   cat > /tmp/shop.json <<'EOF'
+   {"time":"2026-10-29T14:03:01Z","level":"INFO","msg":"request","request_id":"a1","route":"GET /products/{id}","status":200,"duration_ms":12}
+   {"time":"2026-10-29T14:03:02Z","level":"INFO","msg":"request","request_id":"a2","route":"POST /checkout","status":502,"duration_ms":3010}
+   {"time":"2026-10-29T14:03:02Z","level":"ERROR","msg":"payment provider timed out","request_id":"a2","provider":"examplepay"}
+   {"time":"2026-10-29T14:03:04Z","level":"INFO","msg":"request","request_id":"a3","route":"GET /products/{id}","status":200,"duration_ms":9}
+   {"time":"2026-10-29T14:03:05Z","level":"INFO","msg":"request","request_id":"a4","route":"POST /checkout","status":200,"duration_ms":420}
+   EOF
+   jq -c 'select(.status >= 500)' /tmp/shop.json                  # every failed request
+   jq -c 'select(.request_id == "a2")' /tmp/shop.json             # one request's whole story
+   jq -r 'select(.duration_ms > 1000) | .route' /tmp/shop.json    # what was slow?
+   ```
+   Notice the second query: the `request` line says *that* checkout failed, and the `ERROR` line with the same ID says *why*. Now imagine doing the same with free text and `grep`.
+
+2. **Generate snip traffic and capture the logs.** Start snip in in-memory mode, writing its JSON logs to a file:
    ```bash
    cd ~/code/zero-to-prod/snip
    go build -o bin/ ./cmd/snip           # a binary, so `kill` below stops snip itself (chapter 8.6)
@@ -191,7 +206,7 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
    kill %1
    ```
 
-2. **Query the logs with jq** ([chapter 2.3](../linux/pipes-and-text-tools.mdx)):
+3. **Query the logs with jq** ([chapter 2.3](../linux/pipes-and-text-tools.mdx)):
    ```bash
    L=/tmp/snip-logs.json
    jq -c 'select(.status >= 400) | {status, route, request_id}' $L       # every error
@@ -205,11 +220,11 @@ Free, on your own computer. You'll produce real snip logs and query them like a 
    ```
    (Your IDs will differ.)
 
-3. **Follow one request.** Take the `X-Request-Id` value printed by the last `curl` in step 1 and find its log line: `jq -c 'select(.request_id == "PASTE_ID")' $L`. That's the support workflow: a user quotes an ID, you find exactly their request.
+4. **Follow one request.** Take the `X-Request-Id` value printed by the last `curl` in step 2 and find its log line: `jq -c 'select(.request_id == "PASTE_ID")' $L`. That's the support workflow: a user quotes an ID, you find exactly their request.
 
-4. **See the difference a format makes.** Restart with `SNIP_LOG_FORMAT=text` and repeat a request. Which would you rather read, and which would you rather query?
+5. **See the difference a format makes.** Restart with `SNIP_LOG_FORMAT=text` and repeat a request. Which would you rather read, and which would you rather query?
 
-5. **Find the secret.** Search the log file for `api_key`. Why is this acceptable here and nowhere else? (In-memory mode, local only, a throwaway key regenerated on every start. In Postgres mode snip never logs keys.)
+6. **Find the secret.** Search the log file for `api_key`. Why is this acceptable here and nowhere else? (In-memory mode, local only, a throwaway key regenerated on every start. In Postgres mode snip never logs keys.)
 
 ## Self-check
 
