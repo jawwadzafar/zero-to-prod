@@ -1,12 +1,12 @@
 ---
 title: "11.4 GitOps with Argo CD"
 sidebar_label: "11.4 GitOps with Argo CD"
-description: "Git as the single source of truth for what runs: the GitOps principles, pull-based deployment, Argo CD Applications, automated sync, pruning and self-healing, promoting between environments with pull requests, secrets in GitOps, and how CI and GitOps split the work — with Argo CD deploying snip from this repository and undoing hand-made changes."
+description: "Git as the single source of truth for what runs: the GitOps principles, pull-based deployment, Argo CD Applications, automated sync, pruning and self-healing, promoting between environments with pull requests, secrets in GitOps, and how CI and GitOps split the work — with Argo CD deploying an example app from a public repository, then snip, and undoing hand-made changes."
 ---
 
 # 11.4 GitOps with Argo CD
 
-So far, changes reached the cluster because someone, or some CI job, ran `kubectl apply` or `helm upgrade`. That works, but it leaves awkward questions. What exactly is running in production right now, and does it match what's in Git? Who changed that setting by hand last Tuesday? How do you rebuild the cluster from nothing after a disaster? **GitOps** answers all three with one rule: **Git is the single source of truth for what runs.** A controller inside the cluster continuously compares the cluster with a Git repository and makes them match, the same reconciliation loop as [chapter 10.1](../kubernetes/why-orchestration.mdx), with Git as the desired state. To change production, you change Git, through a pull request, with review, history and one-command revert. This chapter explains the idea, then uses **Argo CD**, the most popular GitOps tool, to deploy snip from this very repository and watch it undo changes made behind its back.
+The usual way to change a Kubernetes cluster is for someone, or some CI job, to run `kubectl apply` or `helm upgrade` ([chapter 10.6](../kubernetes/helm.mdx)). That works, but it leaves awkward questions. What exactly is running in production right now, and does it match what's in Git? Who changed that setting by hand last Tuesday? How do you rebuild the cluster from nothing after a disaster? **GitOps** answers all three with one rule: **Git is the single source of truth for what runs.** A controller inside the cluster continuously compares the cluster with a Git repository and makes them match: the same observe-compare-act reconciliation loop that runs all of Kubernetes ([chapter 10.1](../kubernetes/why-orchestration.mdx)), with Git as the desired state. To change production, you change Git, through a pull request, with review, history and one-command revert. This chapter explains the idea, then uses **Argo CD**, the most popular GitOps tool, to deploy an example app straight from a public Git repository and watch it undo changes made behind its back. At the end, you'll hand snip, the project you build in this handbook, to Argo CD the same way.
 
 ## What you'll learn
 
@@ -51,37 +51,38 @@ In **push** deployment, the CI system holds credentials to every cluster it depl
 
 ## Argo CD
 
-**Argo CD** is a Kubernetes controller (installed into the cluster, in the `argocd` namespace) plus a web UI and CLI. Its central object is the **Application**: "keep *this path* in *this Git repository* synced to *this cluster and namespace*". snip's (`snip/deploy/argocd/application.yaml`):
+**Argo CD** is a Kubernetes controller (installed into the cluster, in the `argocd` namespace) plus a web UI and CLI. Its central object is the **Application**: "keep *this path* in *this Git repository* synced to *this cluster and namespace*". Here's one for **guestbook**, the small example app the Argo CD project publishes for exactly this purpose (a Deployment and a Service in the `guestbook` folder of `argoproj/argocd-example-apps`):
 
-```yaml
+```yaml title="guestbook-app.yaml"
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: snip
-  namespace: argocd
+  name: guestbook
+  namespace: argocd                      # Applications live in Argo CD's own namespace
 spec:
   project: default
   source:
-    repoURL: https://github.com/jawwadzafar/zero-to-prod.git
-    targetRevision: main
-    path: snip/deploy/k8s/base           # kustomize: Argo CD renders it like kubectl apply -k
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD                 # the branch, tag or commit to follow
+    path: guestbook                      # the folder of manifests inside the repository
   destination:
-    server: https://kubernetes.default.svc
-    namespace: snip
+    server: https://kubernetes.default.svc   # "this cluster"
+    namespace: guestbook
   syncPolicy:
     automated:
-      prune: true
+      prune: true                        # explained below
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
-      - RespectIgnoreDifferences=true
-  ignoreDifferences:                     # the HPA owns the API's replica count (see "What can go wrong")
-    - group: apps
-      kind: Deployment
-      name: api
-      jsonPointers:
-        - /spec/replicas
 ```
+
+```mermaid
+flowchart LR
+  G["Git repository<br/>guestbook/*.yaml"] -->|"Argo CD fetches"| A["Argo CD<br/>Application guestbook"]
+  A -->|"compares + applies"| K["Cluster<br/>namespace guestbook"]
+```
+
+Nobody runs `kubectl apply` on guestbook's manifests: Argo CD fetches them from GitHub, compares them with the cluster, and applies the difference, again and again.
 
 Argo CD understands plain manifests, kustomize and Helm charts ([chapter 10.6](../kubernetes/helm.mdx)). It reports two things for every Application:
 
@@ -106,12 +107,12 @@ That last switch changes team habits. Emergency fixes still happen by hand somet
 
 GitOps doesn't replace CI; it replaces the *deploy* step:
 
-1. A developer merges a change to snip's code.
-2. **CI** tests it and builds and publishes an image, `ghcr.io/…/snip:sha-9f3c2a1` (chapters [9.4](../containers/images-in-production.mdx) and [11.2](./ci-with-github-actions.mdx)).
+1. A developer merges a change to the application's code.
+2. **CI** tests it and builds and publishes an image, `ghcr.io/example/app:sha-9f3c2a1` (chapters [9.4](../containers/images-in-production.mdx) and [11.2](./ci-with-github-actions.mdx)).
 3. Something updates the **desired state in Git** to use the new tag. It's either a CI step that commits a one-line change to the environment's manifests (`kustomize edit set image …`), or a bot like **Argo CD Image Updater** or **Renovate** that opens a pull request.
 4. **Argo CD** notices the Git change and syncs the cluster.
 
-Often the application code and its deployment configuration live in **separate repositories**. That way a configuration change doesn't trigger a code build, and deployment permissions can differ from code permissions. This handbook keeps them together for simplicity.
+Often the application code and its deployment configuration live in **separate repositories**. That way a configuration change doesn't trigger a code build, and deployment permissions can differ from code permissions. Small projects (this handbook included) keep them together for simplicity.
 
 ### Promoting between environments
 
@@ -136,11 +137,9 @@ One Argo CD Application per environment points at its directory. **Promotion is 
 - **External Secrets Operator**: Git holds an `ExternalSecret` naming the entry in the cloud secret manager; the operator creates the real Secret.
 - **Sealed Secrets** / **SOPS**: Git holds encrypted values that only the cluster, or a key in your cloud's KMS, can decrypt.
 
-snip's base manifests contain a development-only password so the labs work anywhere. A real deployment would replace `config.yaml`'s Secret with an `ExternalSecret`.
-
 :::warning[What can go wrong]
 - **Fighting self-heal**: an on-call engineer scales a Deployment by hand during an incident, and Argo CD quietly undoes it. Know how to **pause** automated sync for an Application, and put the change in Git afterwards.
-- **Autoscaler vs Git**: an HPA changes `replicas`, then Git's `replicas: 2` "corrects" it. Either leave `replicas` out of manifests managed with an HPA, or tell Argo CD to ignore that field with `ignoreDifferences`, as snip's Application does.
+- **Autoscaler vs Git**: an HPA changes `replicas`, then Git's `replicas: 2` "corrects" it. Either leave `replicas` out of manifests managed with an HPA, or tell Argo CD to ignore that field with `ignoreDifferences` (an example follows in "Apply it to snip").
 - **`prune` surprises**: moving a manifest to a different Application, or a bad kustomize change, can make Argo CD delete things. Review diffs; protect critical resources with sync options.
 - **Git becomes critical infrastructure**: if Git is down, you can't change production. That's usually acceptable (the cluster keeps running), but plan for the emergency path.
 - **Secrets in plain text in the repository**: the most common GitOps mistake. It's permanent, because Git history remembers.
@@ -152,9 +151,51 @@ GitOps with Argo CD or **Flux** is the default way many organisations run Kubern
 
 ---
 
+## Apply it to snip
+
+snip, the link shortener you build in this handbook, has its own Application, `snip/deploy/argocd/application.yaml`. It's the guestbook one with two differences:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: snip
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/jawwadzafar/zero-to-prod.git
+    targetRevision: main
+    path: snip/deploy/k8s/base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: snip
+  syncPolicy:
+    automated:
+      prune: true        # delete things that were removed from Git
+      selfHeal: true     # undo changes made directly in the cluster
+    syncOptions:
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+  # The HPA owns the API's replica count; don't "correct" it back to Git's 2.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: api
+      jsonPointers:
+        - /spec/replicas
+```
+
+- **The path is a kustomize directory** ([chapter 10.2](../kubernetes/core-objects.mdx)), so Argo CD renders it the way `kubectl apply -k` would. Plain manifests (guestbook), kustomize and Helm charts all work the same way.
+- **`ignoreDifferences` settles the autoscaler-vs-Git fight** from "What can go wrong": snip's HorizontalPodAutoscaler changes the API's `replicas` with load, and Argo CD is told not to treat that as drift.
+
+Its base manifests still contain a development-only database password, so the labs work anywhere. A real deployment would replace the Secret in `config.yaml` with an `ExternalSecret` ([chapter 10.4](../kubernetes/config-secrets-storage.mdx)).
+
+---
+
 ## Lab
 
-Free, on a kind cluster. This lab runs in snip's CI on every push, on a fresh cluster, with Argo CD syncing the exact commit under test. Use a **new** cluster, so Argo CD's snip doesn't collide with the one from [Part 10](../kubernetes/why-orchestration.mdx): `kind create cluster --name gitops`.
+Free, on a kind cluster. Use a **new** cluster, so Argo CD's snip doesn't collide with the one from [Part 10](../kubernetes/why-orchestration.mdx): `kind create cluster --name gitops`. Steps 1–4 use the guestbook example; step 5 hands snip to Argo CD, and runs in snip's CI on every push, on a fresh cluster, with Argo CD syncing the exact commit under test.
 
 :::danger
 The clean-up deletes the `gitops` kind cluster and everything in it. Make sure your kubectl context is the lab cluster, not a real one, before you delete anything: `kubectl config current-context` should say `kind-gitops`.
@@ -164,36 +205,44 @@ The clean-up deletes the `gitops` kind cluster and everything in it. Make sure y
    ```bash
    kubectl create namespace argocd
    kubectl apply -n argocd --server-side --force-conflicts \
-     -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml
+     -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
    kubectl -n argocd wait --for=condition=Available deploy --all --timeout=300s
    ```
-   `--server-side` is needed because Argo CD's CRDs are too large for the normal client-side apply.
+   `--server-side` is needed because Argo CD's CRDs (the definitions of its own object types, like Application) are too large for the normal client-side apply.
 
-2. **Hand snip to Argo CD.**
+2. **Hand guestbook to Argo CD.** Save `guestbook-app.yaml` from "Argo CD", then:
    ```bash
-   cd ~/code/zero-to-prod/snip
-   kubectl apply -f deploy/argocd/application.yaml
-   kubectl -n argocd get application snip -w          # OutOfSync/Missing → Synced/Progressing → Synced/Healthy
+   kubectl apply -f guestbook-app.yaml
+   kubectl -n argocd get application guestbook -w     # OutOfSync/Missing → Synced/Progressing → Synced/Healthy (Ctrl-C)
+   kubectl -n guestbook get deploy,svc                # created by Argo CD, from GitHub
    ```
-   You didn't run `kubectl apply -k`: Argo CD fetched the manifests from GitHub and applied them. (If Health stays `Progressing` or `Degraded` because the HPA can't read metrics, install metrics-server as in [chapter 10.5](../kubernetes/operating-and-debugging.mdx).)
+   You never applied guestbook's manifests: Argo CD fetched them from the repository and applied them.
 
 3. **Open the UI.**
    ```bash
    kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
    kubectl -n argocd port-forward svc/argocd-server 8443:443 &
    ```
-   Browse to `https://localhost:8443` (accept the self-signed certificate), log in as `admin` with that password, and open the `snip` Application: a live tree of every object, its sync and health.
+   Browse to `https://localhost:8443` (accept the self-signed certificate), log in as `admin` with that password, and open the `guestbook` Application: a live tree of every object, its sync and health.
 
 4. **Try to change things behind Git's back.**
    ```bash
+   kubectl -n guestbook scale deploy/guestbook-ui --replicas=3     # Git says 1
+   sleep 10; kubectl -n guestbook get deploy guestbook-ui           # READY 1/1 again
+   kubectl -n guestbook delete deploy guestbook-ui
+   sleep 10; kubectl -n guestbook get deploy guestbook-ui           # it's back
+   ```
+   Self-heal undid both. In the UI, the Application's history shows the syncs that did it. You can't change guestbook "properly" (you don't own that repository): that's the point. The only way to change it is to change Git.
+
+5. **Apply it to snip.** This time with a repository you *can* change.
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   kubectl apply -f deploy/argocd/application.yaml
+   kubectl -n argocd get application snip -w          # … → Synced/Healthy (Ctrl-C)
    kubectl -n snip patch configmap snip-config --type merge -p '{"data":{"SNIP_LOG_LEVEL":"debug"}}'
    sleep 10; kubectl -n snip get configmap snip-config -o jsonpath='{.data.SNIP_LOG_LEVEL}'; echo    # info again
-   kubectl -n snip delete deployment worker
-   sleep 10; kubectl -n snip get deployment worker                                                   # it's back
    ```
-   Self-heal undid both. In the UI, the Application's history shows the syncs that did it.
-
-5. **Make a real change, the GitOps way.** In your **fork** of the repository, change the Application's `repoURL` to your fork and re-apply it. Then edit `snip/deploy/k8s/base/config.yaml` (set `SNIP_LOG_LEVEL: debug`), commit and push to `main`. Within about three minutes (Argo CD's default polling interval) the cluster follows. Revert the commit, and it follows back. Clean up with `kind delete cluster --name gitops`.
+   (If Health stays `Progressing` or `Degraded` because the HPA can't read metrics, install metrics-server as in [chapter 10.5](../kubernetes/operating-and-debugging.mdx).) Now make a real change, the GitOps way: in your **fork** of the repository, change the Application's `repoURL` to your fork and re-apply it. Edit `snip/deploy/k8s/base/config.yaml` (set `SNIP_LOG_LEVEL: debug`), commit and push to `main`. Within about three minutes (Argo CD's default polling interval) the cluster follows. Revert the commit, and it follows back. Clean up with `kind delete cluster --name gitops`.
 
 ## Self-check
 

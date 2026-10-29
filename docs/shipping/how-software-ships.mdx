@@ -1,12 +1,12 @@
 ---
 title: "11.1 How software ships"
 sidebar_label: "11.1 How software ships"
-description: "The path from a change on a laptop to production: branches and pull requests, code review, continuous integration, artefacts, environments, continuous delivery vs deployment, versioning, and how to measure delivery (DORA) — illustrated with this repository's own pipeline and the real failures it caught."
+description: "The path from a change on a laptop to production: branches and pull requests, code review, continuous integration, artefacts, environments, continuous delivery vs deployment, versioning, and how to measure delivery (DORA) — then a real pipeline, this repository's, and the failures it caught."
 ---
 
 # 11.1 How software ships
 
-Writing code is half the job. The other half is getting it to users **safely, quickly and repeatedly**: tested, packaged, deployed and, if it goes wrong, undone. A few decades ago that meant a release every few months, a weekend of manual steps, and a lot of fear. Today good teams ship many times a day, and each release is small, boring and reversible. The difference isn't bravery. It's a **pipeline**: an automated path every change travels, with checks along the way that catch mistakes while they're cheap. This chapter lays out that path, from a branch on your laptop to production, using this very repository as the example. Its pipeline builds the handbook, tests snip against real Postgres and Redis, runs the whole stack in Docker Compose and in Kubernetes, scans for vulnerabilities, and publishes images. It has caught real mistakes, which you'll read about below.
+Writing code is half the job. The other half is getting it to users **safely, quickly and repeatedly**: tested, packaged, deployed and, if it goes wrong, undone. A few decades ago that meant a release every few months, a weekend of manual steps, and a lot of fear. Today good teams ship many times a day, and each release is small, boring and reversible. The difference isn't bravery. It's a **pipeline**: an automated path every change travels, with checks along the way that catch mistakes while they're cheap. This chapter lays out that path, from a branch on your laptop to production: the steps, the vocabulary (CI, continuous delivery, continuous deployment), how releases are named, and how to tell whether a team ships well. At the end you'll look at a real pipeline, the one that tests this handbook and its project, and the real mistakes it caught.
 
 ## What you'll learn
 
@@ -41,7 +41,7 @@ A car factory doesn't build a car and then check whether it works. Every part is
 
 **3. Merge to main.** `main` now contains the change. In **trunk-based development**, the common modern practice, everyone merges small changes to `main` at least daily, and unfinished features hide behind **feature flags** ([chapter 11.3](./delivery-and-deployment.mdx)) rather than living on long-running branches. Long-lived branches that merge rarely produce painful, risky merges.
 
-**4. Build the artefact, once.** The pipeline builds the deployable thing, snip's container image ([chapter 9.4](../containers/images-in-production.mdx)), tags it with the commit, and pushes it to a registry. **This exact artefact** is what gets tested and deployed everywhere afterwards. It's never rebuilt per environment, because a rebuild could differ (newer base image, newer dependency) from what was tested.
+**4. Build the artefact, once.** The pipeline builds the deployable thing, usually a container image ([chapter 9.4](../containers/images-in-production.mdx)), tags it with the commit, and pushes it to a registry. **This exact artefact** is what gets tested and deployed everywhere afterwards. It's never rebuilt per environment, because a rebuild could differ (newer base image, newer dependency) from what was tested.
 
 **5. Environments.** The same artefact moves through environments that get closer to the real thing:
 
@@ -72,30 +72,6 @@ Continuous deployment sounds scary, and it only works with a trustworthy pipelin
 
 ---
 
-## This repository's pipeline
-
-This repository has three workflows (in `.github/workflows/`), run by GitHub Actions ([chapter 11.2](./ci-with-github-actions.mdx)):
-
-| Workflow | Runs on | Does |
-|---|---|---|
-| `ci.yml` | Every push to `main` and every PR | Typechecks and builds the site (PRs); vets and tests snip against real Postgres and Redis; builds snip's image and checks it starts; lints the OpenAPI contract; runs the whole Compose stack end to end; deploys snip to a Kubernetes cluster (kind) and runs every [Part 10](../kubernetes/why-orchestration.mdx) lab; scans for vulnerabilities |
-| `image.yml` | Pushes to `main` touching `snip/`, and `snip-v*` tags | Builds snip's image for two CPU architectures and publishes it to `ghcr.io` with an SBOM and provenance ([chapter 9.4](../containers/images-in-production.mdx)) |
-| `deploy.yml` | Every push to `main` | Builds the handbook and deploys it to GitHub Pages (continuous deployment) |
-
-The CI jobs run **in parallel**: each is independent, so a run finishes in the time of the slowest job (a few minutes) rather than the sum of them.
-
-### What it caught
-
-Pipelines prove their worth when they fail. Three real failures from this repository's history, each caught before it reached a reader:
-
-- **A test that tested the wrong thing.** The Compose job's load-balancing check created a short link with the slug `lb`, and failed with HTTP 400. snip requires slugs of 3 to 32 characters ([chapter 5.3](../apis/validation-errors-status-codes.mdx)), so the check itself was wrong, and so was the [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx) lab that used the same slug. Both were fixed in one commit. Without CI, readers would have hit a confusing 400 while following the lab.
-- **A Kubernetes security setting that couldn't be satisfied.** The first time snip's manifests ran on a real cluster, no Pod started: `runAsNonRoot` can't be verified for an image whose user is a *name* ([chapter 10.2](../kubernetes/core-objects.mdx)). The manifests passed every static check; only running them for real found it.
-- **A tool that needed a newer toolchain.** The new vulnerability-scan job failed because the scanner's latest release required a newer Go than the one snip is built with ([chapter 9.4](../containers/images-in-production.mdx)). The fix was to build the tool with the toolchain it needs, and still analyse snip with its own.
-
-None of these was a bug in snip's Go code. Pipelines catch problems in **everything around the code**: tests, configuration, infrastructure and tooling. That's where many real-world outages come from.
-
----
-
 ## Versions and tags
 
 A release needs a name. Two complementary kinds:
@@ -106,7 +82,7 @@ A release needs a name. Two complementary kinds:
   - **MINOR** (1.4 → 1.5): new features, nothing breaks.
   - **MAJOR** (1.x → 2.0): something **breaks**, and users must change something to upgrade.
 
-In this repository, pushing a git tag like `snip-v1.2.3` makes `image.yml` publish `ghcr.io/jawwadzafar/snip:1.2.3` and `:1.2`. A **changelog** records what changed in each version, in words people can read. Many teams generate it from commit messages written in a convention like **Conventional Commits** (`feat:`, `fix:`, `docs:`), which is why this repository's commits start that way.
+A **changelog** records what changed in each version, in words people can read. Many teams generate it from commit messages written in a convention like **Conventional Commits** (`feat:`, `fix:`, `docs:`), which is why this repository's commits start that way.
 
 ---
 
@@ -137,30 +113,62 @@ A mature pipeline makes the safe path the easy path. Protected `main`, required 
 
 ---
 
+## Apply it: this repository's pipeline
+
+This handbook's own repository, which also holds snip (the link shortener you build in it), ships through exactly the path above. It has three workflows (in `.github/workflows/`), run by GitHub Actions ([chapter 11.2](./ci-with-github-actions.mdx)):
+
+| Workflow | Runs on | Does |
+|---|---|---|
+| `ci.yml` | Every push to `main` and every PR | Typechecks and builds the site (PRs); vets and tests snip against real Postgres and Redis; builds snip's image and checks it starts; lints the OpenAPI contract; runs the whole Compose stack end to end; deploys snip to a Kubernetes cluster (kind) and runs every [Part 10](../kubernetes/why-orchestration.mdx) lab; scans for vulnerabilities |
+| `image.yml` | Pushes to `main` touching `snip/`, and `snip-v*` tags | Builds snip's image for two CPU architectures and publishes it to `ghcr.io` with an SBOM and provenance ([chapter 9.4](../containers/images-in-production.mdx)) |
+| `deploy.yml` | Every push to `main` | Builds the handbook and deploys it to GitHub Pages (continuous deployment) |
+
+The CI jobs run **in parallel**: each is independent, so a run finishes in the time of the slowest job (a few minutes) rather than the sum of them.
+
+Releases use both kinds of tag from "Versions and tags": every image is tagged `sha-<commit>`, and pushing a git tag like `snip-v1.2.3` makes `image.yml` also publish `ghcr.io/jawwadzafar/snip:1.2.3` and `:1.2`.
+
+### What it caught
+
+Pipelines prove their worth when they fail. Three real failures from this repository's history, each caught before it reached a reader:
+
+- **A test that tested the wrong thing.** The Compose job's load-balancing check created a short link with the slug `lb`, and failed with HTTP 400. snip requires slugs of 3 to 32 characters ([chapter 5.3](../apis/validation-errors-status-codes.mdx)), so the check itself was wrong, and so was the [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx) lab that used the same slug. Both were fixed in one commit. Without CI, readers would have hit a confusing 400 while following the lab.
+- **A Kubernetes security setting that couldn't be satisfied.** The first time snip's manifests ran on a real cluster, no Pod started: `runAsNonRoot` can't be verified for an image whose user is a *name* ([chapter 10.2](../kubernetes/core-objects.mdx)). The manifests passed every static check; only running them for real found it.
+- **A tool that needed a newer toolchain.** The new vulnerability-scan job failed because the scanner's latest release required a newer Go than the one snip is built with ([chapter 9.4](../containers/images-in-production.mdx)). The fix was to build the tool with the toolchain it needs, and still analyse snip with its own.
+
+None of these was a bug in snip's Go code. Pipelines catch problems in **everything around the code**: tests, configuration, infrastructure and tooling. That's where many real-world outages come from.
+
+---
+
 ## Lab
 
-Free, with a browser and your clone of this repository.
+Free, with a browser and a terminal. Steps 1–2 work with any public project; steps 3–6 use your clone of this repository.
 
-1. **Read the pipeline.** Open `.github/workflows/ci.yml` and list its jobs. For each, write one line: what would it catch? Which job would have caught a typo in a Kubernetes manifest? (`snip-k8s`, which applies them to a real cluster.) Which would catch a broken SQL example in a chapter? (`site`, via `npm run check:sql`, on pull requests; the `deploy` workflow runs it too.)
+1. **See a pipeline in the wild.** Open a popular open-source project you use, for example [github.com/prometheus/prometheus](https://github.com/prometheus/prometheus). On any open pull request, scroll to the bottom: the list of **checks** (builds, tests, linters) and whether they passed, plus the review status. Then open the **Actions** tab and one recent run: the jobs running in parallel, each with its own duration. Notice how many separate checks a single small change goes through before anyone may merge it.
 
-2. **Watch it run.** On GitHub, open the repository's **Actions** tab. Open the latest **CI** run: see the jobs running in parallel, their durations, and the steps inside the Kubernetes job, which match [Part 10](../kubernetes/why-orchestration.mdx)'s labs one to one.
+2. **Practise a release tag.** In a scratch repository:
+   ```bash
+   mkdir tag-demo && cd tag-demo && git init -q             # a throwaway repository
+   git commit -q --allow-empty -m "feat: first feature"     # a commit to tag
+   git tag -a v0.1.0 -m "0.1.0: first tagged release"       # an annotated SemVer tag
+   git commit -q --allow-empty -m "fix: a bug"
+   git tag -a v0.1.1 -m "0.1.1: bug fix"                    # PATCH bump: fixes only
+   git log --oneline --decorate                             # tags shown next to their commits
+   ```
+   In a real project, pushing a tag like this is what triggers a release pipeline.
 
-3. **Find a failure and its fix.** In the Actions history, find a red CI run. Open the failed job, read the error, then find the next commit (`git log --oneline`) and read its diff (`git show <commit>`). This is the everyday loop: red, read, fix, green.
+3. **Read this repository's pipeline.** Open `.github/workflows/ci.yml` and list its jobs. For each, write one line: what would it catch? Which job would have caught a typo in a Kubernetes manifest? (`snip-k8s`, which applies them to a real cluster.) Which would catch a broken SQL example in a chapter? (`site`, via `npm run check:sql`, on pull requests; the `deploy` workflow runs it too.)
 
-4. **Look at the history as a record.**
+4. **Watch it run.** On GitHub, open the repository's **Actions** tab. Open the latest **CI** run: see the jobs running in parallel, their durations, and the steps inside the Kubernetes job, which match [Part 10](../kubernetes/why-orchestration.mdx)'s labs one to one.
+
+5. **Find a failure and its fix.** In the Actions history, find a red CI run. Open the failed job, read the error, then find the next commit (`git log --oneline`) and read its diff (`git show <commit>`). This is the everyday loop: red, read, fix, green.
+
+6. **Look at the history as a record.**
    ```bash
    cd ~/code/zero-to-prod
    git log --oneline -15                      # small, frequent changes, each with a conventional prefix
-   git log --oneline -- snip/deploy/k8s        # the history of just the Kubernetes manifests
+   git log --oneline -- snip/deploy/k8s       # the history of just the Kubernetes manifests
    ```
-
-5. **Practise a release, locally.** In your own clone (don't push the tag):
-   ```bash
-   git tag -a snip-v0.1.0 -m "snip 0.1.0: first tagged release"
-   git show snip-v0.1.0 --stat | head -5
-   git tag -d snip-v0.1.0                     # delete it again
-   ```
-   In the real repository, pushing that tag would make `image.yml` publish `snip:0.1.0`. In your own fork, you can try it for real: the workflow publishes to your account's registry.
+   Here, pushing a tag like `snip-v0.1.0` would make `image.yml` publish `snip:0.1.0`. In your own fork, you can try it for real: the workflow publishes to your account's registry.
 
 ## Self-check
 
