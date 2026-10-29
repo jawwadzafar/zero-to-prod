@@ -28,15 +28,16 @@ CREATE INDEX links_owner_created_idx ON links (owner_id, created_at DESC);
 
 # 6.4 Indexes & query performance
 
-snip works beautifully on your laptop with 20 links. Then it gets popular. At 10 million links, "show my newest links" takes two seconds, the database's CPU sits at 100%, and every other request slows down behind it. Nothing in the code changed — only the amount of data. This is the single most common performance problem in backend systems, and the most common fix is not a bigger server or a new database. It's an **index** — often a one-line change that makes a query hundreds or thousands of times faster. In this chapter you'll watch that happen, live, on 100,000 rows in your browser.
+Your app works beautifully on your laptop with 20 rows. Then it gets popular. At 10 million rows, "show my newest items" takes two seconds, the database's CPU sits at 100%, and every other request slows down behind it. Nothing in the code changed — only the amount of data. This is the single most common performance problem in backend systems, and the most common fix is not a bigger server or a new database. It's an **index** — often a one-line change that makes a query hundreds or thousands of times faster. In this chapter you'll watch that happen, live, on 100,000 rows in your browser.
 
 ## What you'll learn
 
 - Why queries slow down as tables grow: the **sequential scan**.
 - What an **index** is (a sorted lookup structure, usually a **B-tree**) and why it's so fast.
 - How to read **`EXPLAIN ANALYZE`** — the database telling you exactly how it ran a query.
-- **Composite indexes** and why **column order** matters — using snip's real index.
+- **Composite indexes** and why **column order** matters.
 - What indexes **cost**, when they **don't help**, and two classic performance traps: **N+1 queries** and **deep OFFSET pagination**.
+- How a real service, snip, chooses exactly three indexes.
 
 ---
 
@@ -66,7 +67,7 @@ flowchart TB
 
 The magic is how little work a lookup takes. Each level of the tree cuts the candidates by a large factor, so even **a billion rows** needs only a handful of steps to find one value. Where a sequential scan's cost grows with the table, an index lookup's cost barely grows at all.
 
-You've already been using indexes without creating them: **every `PRIMARY KEY` and `UNIQUE` constraint automatically gets one** ([chapter 6.3](./designing-schemas.mdx)). That's why looking up a link by its slug — snip's hottest query, run on every redirect — is fast from day one.
+You've already been using indexes without creating them: **every `PRIMARY KEY` and `UNIQUE` constraint automatically gets one** ([chapter 6.3](./designing-schemas.mdx)). That's why looking a row up by its primary key is fast from day one, with no extra work.
 
 ---
 
@@ -74,7 +75,7 @@ You've already been using indexes without creating them: **every `PRIMARY KEY` a
 
 `EXPLAIN` shows the **plan** Postgres chose for a query. `EXPLAIN ANALYZE` **runs** the query and shows what actually happened, with timings. It's the most important performance tool you have.
 
-The playground below creates a `links` table with **100,000 rows** (5,000 owners with about 20 links each). The setup takes a few seconds on the first run. Then it asks for one owner's 20 newest links — snip's `GET /api/links` query — with **no index** on `owner_id`:
+The playground below creates a `links` table (a link shortener's short links) with **100,000 rows**: 5,000 owners with about 20 links each. The setup takes a few seconds on the first run. Then it asks for one owner's 20 newest links, the query behind every "my items, newest first" page, with **no index** on `owner_id`:
 
 <SqlPlayground setup={bigSetup} sql={`EXPLAIN ANALYZE
 SELECT slug, created_at
@@ -98,7 +99,7 @@ Execution Time: 12.82 ms
 - **`Rows Removed by Filter: 99980`** — …and threw away 99,980 rows to keep 20. That line is the smoking gun.
 - **`Execution Time`** — around 13 ms here (your numbers will differ). Harmless now; at 10 million rows it would be over a second, on *every* call.
 
-Now the same query with snip's real index added:
+Now the same query with a two-column index on `(owner_id, created_at DESC)` added:
 
 <SqlPlayground setup={bigSetupIndexed} sql={`EXPLAIN ANALYZE
 SELECT slug, created_at
@@ -132,10 +133,9 @@ When a query is slow, don't guess — `EXPLAIN ANALYZE` it. Look for **`Seq Scan
 
 ## Composite indexes and column order
 
-snip's index covers **two** columns. From `internal/store/postgres/migrations/0001_init.sql`:
+The index in the second playground covers **two** columns:
 
 ```sql
--- "My links, newest first" (GET /api/links) without scanning the whole table.
 CREATE INDEX links_owner_created_idx ON links (owner_id, created_at DESC);
 ```
 
@@ -163,7 +163,7 @@ If indexes are so good, why not index every column?
 - **They take space** — on disk and, more importantly, in memory, where the hot parts of indexes need to live to be fast ([chapter 1.1](../foundations/what-a-computer-does.mdx)).
 - **Unused indexes are pure cost.** Postgres tracks index usage (`pg_stat_user_indexes`); teams periodically drop indexes nothing uses.
 
-So: index what your **real, frequent queries** need, and measure. snip has exactly three indexes: the two automatic ones (`links.slug`, `api_keys.key_hash`) and the composite one for listing links.
+So: index what your **real, frequent queries** need, and measure.
 
 ---
 
@@ -224,12 +224,29 @@ Teams find slow queries with Postgres's **`pg_stat_statements`** extension (whic
 :::
 
 :::warning[What can go wrong]
-- **No index on foreign-key columns.** Postgres indexes primary keys automatically but **not** foreign keys. `links.owner_id` needs its own index (snip's composite covers it) — or joins and cascading deletes scan the whole table.
+- **No index on foreign-key columns.** Postgres indexes primary keys automatically but **not** foreign keys. A column like `links.owner_id` needs its own index (a composite index that *starts* with it also counts), or joins and cascading deletes scan the whole table.
 - **Indexing everything.** Writes crawl and memory fills with unused indexes.
 - **Wrong column order in composite indexes.** The index exists; the query can't use it.
 - **N+1 queries.** Fast individually, slow together. Watch query counts, not just query speed.
 - **Testing with tiny data.** Everything is fast with 50 rows. Test important queries against realistic volumes — as in the playgrounds above.
 :::
+
+---
+
+## Apply it to snip
+
+snip, the link shortener you build in this handbook ([chapter 0.3](../start/meet-snip.mdx)), runs three kinds of query all day: a **redirect** looks a link up by its slug; **authentication** looks an API key up by its hash; and `GET /api/links` lists one owner's links, newest first. Its schema has exactly one index for each, and no others.
+
+Two come free from constraints ([chapter 6.3](./designing-schemas.mdx)): `slug` is the primary key of `links`, and `key_hash` is `UNIQUE` in `api_keys`. The third is written by hand, in `snip/internal/store/postgres/migrations/0001_init.sql`:
+
+```sql
+-- "My links, newest first" (GET /api/links) without scanning the whole table.
+CREATE INDEX links_owner_created_idx ON links (owner_id, created_at DESC);
+```
+
+That's the index you measured in the second playground, and the query it serves is snip's `ListByOwner` ([chapter 6.6](./postgres-from-go.mdx)): `WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2`, equality column first, sort column second. Because it starts with `owner_id`, it also covers the foreign key from `links` to `api_keys`, so deleting a key (which cascades to its links) doesn't scan the table.
+
+Nothing in snip searches by `url` or filters by `clicks`, so there are no indexes there. Each would only slow down every insert, and every click-count update, for no query's benefit. The day a feature needs such a query, `EXPLAIN ANALYZE` decides.
 
 ---
 
@@ -280,7 +297,7 @@ Free, in the playgrounds above (each has its own database; **Reset** restores it
       explain: 'Postgres read the whole table and discarded almost all of it — an index on the filtered column would likely help. A sequential scan that throws away nearly every row is the classic sign of a missing index for that WHERE clause.',
     },
     {
-      q: 'snip has an index on (owner_id, created_at DESC). Which query can use it well?',
+      q: 'A table has an index on (owner_id, created_at DESC). Which query can use it well?',
       options: [
         'WHERE created_at > ‘2026-09-01’ ORDER BY created_at DESC',
         'WHERE owner_id = 42 ORDER BY created_at DESC LIMIT 20',
@@ -323,8 +340,8 @@ Without an index, the database answers "which links belong to owner 42?" by read
 </details>
 
 <details>
-<summary>Why does snip's migration create an index for listing links, but not for <code>clicks</code> or <code>url</code>?</summary>
+<summary>Logins look users up with <code>WHERE lower(email) = $1</code>. There's an index on <code>email</code>, yet <code>EXPLAIN</code> shows a sequential scan. Why, and what would you do?</summary>
 
-Because indexes should match **real, frequent queries**. snip's hot queries are: redirect by `slug` (covered by the primary key's automatic index), authenticate by `key_hash` (covered by its `UNIQUE` constraint), and list an owner's links newest-first (covered by `(owner_id, created_at DESC)`). Nothing in snip searches by `url` or filters by `clicks`, so indexes there would only slow down every insert and every click-count update — pure cost with no benefit. If a new feature adds such a query, measure it with `EXPLAIN ANALYZE` and add the index then.
+The index is sorted by `email` as stored, but the query asks about `lower(email)`, a *computed* value. Postgres can't use a sorted list of one thing to find another, so it scans and computes `lower()` on every row. Two fixes: create an **expression index**, `CREATE INDEX ON users (lower(email));`, which stores the computed values sorted; or store emails already lower-cased (and enforce it with a `CHECK`) so the query can compare the plain column. Then `EXPLAIN ANALYZE` again to confirm the plan changed. The general rule: an index helps only when the query's condition matches what the index is sorted by.
 
 </details>
