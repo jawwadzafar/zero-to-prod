@@ -395,7 +395,7 @@ jobs:
       - name: Trivy image scan (report only)
         # Scans the saved tarball: no Docker socket mounted into the scanner.
         run: |
-          docker run --rm -v "$RUNNER_TEMP:/scan:ro" aquasec/trivy:0.74.0 \
+          docker run --rm -v "$RUNNER_TEMP:/scan:ro" aquasec/trivy:0.76.1 \
             image --input /scan/snip.tar --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0
 
   api-contract:
@@ -816,9 +816,9 @@ jobs:
         working-directory: snip/infra/local
     steps:
       - uses: actions/checkout@v7
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
-          terraform_version: 1.16.4
+          terraform_version: 1.17.1
           terraform_wrapper: false
       - name: Format and validate (chapter 12.5 lab)
         run: |
@@ -863,6 +863,6 @@ jobs:
           # Findings were fixed or accepted with written reasons (#trivy:ignore comments),
           # so any NEW high or critical finding now fails the build.
           for dir in infra deploy; do
-            docker run --rm -v "$PWD:/src:ro" aquasec/trivy:0.74.0 \
+            docker run --rm -v "$PWD:/src:ro" aquasec/trivy:0.76.1 \
               config --severity HIGH,CRITICAL --exit-code 1 "/src/$dir"
           done
