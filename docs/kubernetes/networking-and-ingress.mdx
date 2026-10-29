@@ -1,20 +1,20 @@
 ---
 title: "10.3 Networking: Services, DNS, Gateways & policies"
 sidebar_label: "10.3 Networking & ingress"
-description: "How traffic finds Pods in Kubernetes: the flat Pod network, Services and their types (ClusterIP, NodePort, LoadBalancer, headless), cluster DNS and service discovery, EndpointSlices and kube-proxy, getting traffic in from outside with Ingress and the Gateway API, and NetworkPolicies that restrict who can talk to whom — applied to snip."
+description: "How traffic finds Pods in Kubernetes: the flat Pod network, Services and their types (ClusterIP, NodePort, LoadBalancer, headless), cluster DNS and service discovery, EndpointSlices and kube-proxy, getting traffic in from outside with Ingress and the Gateway API, and NetworkPolicies that restrict who can talk to whom — learned on a tiny web server, then applied to snip."
 ---
 
 # 10.3 Networking: Services, DNS, Gateways & policies
 
-Pods come and go with new IP addresses every time ([chapter 10.2](./core-objects.mdx)). Yet snip's API always reaches Postgres at `postgres:5432`, the probe Pod in the last lab called `http://api/healthz` through a whole rolling update without a single failure, and outside users need one stable address to type into a browser. This chapter explains the layers that make that work. First the **Pod network**, where every Pod can reach every other. Then **Services**: stable names and addresses in front of changing Pods. Then **DNS**, which turns names into those addresses. Then **Gateways and Ingress**, the front door from outside. And finally **NetworkPolicies**, which turn "everything can talk to everything" into "only what should". You'll put snip behind a real Gateway and prove its database accepts connections only from snip.
+Pods come and go, and every new one gets a new IP address ([chapter 10.2](./core-objects.mdx)). Yet a web app always has to find its database, a rolling update must not drop requests, and users outside the cluster need one stable address to type into a browser. This chapter explains the layers that make that work. First the **Pod network**, where every Pod can reach every other. Then **Services**: stable names and addresses in front of changing Pods. Then **DNS**, which turns names into those addresses. Then **Gateways and Ingress**, the front door from outside. And finally **NetworkPolicies**, which turn "everything can talk to everything" into "only what should". You'll put a small web server behind a real Gateway and lock it down with a policy, and then do the same for snip and prove its database accepts connections only from snip.
 
 ## What you'll learn
 
 - The Kubernetes **network model**: one flat network, an IP per Pod.
 - **Services**: ClusterIP, NodePort, LoadBalancer and headless, and how kube-proxy and **EndpointSlices** make them work.
-- **Cluster DNS** and service discovery: `api`, `api.snip`, `api.snip.svc.cluster.local`.
+- **Cluster DNS** and service discovery: `echo`, `echo.demo`, `echo.demo.svc.cluster.local`.
 - Getting traffic in: **Ingress**, the newer **Gateway API**, and `port-forward` for debugging.
-- **NetworkPolicies**: default-deny, and allowing just what's needed.
+- **NetworkPolicies**: default-deny, and allowing only what's needed.
 
 ---
 
@@ -23,44 +23,55 @@ Pods come and go with new IP addresses every time ([chapter 10.2](./core-objects
 Kubernetes' network model makes three promises:
 
 1. **Every Pod gets its own IP address.**
-2. **Every Pod can reach every other Pod** by that IP, on any node, without NAT.
+2. **Every Pod can reach every other Pod** by that IP, on any node, without NAT (address translation).
 3. Agents on a node (like the kubelet) can reach all Pods on that node.
 
-How that's achieved is left to a **CNI plugin** (Container Network Interface): kindnet in kind, Calico, Cilium, or your cloud's own (for example, AWS's VPC CNI gives Pods real VPC addresses, [chapter 12.2](../cloud/cloud-networking.mdx)). From your app's point of view it's simple: one big flat network, where containers in a Pod share an IP and everything else is reachable. And because Pod IPs change constantly, **nothing should ever depend on a Pod's IP**. That's what Services are for.
+How that's achieved is left to a **CNI plugin** (Container Network Interface, the plug-in slot for Pod networking): kindnet in kind, Calico, Cilium, or your cloud's own (for example, AWS's VPC CNI gives Pods real addresses in your cloud network, [chapter 12.2](../cloud/cloud-networking.mdx)). From your app's point of view it's simple: one big flat network, where containers in a Pod share an IP and everything else is reachable. And because Pod IPs change constantly, **nothing should ever depend on a Pod's IP**. That's what Services are for.
 
 ---
 
 ## Services: a stable front for changing Pods
 
-A **Service** gives a set of Pods (chosen by a label selector) one stable virtual IP address and DNS name, and load-balances connections across whichever of those Pods are **ready**. snip's:
+:::note[Everyday anchor]
+A Service is a company's **main phone number**. Customers always dial the same number. Behind it, the switchboard forwards each call to whichever staff member is at their desk right now (ready Pods). Staff join, leave and change desks (Pods replaced, new IPs); the number never changes. Someone on a break (not ready) doesn't get calls.
+:::
+
+A **Service** gives a set of Pods (chosen by a label selector) one stable virtual IP address and DNS name, and load-balances connections across whichever of those Pods are **ready**. Here is the one from [chapter 10.2](./core-objects.mdx)'s `echo.yaml`, in front of three copies of the `http-echo` web server:
 
 ```yaml
 apiVersion: v1
 kind: Service
 metadata:
-  name: api
+  name: echo
 spec:
   selector:
-    app.kubernetes.io/name: api      # the Pods behind this Service
+    app: echo                        # the Pods behind this Service
   ports:
     - name: http
       port: 80                       # what clients connect to
-      targetPort: http               # the container port named "http" (8080)
+      targetPort: http               # the container port named "http" (5678)
 ```
 
-:::note[Everyday anchor]
-A Service is a company's **main phone number**. Customers always dial the same number. Behind it, the switchboard forwards each call to whichever staff member is at their desk right now (ready Pods). Staff join, leave and change desks (Pods replaced, new IPs); the number never changes. Someone on a break (not ready) simply doesn't get calls.
-:::
+Three boxes show the idea:
+
+```mermaid
+flowchart LR
+  C["Client Pod"] -->|"echo:80"| S["Service echo<br/>(stable virtual IP)"]
+  S --> P1["Pod 10.244.0.7:5678"]
+  S --> P2["Pod 10.244.0.9:5678"]
+```
+
+The client only ever knows `echo:80`. Which Pods sit behind it, and on which IPs, can change every minute.
 
 How it works underneath:
 
-- The **EndpointSlice** controller watches Pods matching the selector and keeps a list of the **ready** ones' IPs and ports. This is how readiness probes ([chapter 10.2](./core-objects.mdx)) take a Pod out of rotation.
-- **kube-proxy** on every node watches Services and EndpointSlices and programs the node's packet filtering (iptables or nftables rules, or IPVS) so a connection to the Service's virtual IP is redirected to one of the endpoints. Some CNIs, like Cilium, replace kube-proxy with eBPF programs doing the same job.
+- The **EndpointSlice** controller watches Pods matching the selector and keeps a list of the **ready** ones' IPs and ports. This is how a failing readiness probe ([chapter 10.2](./core-objects.mdx)) takes a Pod out of rotation.
+- **kube-proxy** on every node watches Services and EndpointSlices and programs the node's packet filtering (iptables or nftables rules, or IPVS) so a connection to the Service's virtual IP is redirected to one of the endpoints. Some CNIs, like Cilium, replace kube-proxy with eBPF programs (small programs loaded into the kernel) doing the same job.
 - Load balancing happens **per connection**, not per request. A client that keeps one HTTP/2 or keep-alive connection open ([chapter 5.4](../apis/structuring-a-real-service.mdx)) sticks to one Pod. That's fine for many small clients, and a known surprise for gRPC between two services.
 
 ```bash
-kubectl -n snip get svc api                 # the ClusterIP
-kubectl -n snip get endpointslices -l kubernetes.io/service-name=api -o wide   # the ready Pod IPs behind it
+kubectl -n demo get svc echo                                                    # the ClusterIP
+kubectl -n demo get endpointslices -l kubernetes.io/service-name=echo -o wide   # the ready Pod IPs behind it
 ```
 
 ### Service types
@@ -82,10 +93,10 @@ On kind, `LoadBalancer` Services stay `<pending>` forever, because no cloud is t
 Every cluster runs a DNS server (**CoreDNS**, in `kube-system`), and every Pod is configured to use it. Each Service gets a name:
 
 ```text
-api.snip.svc.cluster.local
-└┬┘ └┬─┘ └──────┬────────┘
- │   │          └ the cluster's domain
- │   └ namespace
+echo.demo.svc.cluster.local
+└┬─┘ └┬─┘ └──────┬────────┘
+ │    │          └ the cluster's domain
+ │    └ namespace
  └ service name
 ```
 
@@ -93,19 +104,19 @@ Pods also get **search domains**, so shorter names work:
 
 | From a Pod in… | Name | Resolves? |
 |---|---|---|
-| `snip` | `api` | Yes: same namespace |
-| any namespace | `api.snip` | Yes |
-| anywhere | `api.snip.svc.cluster.local` | Yes, fully qualified |
-| `monitoring` | `api` | **No** (it looks for `api` in `monitoring`) |
+| `demo` | `echo` | Yes: same namespace |
+| any namespace | `echo.demo` | Yes |
+| anywhere | `echo.demo.svc.cluster.local` | Yes, fully qualified |
+| `monitoring` | `echo` | **No** (it looks for `echo` in `monitoring`) |
 
-That's why snip's config says `SNIP_REDIS_ADDR: redis:6379` and its database URL says `@postgres:5432`: the same pattern as Compose ([chapter 9.3](../containers/docker-compose.mdx)), because the same idea is underneath. Try it from inside the cluster:
+It's the same idea as Compose's service names ([chapter 9.3](../containers/docker-compose.mdx)): you configure an app with `http://echo` or `db:5432`, never an IP. Try it from inside the cluster:
 
 ```bash
-kubectl -n snip run dns --rm -it --image=alpine:3.22 --restart=Never -- \
-  sh -c 'nslookup api.snip.svc.cluster.local; wget -qO- http://api/healthz'
+kubectl -n demo run dns --rm -it --image=alpine:3.22 --restart=Never -- \
+  sh -c 'nslookup echo.demo.svc.cluster.local; wget -qO- http://echo'
 ```
 
-The `nslookup` shows the full name resolving to the Service's ClusterIP; the `wget` to plain `api` works thanks to the search domains. (busybox's `nslookup` may not apply search domains itself, so give it the full name.)
+The `nslookup` shows the full name resolving to the Service's ClusterIP; the `wget` to plain `echo` works thanks to the search domains. (busybox's `nslookup` may not apply search domains itself, so give it the full name.)
 
 ---
 
@@ -115,7 +126,7 @@ A ClusterIP Service is invisible outside the cluster. Three ways in, from debugg
 
 **1. `kubectl port-forward`** tunnels a port on your machine through the API server to a Pod or Service. It's perfect for debugging, and not a way to serve users: it runs on your laptop and goes through the API server.
 
-**2. Ingress** is the original Kubernetes object for HTTP routing: "requests for `snip.example.com` go to Service `api`". An **Ingress controller** (a reverse proxy running in the cluster, [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)) reads Ingress objects and configures itself. Ingress works, and you'll meet it in many existing clusters, but it's limited: routing beyond host and path, TLS details and timeouts all live in controller-specific **annotations** that differ per controller. The long-popular community **ingress-nginx** controller has been **retired**, and new setups are steered towards the Gateway API.
+**2. Ingress** is the original Kubernetes object for HTTP routing: "requests for `shop.example.com` go to Service `web`". An **Ingress controller** (a reverse proxy running in the cluster, [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)) reads Ingress objects and configures itself. Ingress works, and you'll meet it in many existing clusters, but it's limited: routing beyond host and path, TLS details and timeouts all live in controller-specific **annotations** that differ per controller. The long-popular community **ingress-nginx** controller has been **retired** (its maintainers ended support in March 2026), and new setups are steered towards the Gateway API.
 
 **3. The Gateway API** is Ingress's successor: a set of standard objects with richer, portable routing, split by role:
 
@@ -123,19 +134,26 @@ A ClusterIP Service is invisible outside the cluster. Three ways in, from debugg
 flowchart LR
   GC["GatewayClass<br/>(which implementation)<br/>cluster admin"] --> GW["Gateway<br/>(a listener: port 80, TLS…)<br/>platform team"]
   GW --> R["HTTPRoute<br/>(hosts, paths → Services)<br/>app team"]
-  R --> S["Service api"] --> P["api Pods"]
+  R --> S["Service echo"] --> P["echo Pods"]
 ```
 
-snip's (`snip/deploy/k8s/gateway/gateway.yaml`):
+Read it left to right: a cluster admin installs an implementation once, a platform team opens listeners, and each app team attaches its own routes without touching the others. For `echo`:
 
-```yaml
+```yaml title="gateway.yaml"
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller   # Envoy Gateway, one of many implementations
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: snip
-  namespace: snip
+  name: web
+  namespace: demo
 spec:
-  gatewayClassName: eg                  # Envoy Gateway, one of many implementations
+  gatewayClassName: eg
   listeners:
     - name: http
       protocol: HTTP
@@ -144,64 +162,66 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: snip
-  namespace: snip
+  name: echo
+  namespace: demo
 spec:
   parentRefs:
-    - name: snip                        # attach to the Gateway above
+    - name: web                         # attach to the Gateway above
   hostnames:
-    - snip.localhost
+    - echo.localhost
   rules:
     - matches:
         - path: { type: PathPrefix, value: / }
       backendRefs:
-        - name: api
+        - name: echo                    # the Service
           port: 80
 ```
 
 The Gateway API is implemented by many controllers (Envoy Gateway, NGINX Gateway Fabric, Traefik, Istio, Cilium, and the clouds' own load balancers), and the objects are the same for all of them. In the cloud, creating a Gateway typically provisions a real load balancer with a public IP. HTTPRoutes also support header matching, traffic splitting by weight (for canary releases, [chapter 11.3](../shipping/delivery-and-deployment.mdx)), redirects, and header changes, all without annotations.
 
-:::warning[What can go wrong]
-Unlike the nginx configuration in [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx), this route sends **every** path to snip, including `/metrics`, so the metrics are public through the Gateway. Production setups serve metrics on a **separate port** that no Service or route exposes, and scrape that port from inside the cluster. It's a good exercise: add a `SNIP_METRICS_ADDR` setting to snip, and scrape it in `deploy/prometheus/prometheus.yml`.
-:::
-
 ---
 
 ## NetworkPolicies: who may talk to whom
 
-By default, the flat network means **any Pod can connect to any Pod**, in any namespace. If an attacker gets code running in *any* container, your database is one connection away. A **NetworkPolicy** restricts traffic to the Pods it selects, like a firewall defined with labels ([chapter 7.4](../security/authorization-multi-tenancy.mdx)'s least privilege, for the network).
+By default, the flat network means **any Pod can connect to any Pod**, in any namespace. If an attacker gets code running in *any* container, your database is one connection away. A **NetworkPolicy** restricts traffic to the Pods it selects, like a firewall defined with labels: least privilege ([chapter 7.4](../security/authorization-multi-tenancy.mdx)), for the network.
 
-The standard pattern is **deny by default, then allow what's needed**. snip's policies (`snip/deploy/k8s/base/networkpolicy.yaml`):
+:::note[Everyday anchor]
+An office building where every door is unlocked is convenient until someone walks in off the street. NetworkPolicies are badge readers: the server room's door opens only for badges labelled "IT", whatever floor you're on.
+:::
 
-```yaml
+The standard pattern is **deny by default, then allow what's needed**:
+
+```yaml title="policy.yaml"
 # Deny all incoming traffic to every Pod in the namespace…
+apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-metadata: { name: default-deny-ingress }
+metadata: { name: default-deny-ingress, namespace: demo }
 spec:
-  podSelector: {}
+  podSelector: {}                      # {} selects every Pod
   policyTypes: ["Ingress"]
 ---
-# …Postgres accepts only snip's API and worker, on 5432.
+# …then let echo accept connections only from Pods labelled role=frontend.
+apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
-metadata: { name: postgres-from-snip }
+metadata: { name: echo-from-frontend, namespace: demo }
 spec:
   podSelector:
-    matchLabels: { app.kubernetes.io/name: postgres }
+    matchLabels: { app: echo }
   policyTypes: ["Ingress"]
   ingress:
     - from:
         - podSelector:
-            matchExpressions:
-              - { key: app.kubernetes.io/name, operator: In, values: [api, worker] }
+            matchLabels: { role: frontend }
       ports:
-        - port: 5432
+        - port: 5678                   # the Pod's port, not the Service's 80
 ```
 
-Plus the same for Redis, and one allowing the API's port 8080 from anywhere (so the Gateway and your port-forwards work). Things to know:
+Things to know:
 
 - Policies are **additive allow-lists**. Once any policy selects a Pod for a direction (ingress or egress), only traffic some policy allows is permitted in that direction.
+- Policies see **Pod** ports and IPs, after the Service has done its translation. That's why the rule says `5678`, not `80`.
 - Enforcement depends on the **CNI plugin**. Calico and Cilium enforce policies, and recent kind versions do too. On a CNI that doesn't, policies are silently ignored. Test that yours are enforced (the lab does).
-- **Egress** policies (what a Pod may connect *out* to) are powerful too: a compromised API Pod that can't open connections to the internet can't easily send your data out. Remember to allow DNS (port 53 to CoreDNS), or nothing will resolve.
+- **Egress** policies (what a Pod may connect *out* to) are powerful too: a compromised Pod that can't open connections to the internet can't easily send your data out. Remember to allow DNS (port 53 to CoreDNS), or nothing will resolve.
 
 :::info[In the real world]
 Larger platforms add a **service mesh** (Istio, Linkerd, Cilium's mesh). Sidecar or node proxies give every connection mutual TLS ([chapter 7.1](../security/security-literacy.mdx)), retries, per-request load balancing (fixing the gRPC problem above) and detailed traffic metrics, without changing the application. It's powerful and adds real operational weight. Most teams start with Services, a Gateway and NetworkPolicies, and add a mesh only when they need what it offers.
@@ -209,39 +229,107 @@ Larger platforms add a **service mesh** (Istio, Linkerd, Cilium's mesh). Sidecar
 
 ---
 
+## Apply it to snip
+
+snip, the link shortener you build in this handbook, uses every layer above. Its manifests are in `snip/deploy/k8s/`.
+
+**Services and DNS.** The API's Service (`snip/deploy/k8s/base/api.yaml`) is the same shape as `echo`'s: port `80` in front of the container port named `http`, which is snip's `8080`. Postgres and Redis each have a ClusterIP Service too, so snip's configuration refers to them by name, exactly as in Compose:
+
+```yaml title="snip/deploy/k8s/base/config.yaml (excerpt)"
+data:
+  SNIP_REDIS_ADDR: redis:6379        # the Service "redis" in the same namespace
+---
+stringData:
+  SNIP_DATABASE_URL: postgres://snip:snip-dev-only@postgres:5432/snip?sslmode=disable
+```
+
+Inside the `snip` namespace, `postgres` and `redis` resolve through the search domains; from another namespace you'd write `postgres.snip`.
+
+**The Gateway.** `snip/deploy/k8s/gateway/gateway.yaml` is the same three objects as `gateway.yaml` above: the `eg` GatewayClass, a Gateway named `snip` in the `snip` namespace, and an HTTPRoute sending host `snip.localhost` to Service `api` on port 80.
+
+:::warning[What can go wrong]
+Unlike the nginx configuration in [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx), snip's route sends **every** path to snip, including `/metrics`, so the metrics are public through the Gateway. Production setups serve metrics on a **separate port** that no Service or route exposes, and scrape that port from inside the cluster. It's a good exercise: add a `SNIP_METRICS_ADDR` setting to snip, and scrape it in `deploy/prometheus/prometheus.yml`.
+:::
+
+**NetworkPolicies.** `snip/deploy/k8s/base/networkpolicy.yaml` follows the deny-then-allow pattern: `default-deny-ingress` for the namespace, `api-from-anywhere` opening the API's port 8080 (so the Gateway and your port-forwards work), and two policies letting only snip's own Pods reach the databases:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-from-snip
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app.kubernetes.io/name, operator: In, values: [api, api-canary, worker] }
+      ports:
+        - port: 5432
+```
+
+`redis-from-snip` is the same for port 6379. (`api-canary` is there for [chapter 11.3](../shipping/delivery-and-deployment.mdx)'s canary release.)
+
+---
+
 ## Lab
 
-Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx)). Every step here runs in snip's CI on a fresh kind cluster.
+Free, on your kind cluster from [chapter 10.1](./why-orchestration.mdx). Steps 1–4 use only `echo`; step 5 applies them to snip, deployed in [chapter 10.2](./core-objects.mdx)'s lab. The snip steps run in snip's CI on a fresh kind cluster.
 
-1. **Look at a Service and its endpoints.**
+1. **A Service and its endpoints.** Put `echo` in its own namespace (save `echo.yaml` from [chapter 10.2](./core-objects.mdx) first):
    ```bash
-   kubectl -n snip get svc
-   kubectl -n snip get endpointslices -l kubernetes.io/service-name=api -o wide
-   kubectl -n snip get pods -l app.kubernetes.io/name=api -o wide          # the same IPs
+   kubectl create namespace demo
+   kubectl -n demo apply -f echo.yaml
+   kubectl -n demo rollout status deploy/echo
+   kubectl -n demo get svc echo                                                    # the stable ClusterIP
+   kubectl -n demo get endpointslices -l kubernetes.io/service-name=echo -o wide   # three Pod IPs
+   kubectl -n demo get pods -l app=echo -o wide                                    # the same IPs
+   ```
+   Delete one Pod and list the EndpointSlice again: one IP is replaced, the ClusterIP never changes.
+
+2. **Resolve names from inside the cluster**, with the `nslookup`/`wget` command from "DNS: service discovery by name". Then try the short name from *another* namespace: `kubectl run dns2 --rm -it --image=alpine:3.22 --restart=Never -- wget -qO- -T 3 http://echo` fails (no `echo` in `default`), while `http://echo.demo` works.
+
+3. **Install a Gateway implementation and route to echo.** Envoy Gateway installs with Helm, Kubernetes' package manager ([chapter 10.6](./helm.mdx) explains it; `brew install helm`, or see [helm.sh](https://helm.sh/docs/intro/install/)):
+   ```bash
+   helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.3 \
+     -n envoy-gateway-system --create-namespace --wait
+   kubectl apply -f gateway.yaml                                   # the three objects above
+   kubectl -n demo wait --for=condition=Accepted gateway/web --timeout=120s
+   kubectl -n demo get gateway web          # PROGRAMMED False on kind: no load balancer to give it an address
+   ```
+   On a cloud cluster the Gateway would become **Programmed**, with a public address from a cloud load balancer. kind has no load balancer, so the Gateway is accepted and its proxy runs, but it never gets an external address. Envoy Gateway runs the proxy as a Service in its own namespace. Forward a port to it and send requests with and without the route's hostname:
+   ```bash
+   kubectl -n envoy-gateway-system wait --for=condition=Ready pod -l gateway.envoyproxy.io/owning-gateway-name=web --timeout=120s
+   SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=web -o name)
+   kubectl -n envoy-gateway-system port-forward "$SVC" 8888:80 &
+   curl -s -H "Host: echo.localhost" localhost:8888/                                    # hello from v1
+   curl -s -o /dev/null -w "%{http_code}\n" -H "Host: other.example" localhost:8888/    # 404: no route for that host
    ```
 
-2. **Resolve names from inside the cluster**, using the `nslookup`/`wget` command from "DNS: service discovery by name".
-
-3. **Install a Gateway implementation** (Envoy Gateway, with Helm; [chapter 10.6](./helm.mdx) explains Helm) and snip's Gateway and route:
+4. **Lock echo down, and prove it.** Apply `policy.yaml`, then knock from a Pod without the right label and from one with it:
    ```bash
-   helm install eg oci://docker.io/envoyproxy/gateway-helm --version v1.9.1 \
-     -n envoy-gateway-system --create-namespace --wait
+   kubectl apply -f policy.yaml
+   kubectl -n demo run intruder --rm -it --image=alpine:3.22 --restart=Never -- \
+     sh -c 'wget -qO- -T 3 http://echo || echo "intruder: blocked"'
+   kubectl -n demo run friend --labels=role=frontend --rm -it --image=alpine:3.22 --restart=Never -- \
+     wget -qO- -T 3 http://echo                                    # hello from v1
+   ```
+   Now the Gateway request from step 3 fails too: the Envoy proxy has no `role=frontend` label. That's deny-by-default doing its job. Clean up with `kubectl delete namespace demo`.
+
+5. **Apply it to snip.** snip's base already includes its NetworkPolicies (applied in [chapter 10.2](./core-objects.mdx)). Add its Gateway, then repeat the checks:
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   kubectl -n snip get svc,networkpolicy
    kubectl apply -f deploy/k8s/gateway/gateway.yaml
    kubectl -n snip wait --for=condition=Accepted gateway/snip --timeout=120s
    kubectl -n envoy-gateway-system wait --for=condition=Ready pod -l gateway.envoyproxy.io/owning-gateway-name=snip --timeout=120s
-   kubectl -n snip get gateway snip          # PROGRAMMED False on kind: no load balancer to give it an address
-   ```
-   On a cloud cluster the Gateway would become **Programmed**, with a public address from a cloud load balancer. kind has no load balancer, so the Gateway is accepted and its proxy runs, but it never gets an external address. Envoy Gateway runs the actual proxy as a Service in its own namespace. Forward a port to it and send a request with the route's hostname:
-   ```bash
    SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=snip -o name)
    kubectl -n envoy-gateway-system port-forward "$SVC" 8888:80 &
    curl -s -H "Host: snip.localhost" localhost:8888/healthz        # {"status":"ok"}
-   curl -s -o /dev/null -w "%{http_code}\n" -H "Host: other.example" localhost:8888/healthz   # 404: no route for that host
-   ```
-
-4. **Prove the NetworkPolicies work.** snip's base already includes `networkpolicy.yaml`, so they were applied in [chapter 10.2](./core-objects.mdx). From a Pod that isn't snip, try to reach Postgres, then the API:
-   ```bash
-   kubectl -n snip get networkpolicy
    kubectl -n snip run intruder --rm -it --image=alpine:3.22 --restart=Never -- \
      sh -c 'nc -z -w 3 postgres 5432 && echo "postgres: OPEN" || echo "postgres: blocked"; wget -qO- -T 3 http://api/healthz'
    ```
@@ -249,7 +337,7 @@ Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx
    postgres: blocked
    {"status":"ok"}
    ```
-   snip itself still works (run the smoke test again), because its API and worker are allowed through.
+   An unrelated Pod can reach the API (it's meant to be public) but not the database. snip itself still works (run the smoke test again), because its API and worker are allowed through.
 
 ## Self-check
 
@@ -265,7 +353,7 @@ Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx
         'Pods share their node’s IP, so the address isn’t unique to them',
       ],
       answer: 1,
-      explain: 'Pods are replaced with new IPs all the time; a Service provides a stable address and name in front of whichever Pods are ready. Stable names and virtual IPs (Services) plus DNS are Kubernetes’ answer to constantly changing Pods.',
+      explain: 'Pods are replaced with new IPs all the time; a Service provides a stable address and name in front of whichever Pods are ready. Pod IPs are reachable from every node (that’s the network model’s promise), so reachability isn’t the problem: stability is.',
     },
     {
       q: 'How does a failing readiness probe remove a Pod from a Service?',
@@ -276,18 +364,18 @@ Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx
         'The Pod is restarted, which takes it out of rotation',
       ],
       answer: 1,
-      explain: 'The Pod is dropped from the Service’s EndpointSlices, so kube-proxy stops routing new connections to it. Only ready Pods appear in endpoints. The Pod keeps running, just without new traffic.',
+      explain: 'The Pod is dropped from the Service’s EndpointSlices, so kube-proxy stops routing new connections to it. Only ready Pods appear in endpoints. A readiness failure never restarts anything (that’s liveness); the Pod keeps running, just without new traffic.',
     },
     {
-      q: 'A Pod in the monitoring namespace connects to "api:80" and it fails to resolve. Why?',
+      q: 'A Pod in the monitoring namespace connects to "echo:80" and it fails to resolve. The Service lives in demo. Why?',
       options: [
         'DNS is disabled across namespaces unless a policy allows it',
-        'Short names resolve in the caller’s namespace; use api.snip instead',
+        'Short names resolve in the caller’s namespace; use echo.demo instead',
         'Services can only be reached from other namespaces by IP',
         'Port 80 is reserved for Ingress, so Services use another port',
       ],
       answer: 1,
-      explain: 'Short names resolve within the caller’s own namespace; from another namespace use api.snip or api.snip.svc.cluster.local. Search domains start with the Pod’s own namespace. Add the namespace to the name.',
+      explain: 'Short names resolve within the caller’s own namespace; from another namespace use echo.demo or echo.demo.svc.cluster.local. Search domains start with the Pod’s own namespace. Cross-namespace DNS works fine with the longer name.',
     },
     {
       q: 'What does the Gateway API improve over Ingress?',
@@ -298,7 +386,7 @@ Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx
         'It adds TLS, which Ingress has no way to configure',
       ],
       answer: 1,
-      explain: 'Standard, portable objects for richer routing (headers, weights, redirects) and role separation (GatewayClass, Gateway, Routes), instead of controller-specific annotations. The same HTTPRoute works across implementations. Ingress features beyond host and path lived in annotations that differ per controller.',
+      explain: 'Standard, portable objects for richer routing (headers, weights, redirects) and role separation (GatewayClass, Gateway, Routes), instead of controller-specific annotations. The same HTTPRoute works across implementations. Routes still point at Services, and Ingress can do basic TLS: its problem is everything beyond host and path.',
     },
     {
       q: 'You add a default-deny NetworkPolicy to a namespace. What else must you add for the app to keep working?',
@@ -309,7 +397,7 @@ Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx
         'A new namespace for the database, outside the default-deny',
       ],
       answer: 1,
-      explain: 'Policies allowing each needed connection, e.g. api and worker to postgres and redis, and traffic to the API’s port. Deny by default, then allow what’s needed. In the lab, snip still worked while an unrelated Pod couldn’t reach Postgres.',
+      explain: 'Policies allowing each needed connection, e.g. the API and worker to Postgres and Redis, and the gateway to the API. Deny by default, then allow what’s needed. In the lab, even the Gateway’s proxy was blocked from echo until a rule allowed it.',
     },
     {
       q: 'Your NetworkPolicies are applied but traffic is not being blocked. What is a likely cause?',
@@ -320,7 +408,7 @@ Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx
         'kubectl apply stored them, but they need a namespace restart',
       ],
       answer: 1,
-      explain: 'Enforcement is the CNI’s job. Always test that a policy actually blocks something.',
+      explain: 'Enforcement is the CNI’s job, and some CNIs silently ignore policies. The API server accepts and stores them either way. Always test that a policy actually blocks something, as the lab does.',
     },
   ]}
 />
@@ -340,7 +428,7 @@ Free, on your kind cluster with snip deployed ([chapter 10.2](./core-objects.mdx
 <details>
 <summary>Why doesn't a Service spread requests evenly for a gRPC client, and what are the options?</summary>
 
-kube-proxy balances **connections**, not requests. gRPC uses HTTP/2, which sends many requests over **one long-lived connection**. So a gRPC client connects once to one API Pod, and every request goes there, however many other Pods exist. New Pods added by scaling get nothing from existing clients.
+kube-proxy balances **connections**, not requests. gRPC uses HTTP/2, which sends many requests over **one long-lived connection**. So a gRPC client connects once to one Pod, and every request goes there, however many other Pods exist. New Pods added by scaling get nothing from existing clients.
 
 Options: **client-side load balancing**, using a **headless Service** so DNS returns all Pod IPs, with the gRPC client spreading requests across them (gRPC supports this); a **proxy that balances per request** (a Gateway/Envoy in front, or a service mesh sidecar); or periodically **recycling connections** (a maximum connection age on the server) so clients reconnect and spread out over time.
 
