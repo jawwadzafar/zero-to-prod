@@ -60,7 +60,7 @@ A tiny product with a sticky-note description turns out to touch nearly every ha
 | How do we know it's healthy at 3 a.m.? | Logs, metrics, traces, alerts | [Part 13](../observability/logs.mdx) |
 | Can snip summarise and tag the pages it links to, and let you search them by meaning? | Large language models, embeddings, RAG, evals | [Part 14](../ai/python-for-ai-engineers.mdx) |
 
-That's the whole handbook, driven by one product. Every chapter answers a question snip actually has.
+Every one of those topics is taught **on its own first** — with an everyday anchor and a small example you can run without snip — and only then applied to snip, usually in a section near the end of the chapter called "Apply it to snip". snip is where the questions come from and where you practise the answers; it's never a prerequisite for understanding a chapter.
 
 ---
 
@@ -103,7 +103,7 @@ You won't build that big picture in one go. snip grows in versions, and **every 
 
 | Version | What's new | You learn it in |
 |---|---|---|
-| **v0** | A Go program that shortens and follows links, keeping them in memory (forgotten on restart). | 5.1 |
+| **v0** | A Go program that shortens and follows links, keeping them in memory (forgotten on restart). | [5.1](../apis/first-http-server.mdx) |
 | **v1** | A proper API with validation and errors, links stored in **Postgres** so they survive restarts. | Parts [5](../apis/first-http-server.mdx)–[6](../data/why-databases.mdx) |
 | **v2** | **Redis** cache for fast redirects; click counting through a **queue** and **worker**; API keys and rate limiting. | Parts [6](../data/why-databases.mdx)–[8](../distributed/distributed-survival-kit.mdx) |
 | **v3** | Packaged in **containers**; the whole stack starts with one command. | [Part 9](../containers/what-a-container-is.mdx) |
@@ -177,10 +177,10 @@ Two minutes, in your browser and terminal. Free.
     {
       q: 'Why does the finished snip run more than one copy of the API?',
       options: [
-        'To use more memory',
+        'Because running two copies uses memory more efficiently than one larger copy',
         'So that if one copy crashes or is busy, the others keep serving visitors',
-        'Because Go programs can only handle one request at a time',
-        'So each copy can store different links',
+        'Because a Go program can only handle one visitor\'s request at a time',
+        'So that each copy can store its own separate set of links in memory',
       ],
       answer: 1,
       explain: 'Multiple copies behind a reverse proxy give you both resilience (a crash does not take the service down) and capacity (more visitors at once). They share the same database, so every copy knows every link.',
