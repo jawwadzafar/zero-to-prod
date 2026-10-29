@@ -5,13 +5,13 @@ name: snip
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: snip
       POSTGRES_PASSWORD: snip          # local development only — never a real password
       POSTGRES_DB: snip
     volumes:
-      - pgdata:/var/lib/postgresql/data  # keeps data across restarts
+      - pgdata:/var/lib/postgresql  # keeps data across restarts
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U snip"]
       interval: 3s

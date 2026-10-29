@@ -265,13 +265,13 @@ name: snip
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: snip
       POSTGRES_PASSWORD: snip          # local development only — never a real password
       POSTGRES_DB: snip
     volumes:
-      - pgdata:/var/lib/postgresql/data  # keeps data across restarts
+      - pgdata:/var/lib/postgresql  # keeps data across restarts
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U snip"]
       interval: 3s
@@ -367,6 +367,7 @@ Compose is excellent for **development**, **CI** (snip's CI runs its exact stack
 - **Code changes not showing up**: you ran `up -d` without `--build`.
 - **"Port is already allocated"**: something on your machine (often a previous stack, or a local Postgres) already uses the host port. Change the left side of `ports:`, or stop the other thing.
 - **Data "randomly" disappearing**: someone ran `down -v`, or a database had no volume.
+- **Upgrading a database by changing its tag**: a new Postgres major version (16 → 18) can't read the old version's data files; moving real data needs `pg_dump` and a restore, or `pg_upgrade`. The Postgres 18 image also moved its files to `/var/lib/postgresql/18/docker`, which is why snip mounts the volume at `/var/lib/postgresql`. If you ran snip on Postgres 16, start fresh with `docker compose down -v`.
 - **Healthy-but-not-ready**: a healthcheck that passes too early (a port is open, but migrations haven't run). Make healthchecks check what really matters.
 - **Scaled up, but the new copies get no traffic**: the proxy resolved the service name at startup. Restart it, or configure it to re-resolve.
 - **Publishing database ports** (`5432:5432`) on a server that's reachable from the internet, with the development password.
@@ -531,13 +532,13 @@ name: myapp
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app          # development only
       POSTGRES_DB: app
     volumes:
-      - dbdata:/var/lib/postgresql/data
+      - dbdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app"]
       interval: 3s

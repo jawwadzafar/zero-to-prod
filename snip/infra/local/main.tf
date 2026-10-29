@@ -15,7 +15,7 @@ resource "docker_volume" "pgdata" {
 }
 
 resource "docker_image" "postgres" {
-  name         = "postgres:16-alpine"
+  name         = "postgres:18-alpine"
   keep_locally = true
 }
 
@@ -42,7 +42,7 @@ resource "docker_container" "postgres" {
   }
   volumes {
     volume_name    = docker_volume.pgdata.name
-    container_path = "/var/lib/postgresql/data"
+    container_path = "/var/lib/postgresql"
   }
   healthcheck {
     test     = ["CMD-SHELL", "pg_isready -U snip"]

@@ -118,7 +118,7 @@ A classic way to break this factor without noticing: the program isn't **PID 1**
 
 **Rule:** development, staging and production should be as alike as possible in three ways: **time** (code reaches production hours after it's written, not months), **people** (the people who write code also deploy and watch it), and **tools** (the same kinds and versions of backing services everywhere).
 
-- **Good:** Docker Compose runs the same `postgres:16` and `redis:7` locally that production runs ([chapter 9.3](../containers/docker-compose.mdx)); deploys happen daily.
+- **Good:** Docker Compose runs the same `postgres:18` and `redis:7` locally that production runs ([chapter 9.3](../containers/docker-compose.mdx)); deploys happen daily.
 - **Bad:** SQLite on laptops and Postgres in production. Queries that work locally fail in production on the first type mismatch or locking difference ([chapter 6.5](../data/transactions.mdx)).
 
 The **time** and **people** gaps are what DevOps and the DORA metrics measure ([chapter 11.1](./how-software-ships.mdx)). Containers closed most of the **tools** gap; what remains is managed cloud services (a managed queue or database with no exact local twin), where teams use local emulators or a shared test environment.
@@ -195,7 +195,7 @@ Here is snip measured against the checklist, with the evidence for each answer i
 | VII | ✅ | `net/http` on `SNIP_HTTP_ADDR` (default `:8080`); nginx in front is optional. |
 | VIII | ✅ | API and worker scale independently: `replicas: 2` for the API in `docker-compose.yml`, a HorizontalPodAutoscaler in `snip/deploy/k8s/base/hpa.yaml`. |
 | IX | ✅ | `signal.NotifyContext` on SIGTERM, then `srv.Shutdown` with a 10-second budget (`snip/cmd/snip/main.go`); the worker acks only after writing, and reclaims a crashed worker's events ([chapter 8.2](../distributed/queues-and-background-work.mdx)). |
-| X | ✅ | Compose and the Kubernetes manifests use the same `postgres:16-alpine` and `redis:7-alpine` images. |
+| X | ✅ | Compose and the Kubernetes manifests use the same `postgres:18-alpine` and `redis:7-alpine` images. |
 | XI | ✅ | `log/slog` JSON to stdout (`Config.Logger`); no log files. Metrics and traces too ([Part 13](../observability/logs.mdx)). |
 | XII | ⚠️ | `snip migrate` and `snip keys create` are one-off commands in the same binary. But see finding 2. |
 

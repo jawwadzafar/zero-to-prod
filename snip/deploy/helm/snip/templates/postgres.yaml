@@ -48,8 +48,6 @@ spec:
           image: {{ .Values.postgres.image }}
           envFrom:
             - secretRef: { name: {{ $name }} }
-          env:
-            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
           ports:
             - containerPort: 5432
           readinessProbe:
@@ -60,7 +58,7 @@ spec:
             limits: { memory: 512Mi }
           securityContext: {{- include "snip.containerSecurity" . | nindent 12 }}
           volumeMounts:
-            - { name: data, mountPath: /var/lib/postgresql/data }
+            - { name: data, mountPath: /var/lib/postgresql }  # Postgres 18 keeps its files in 18/docker inside it, clear of the volume's lost+found
             - { name: run, mountPath: /var/run/postgresql }
             - { name: tmp, mountPath: /tmp }
       volumes:
