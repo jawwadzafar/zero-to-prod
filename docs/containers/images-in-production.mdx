@@ -6,7 +6,7 @@ description: "What changes when images leave your laptop: tagging and immutable 
 
 # 9.4 Images in production: size, security, registries
 
-On your laptop, an image is something you build and run a minute later. In production, an image is a **release artefact**. It's built once by CI, stored in a registry, pulled by dozens of machines, run for months, and audited when something goes wrong. The questions change. *Which exact image is running right now? Is anything in it known to be vulnerable? Who built it, from what source? Can it run on the ARM servers too? If someone breaks into it, what can they do?* This chapter answers them, using snip's real pipeline: every change to snip is built for two CPU architectures, published to GitHub's container registry with a bill of materials, and scanned for known vulnerabilities.
+On your laptop, an image is something you build and run a minute later. In production, an image is a **release artefact**. It's built once by CI, stored in a registry, pulled by dozens of machines, run for months, and audited when something goes wrong. The questions change. *Which exact image is running right now? Is anything in it known to be vulnerable? Who built it, from what source? Can it run on the ARM servers too? If someone breaks into it, what can they do?* This chapter answers them with standard tools you can run today, and ends with a real pipeline (the one for snip, the URL shortener this handbook builds) where every change is built for two CPU architectures, published to GitHub's container registry with a bill of materials, and scanned for known vulnerabilities.
 
 ## What you'll learn
 
@@ -32,7 +32,7 @@ A tag is like "the current edition" of a textbook: useful when ordering, but "pa
 - Rolling back means "the previous `latest`", which no longer has a name.
 - A restart can silently **upgrade** you, because the node pulls whatever `latest` points to now.
 
-A good tagging scheme, and the one snip's pipeline uses:
+A good tagging scheme:
 
 | Tag | Example | Moves? | Used for |
 |---|---|---|---|
@@ -41,7 +41,7 @@ A good tagging scheme, and the one snip's pipeline uses:
 | Version | `1.4.2` | Never | Releases people refer to |
 | Minor version | `1.4` | With each patch | "Give me the latest 1.4.x fix" |
 
-**Deploy by an immutable tag or by digest.** Many teams deploy `ghcr.io/org/snip@sha256:…` (the digest), so what runs is exactly what was tested. Registries can also enforce **immutable tags**, so nobody can re-push `1.4.2`.
+**Deploy by an immutable tag or by digest.** Many teams deploy `ghcr.io/org/app@sha256:…` (the digest), so what runs is exactly what was tested. Registries can also enforce **immutable tags**, so nobody can re-push `1.4.2`.
 
 The same applies to what you build **from**. `FROM golang:1.25-alpine` gets a newer image whenever one is published, which is good for security patches and bad for reproducibility. The common answer is to **pin by digest and let a bot update it**:
 
@@ -107,9 +107,7 @@ Publicly known vulnerabilities get IDs (**CVE**-2024-…, GO-2024-…) and are c
 - **Image scanners** (Trivy, Grype, Docker Scout) read the image's OS packages and language dependencies and report known CVEs by severity.
 - **Language-aware scanners** like Go's **`govulncheck`** go further: they check whether your code actually **calls** the vulnerable function. That cuts noise dramatically. A vulnerability in a part of a library you never use is reported as informational, not as a failure.
 
-snip's CI runs both on every push (the `security` job): `govulncheck` **fails the build** if snip calls vulnerable code, and Trivy scans the built image and reports HIGH and CRITICAL findings.
-
-From a real run of that job:
+A sensible CI pipeline runs both on every push: `govulncheck` **fails the build** if the code calls vulnerable code, and Trivy scans the built image and reports HIGH and CRITICAL findings. Here is a real run against a small Go service on a distroless base (snip's image, whose pipeline closes this chapter):
 
 ```text
 $ govulncheck ./...
@@ -172,7 +170,7 @@ CapEff:	0000000000000000
 chown: /etc/passwd: Operation not permitted
 ```
 
-snip runs happily with every restriction at once:
+A well-built service runs happily with every restriction at once. snip's image, for example:
 
 ```bash
 docker run -d --name hard --read-only --cap-drop ALL --security-opt no-new-privileges \
@@ -190,7 +188,7 @@ Some tools legitimately need them (CI runners, some monitoring agents). Use them
 
 ---
 
-## snip's publishing pipeline
+## Apply it to snip: the publishing pipeline
 
 Putting it together, `.github/workflows/image.yml` runs on every push to `main` that touches `snip/`:
 

@@ -6,7 +6,7 @@ description: "Containers without the magic: an image is a stack of read-only fil
 
 # 9.1 What a container really is
 
-You've been using Docker since the setup chapter: one command, and a Postgres database appears; another, and it's gone without a trace. It can feel like magic, and magic is hard to debug. This chapter removes it. A container is **not** a small virtual machine. It is an **ordinary process** on a Linux machine, the same kind you met in [chapter 1.2](../foundations/programs-processes-threads.mdx). The kernel gives it a private view of the system and a budget of resources, and it starts from a filesystem that was packed into an **image**. By the end you'll have built a "container" yourself with one Linux command, found a Docker container in the host's process list, and watched the kernel kill one for using too much memory.
+You may have used Docker already: one command, and a Postgres database appears; another, and it's gone without a trace. It can feel like magic, and magic is hard to debug. This chapter removes it. A container is **not** a small virtual machine. It is an **ordinary process** on a Linux machine, the same kind you met in [chapter 1.2](../foundations/programs-processes-threads.mdx). The kernel gives it a private view of the system and a budget of resources, and it starts from a filesystem that was packed into an **image**. By the end you'll have built a "container" yourself with one Linux command, found a Docker container in the host's process list, and watched the kernel kill one for using too much memory.
 
 ## What you'll learn
 
@@ -20,7 +20,7 @@ You've been using Docker since the setup chapter: one command, and a Postgres da
 
 ## The problem: "works on my machine"
 
-A program never runs alone. snip needs a particular operating-system setup, CA certificates to talk HTTPS, a timezone database, and the right versions of everything underneath. Postgres needs its own libraries, configuration and data directory. Install all that directly on a server and you get trouble:
+A program never runs alone. A typical web service needs a particular operating-system setup, CA certificates to talk HTTPS, a timezone database, and the right versions of everything underneath. Postgres needs its own libraries, configuration and data directory. Install all that directly on a server and you get trouble:
 
 - **Version clashes**: app A needs library v1, app B needs v2, and one machine has one `/usr/lib`.
 - **Drift**: the laptop, the test server and production were each set up by hand, slightly differently. The bug only happens on one of them.
@@ -54,7 +54,7 @@ flowchart TB
 |---|---|---|
 | Contains | A whole OS, kernel included | A process plus its files |
 | Starts in | Tens of seconds to minutes | Milliseconds to seconds |
-| Size | Gigabytes | Megabytes (snip's image: about 40 MB) |
+| Size | Gigabytes | Megabytes (a small Go web service: about 40 MB) |
 | Kernel | Its own: can run Windows on Linux | The host's: Linux containers need a Linux kernel |
 | Isolation | Strong (hardware-assisted) | Good, but weaker: one shared kernel |
 
@@ -110,7 +110,7 @@ Runtimes need to know about these limits. Go (since 1.25) reads the cgroup CPU l
 
 ## Ingredient 3: the image, what files it starts with
 
-An **image** is a packaged filesystem plus some settings: which program to run, which user, which ports, which environment variables. It's built as a stack of read-only **layers**, where each layer records the files added or changed by one build step:
+An **image** is a packaged filesystem plus some settings: which program to run, which user, which ports, which environment variables. It's built as a stack of read-only **layers**, where each layer records the files added or changed by one build step. Here are the layers of a small Go web service's image (snip's, the URL shortener this handbook builds; [chapter 9.2](./writing-dockerfiles.mdx) writes it):
 
 ```text
 layer 4:  COPY snip, snip-worker → /usr/local/bin/   (≈ 28 MB)
@@ -159,23 +159,23 @@ Tags are convenient; digests are reproducible. [Chapter 9.4](./images-in-product
 
 | Command | Does |
 |---|---|
-| `docker run -d --name snip -p 8080:8080 IMAGE` | Create and start a container in the background (`-d`), named `snip`, forwarding port 8080 on your machine to port 8080 inside it |
+| `docker run -d --name web -p 8080:8080 IMAGE` | Create and start a container in the background (`-d`), named `web`, forwarding port 8080 on your machine to port 8080 inside it |
 | `docker run --rm -it IMAGE sh` | Run interactively (`-it`) with a shell; `--rm` deletes the container when it exits |
 | `-e KEY=value` | Set an environment variable ([chapter 7.6](../security/secrets-management.mdx): config lives in the environment) |
 | `-v NAME:/path` | Mount a volume, so data at `/path` survives the container |
 | `--memory 256m --cpus 1` | Set cgroup limits |
 | `docker ps` / `docker ps -a` | List running / all containers |
-| `docker logs -f snip` | Show (and follow) what the container wrote to stdout and stderr |
-| `docker exec -it snip sh` | Run another command inside a running container's namespaces |
-| `docker stop snip` | SIGTERM, then SIGKILL after 10 seconds: graceful shutdown ([chapter 5.4](../apis/structuring-a-real-service.mdx)) |
-| `docker rm snip` | Delete a stopped container (and its writable layer) |
+| `docker logs -f web` | Show (and follow) what the container wrote to stdout and stderr |
+| `docker exec -it web sh` | Run another command inside a running container's namespaces |
+| `docker stop web` | SIGTERM, then SIGKILL after 10 seconds: time for a graceful shutdown ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)) |
+| `docker rm web` | Delete a stopped container (and its writable layer) |
 | `docker images` / `docker rmi IMAGE` | List / delete images |
 | `docker stats` | Live CPU and memory use against the limits |
 
-**Port mapping** deserves a sentence. The container has its own network namespace, so snip listening on port 8080 *inside* is invisible from your machine until you publish it with `-p HOST_PORT:CONTAINER_PORT`. `-p 9000:8080` would make it `localhost:9000` on your side. Containers on the same Docker network reach each other by name instead ([chapter 9.3](./docker-compose.mdx)).
+**Port mapping** deserves a sentence. The container has its own network namespace, so a server listening on port 8080 *inside* is invisible from your machine until you publish it with `-p HOST_PORT:CONTAINER_PORT`. `-p 9000:8080` would make it `localhost:9000` on your side. Containers on the same Docker network reach each other by name instead ([chapter 9.3](./docker-compose.mdx)).
 
 :::warning[What can go wrong]
-- **"Connection refused" on a published port**: the program inside listens on `127.0.0.1`, which in its namespace means *only the container itself*. Servers in containers must listen on `0.0.0.0` (all interfaces). snip's default `:8080` does.
+- **"Connection refused" on a published port**: the program inside listens on `127.0.0.1`, which in its namespace means *only the container itself*. Servers in containers must listen on `0.0.0.0` (all interfaces); in Go, an address of `:8080` does.
 - **Data loss**: a database container without a volume loses everything on `docker rm`.
 - **Exit code 137**: out of memory (or killed). Check `docker inspect NAME` for `OOMKilled`.
 - **"exec format error"**: the image was built for a different CPU architecture (an `amd64` image on an Apple Silicon `arm64` Mac, or the reverse). [Chapter 9.4](./images-in-production.mdx) covers multi-architecture images.
@@ -212,7 +212,26 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
    ```
    (On a Mac or Windows, the "host" kernel in the container is Docker Desktop's Linux VM, not your OS.)
 
-3. **Find a container in the host's process list.** Build snip's image and run it with limits:
+3. **Watch the OOM killer.** `tail /dev/zero` reads an endless stream of zero bytes with no line breaks, holding it all in memory while it waits for a line that never ends:
+   ```bash
+   docker run --name oomtest --memory 32m alpine:3.22 sh -c 'tail /dev/zero'; echo "exit=$?"
+   docker inspect oomtest --format 'OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}}'
+   docker rm oomtest
+   ```
+   ```text
+   exit=137
+   OOMKilled=true ExitCode=137
+   ```
+
+4. **The writable layer is temporary.**
+   ```bash
+   docker run --name w1 alpine:3.22 sh -c 'echo hi > /note.txt; cat /note.txt'   # hi
+   docker diff w1                                   # A /note.txt  (A = added, in w1's writable layer)
+   docker run --rm alpine:3.22 cat /note.txt        # No such file: a new container starts clean
+   docker rm w1
+   ```
+
+5. **Apply it to snip: find a container in the host's process list.** Build the image of snip, the URL shortener this handbook builds, and run it with limits:
    ```bash
    cd ~/code/zero-to-prod/snip
    docker build -t snip:dev .
@@ -235,25 +254,6 @@ Free, on your own computer with Docker running (on a Mac or Windows, `unshare` m
    exec: "sh": executable file not found in $PATH
    ```
    snip's image contains no shell and no tools at all, just snip, certificates and timezone data. That's deliberate ([chapter 9.4](./images-in-production.mdx)). Clean up with `docker rm -f z2p`.
-
-4. **Watch the OOM killer.** `tail /dev/zero` reads an endless stream of zero bytes with no line breaks, holding it all in memory while it waits for a line that never ends:
-   ```bash
-   docker run --name oomtest --memory 32m alpine:3.22 sh -c 'tail /dev/zero'; echo "exit=$?"
-   docker inspect oomtest --format 'OOMKilled={{.State.OOMKilled}} ExitCode={{.State.ExitCode}}'
-   docker rm oomtest
-   ```
-   ```text
-   exit=137
-   OOMKilled=true ExitCode=137
-   ```
-
-5. **The writable layer is temporary.**
-   ```bash
-   docker run --name w1 alpine:3.22 sh -c 'echo hi > /note.txt; cat /note.txt'   # hi
-   docker diff w1                                   # A /note.txt  (A = added, in w1's writable layer)
-   docker run --rm alpine:3.22 cat /note.txt        # No such file: a new container starts clean
-   docker rm w1
-   ```
 
 ## Self-check
 

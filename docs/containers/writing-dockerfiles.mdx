@@ -83,17 +83,21 @@ The last line of `docker build` is `.`: the **build context**, which is next.
 - A big `node_modules`, `.git` history, or build output makes every build slower.
 - **Anything secret in the directory ends up in the image**: `.env` files, keys, credentials. Anyone who can pull the image can extract them.
 
-A **`.dockerignore`** file lists what never to send, with the same patterns as `.gitignore`. snip's:
+A **`.dockerignore`** file, next to the Dockerfile, lists what never to send, with the same patterns as `.gitignore`. A typical one:
 
-```text title="snip/.dockerignore"
-# Only what the build needs goes to Docker — faster builds, no secrets leaked.
+```text title=".dockerignore"
+# History: big, and never needed to build
 .git
-*.test
-coverage.out
-deploy/
-README.md
+# Local secrets, keys and certificates
+.env
+*.pem
+# Dependencies and build output from your laptop (the build makes its own)
+node_modules/
 bin/
+*.log
 ```
+
+(Comments go on their own lines: in `.dockerignore`, a `#` after a pattern is part of the pattern.)
 
 The safer habit is to also **copy only what you need** (`COPY go.mod ./`, `COPY *.go ./`) instead of `COPY . .`. Then a stray file can't sneak in even if `.dockerignore` misses it.
 
@@ -216,8 +220,8 @@ The rules:
 
 - **Use exec form** (the JSON array) for `ENTRYPOINT` and `CMD`.
 - If you must use a startup script, end it with **`exec "$@"`** or `exec /server`, so the program *replaces* the shell as PID 1.
-- **`ENTRYPOINT` is the program, `CMD` its default arguments.** With `ENTRYPOINT ["/usr/local/bin/snip"]`, `docker run snip:dev keys create me` runs `snip keys create me`, which is how earlier labs created API keys.
-- Your program must actually **handle SIGTERM**. Go's `signal.NotifyContext` does it in a few lines (see `dockerlab/main.go` and snip's `cmd/snip/main.go`).
+- **`ENTRYPOINT` is the program, `CMD` its default arguments.** With `ENTRYPOINT ["/server"]` and `CMD ["--port", "8080"]`, `docker run IMAGE` runs `/server --port 8080`, and `docker run IMAGE --help` replaces only the arguments: `/server --help`.
+- Your program must actually **handle SIGTERM**. Go's `signal.NotifyContext` does it in a few lines (see `dockerlab/main.go`), and then shut down gracefully ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)).
 
 ---
 
@@ -258,7 +262,7 @@ If a secret has ever been built into an image that was pushed anywhere, treat it
 
 ---
 
-## snip's Dockerfile, line by line
+## Apply it to snip: its Dockerfile, line by line
 
 ```dockerfile title="snip/Dockerfile"
 # syntax=docker/dockerfile:1
