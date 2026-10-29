@@ -1,67 +1,330 @@
 ---
 title: "12.6 Terraform in real life: state, modules, environments"
 sidebar_label: "12.6 Terraform in real life"
-description: "What changes when Terraform manages real infrastructure for a team: remote state with locking, keeping secrets out of state (ephemeral values and write-only arguments), modules, staging and production from one codebase, lock files across platforms, a plan-on-PR/apply-on-merge pipeline with OIDC, scanning for misconfigurations, and refactoring safely with moved and import — using snip's real AWS configuration."
+description: "What changes when Terraform manages real infrastructure for a team: remote state with locking, keeping secrets out of state (ephemeral values and write-only arguments), modules, staging and production from one codebase, lock files across platforms, a plan-on-PR/apply-on-merge pipeline with OIDC, scanning for misconfigurations, and refactoring safely with moved and import. Practised on a free local example, then read in a real AWS configuration."
 ---
 
 # 12.6 Terraform in real life: state, modules, environments
 
-[Chapter 12.5](./terraform-from-zero.mdx)'s Terraform lived on one laptop: one state file on disk, one person applying, one environment, nothing at stake. Real infrastructure is different. A team shares it, production and staging must stay in step, the state file suddenly contains secrets and becomes the most important file you own, and a bad `apply` can take down a company. This chapter covers the practices that make Terraform safe at that scale, using snip's AWS configuration (`snip/infra/aws/`). That's a production-shaped setup (a VPC module, security groups, RDS, ElastiCache, ECS Fargate, a load balancer and IAM) that this repository's CI validates and scans on every push. It isn't applied, because applying it costs money. You'll see how its state is stored, how it keeps the database password *out* of that state, how one codebase serves two environments, and what a scanner found when it read the code.
+Terraform on one laptop is calm: one state file on your disk, one person typing `apply`, nothing at stake. Real infrastructure is different. Five engineers share it. Staging and production must stay in step. The state file turns out to contain the database password. And one careless `apply` can delete a company's data. This chapter covers the practices that make Terraform safe at that scale: where the state lives and who may touch it, how to keep secrets out of it, how to package and reuse code, how one codebase serves several environments, and how a team reviews and ships changes. You'll practise the parts that run locally for free, then read a production-shaped AWS configuration that uses all of them.
+
+If Terraform is new to you, start with [chapter 12.5](./terraform-from-zero.mdx). The one thing this chapter assumes: Terraform compares your `.tf` files with its **state** (a record of what it created) and with reality, shows a **plan**, and `apply` makes the changes.
 
 ## What you'll learn
 
-- **Remote state**, **locking**, and why state is sensitive.
-- Keeping secrets out of state with **ephemeral values** and **write-only arguments**.
-- **Modules**: packaging and reusing infrastructure.
-- **Environments**: one codebase, several deployments.
-- A team workflow: **plan on pull request, apply on merge**, with OIDC; plus **scanning**, **moved** and **import**.
+- **Remote state** with **locking**: one shared, encrypted copy, and one writer at a time.
+- Why state is **sensitive**, and how **ephemeral values** and **write-only arguments** keep secrets out of it.
+- **Modules**: a folder of Terraform used like a function, with inputs and outputs.
+- **Environments**: staging and production from the same code, differing only in inputs.
+- A team workflow: **plan on pull request, apply on merge**, with OIDC; **scanning**; and refactoring with **moved** and **import**.
 
 ---
 
 ## State, shared and locked
 
-A local `terraform.tfstate` breaks as soon as two people are involved: each has their own copy, neither knows what the other applied, and a lost laptop means Terraform forgets everything it manages. So teams use a **remote backend**: the state lives in shared storage (S3, Google Cloud Storage, Azure Blob, or a service like HCP Terraform), and every run reads and writes it there.
+By default Terraform writes `terraform.tfstate` next to your code. That breaks the moment two people are involved: each has their own copy, neither knows what the other applied, and a lost laptop means Terraform forgets everything it manages.
 
-snip's `versions.tf` declares an S3 backend, configured per environment:
+So teams use a **remote backend**: the state lives in shared storage (an S3 bucket on AWS, a Cloud Storage bucket on Google Cloud, Azure Blob storage, or a service such as HCP Terraform), and every run reads and writes it there.
 
-```hcl
+```mermaid
+flowchart LR
+  A["Engineer A<br/>terraform plan"] --> S[("Remote state<br/>S3 bucket")]
+  B["Engineer B<br/>terraform apply"] --> S
+  C["CI pipeline<br/>terraform apply"] --> S
+  S --- L["Lock:<br/>one writer at a time"]
+```
+
+The backend is declared in the `terraform` block:
+
+```hcl title="versions.tf"
 terraform {
-  backend "s3" {}      # details come from a backend config file
+  backend "s3" {
+    bucket       = "example-company-tfstate"      # created once, by hand or a bootstrap config
+    key          = "billing/terraform.tfstate"    # the path of this configuration's state
+    region       = "eu-west-1"
+    encrypt      = true
+    use_lockfile = true                           # S3-native state locking
+  }
 }
 ```
 
-```hcl title="envs/staging.backend.hcl"
-bucket       = "YOUR-UNIQUE-BUCKET-snip-tfstate"
-key          = "snip/staging/terraform.tfstate"
-region       = "eu-west-1"
-encrypt      = true
-use_lockfile = true   # S3-native state locking
-```
-
-```bash
-terraform init -backend-config=envs/staging.backend.hcl
-```
-
-**Locking** means only one `apply` (or `plan`) can hold the state at a time. The second waits or fails with "state locked", instead of two runs overwriting each other's changes and corrupting the state. S3 now supports locking natively (`use_lockfile`); older setups used a DynamoDB table for the lock.
+**Locking** means only one run can hold the state at a time. A second `apply` waits, or fails with `Error acquiring the state lock`, instead of both overwriting each other's changes and corrupting the state. With `use_lockfile`, Terraform writes a small `.tflock` file next to the state in S3 while it works (S3's conditional writes make that safe). Older setups, and many blog posts, use a separate DynamoDB table for the lock; that method is now deprecated.
 
 :::note[Everyday anchor]
-The state file is the **deeds register** for your infrastructure: the official record of what's yours. Keep one copy in a secure, shared registry office (the remote backend), let only one clerk update it at a time (locking), keep old versions (bucket versioning), and never leave it lying around, because it lists everything valuable and sometimes the keys to it.
+The state file is the **land registry** for your infrastructure: the official record of what's yours. Keep one copy in a secure, shared registry office (the remote backend), let only one clerk update it at a time (locking), keep old versions (bucket versioning), and never leave it lying around, because it lists everything valuable and sometimes the keys to it.
 :::
 
 ### State is sensitive
 
-State holds **every attribute** of every resource, and some of those are secrets: generated passwords, database connection strings, private keys, tokens. `sensitive = true` on an output only hides it from the terminal. It's still written, in plain text, into the state. So:
+State holds **every attribute** of every resource, and some of those are secrets: generated passwords, connection strings, private keys, tokens. Marking an output `sensitive = true` only hides it on screen. The value is still written, in plain text, into the state. So:
 
-- Store state **encrypted**, with **versioning** (to recover from a bad write), and with **access restricted** to the pipeline and a few administrators.
-- **Never commit state to Git.** snip's `snip/infra/.gitignore` excludes `*.tfstate`.
-- Better still: **don't put secrets in state at all**.
+- Store state **encrypted**, with **versioning** turned on (to recover from a bad write), and **access restricted** to the pipeline and a few administrators.
+- **Never commit state to Git.** A `.gitignore` with `*.tfstate` and `*.tfstate.*` is the first file in any Terraform repository.
+- Better still: **don't put secrets in state at all.**
 
 ### Secrets that never reach state: ephemeral and write-only
 
-Newer Terraform versions (1.11+) can pass a secret *through* a run without ever saving it. snip's AWS configuration does this for the database password:
+Since Terraform 1.11 (and OpenTofu 1.11), a secret can pass *through* a run without being saved. Two features work together:
+
+- An **ephemeral resource** produces a value that exists only while the run is happening. It's never written to the plan or the state.
+- A **write-only argument** (by convention ending in `_wo`) is sent to the provider's API but never recorded. Because Terraform can't remember what it sent, it can't tell when the value has changed, so each write-only argument has a companion **version** number. Bump the number and Terraform sends a new value.
+
+The pattern for a database password on AWS looks like this:
 
 ```hcl
-# Generated during apply, and never stored in state or plan files.
+ephemeral "random_password" "db" {   # generated during apply, then forgotten
+  length  = 32
+  special = false
+}
+
+resource "aws_db_instance" "main" {
+  # … engine, size, network …
+  username            = "app"
+  password_wo         = ephemeral.random_password.db.result   # sent to AWS, never saved
+  password_wo_version = 1                                     # bump to rotate
+}
+```
+
+The application can't read the password from Terraform's outputs either (outputs are saved in state), so the same ephemeral value is usually written, also write-only, into a secrets store such as AWS Secrets Manager, where the application reads it at start-up. Not every resource offers `_wo` arguments yet; check the provider's documentation for the resource you're using.
+
+---
+
+## Modules: reusable infrastructure
+
+A **module** is a folder of `.tf` files with **variables** as its inputs and **outputs** as its results. Any configuration can call it, like calling a function. In fact every configuration is already a module: the folder you run `terraform` in is the **root module**, and the folders it calls are **child modules**.
+
+Here is a small one you can run with Docker. It wraps "one nginx container showing one message" so you can stamp out several sites:
+
+```hcl title="modules/site/main.tf"
+terraform {
+  required_providers {
+    docker = { source = "kreuzwerker/docker" } # every module names its non-HashiCorp providers
+  }
+}
+
+variable "name" {
+  description = "Container name."
+  type        = string
+}
+
+variable "port" {
+  description = "Port on your machine."
+  type        = number
+}
+
+variable "message" {
+  description = "Text the page shows."
+  type        = string
+}
+
+variable "image_id" {
+  description = "The nginx image to run."
+  type        = string
+}
+
+resource "docker_container" "web" {
+  name  = var.name
+  image = var.image_id
+  ports {
+    internal = 80
+    external = var.port
+  }
+  upload {
+    file    = "/usr/share/nginx/html/index.html"
+    content = "<h1>${var.message}</h1>\n"
+  }
+}
+
+output "url" {
+  value = "http://localhost:${var.port}"
+}
+```
+
+```hcl title="main.tf (the root module)"
+terraform {
+  required_providers {
+    docker = {
+      source  = "kreuzwerker/docker"
+      version = "~> 4.6"
+    }
+  }
+}
+
+provider "docker" {}
+
+resource "docker_image" "nginx" {
+  name         = "nginx:1.30-alpine"
+  keep_locally = true
+}
+
+module "blog" {
+  source   = "./modules/site"
+  name     = "site-blog"
+  port     = 8091
+  message  = "The blog"
+  image_id = docker_image.nginx.image_id
+}
+
+module "docs" {
+  source   = "./modules/site"
+  name     = "site-docs"
+  port     = 8092
+  message  = "The docs"
+  image_id = docker_image.nginx.image_id
+}
+
+output "urls" {
+  value = [module.blog.url, module.docs.url]
+}
+```
+
+Things to notice:
+
+- The caller sees only the module's **interface**: four inputs and one output (`module.blog.url`). How the module builds the site is its own business.
+- Resources inside a module get longer addresses: `module.blog.docker_container.web`.
+- After adding or changing a `module` block, run `terraform init` again so Terraform can find it.
+- The `required_providers` line inside the module matters. Without it, Terraform assumes `docker` means `hashicorp/docker`, which doesn't exist, and `init` fails.
+
+Modules come from local folders (as here), Git repositories, or registries. The public **Terraform Registry** has widely used community modules, such as `terraform-aws-modules/vpc/aws`, a complete AWS network in one block. When you use someone else's module, **pin its version** (`version = "~> 6.0"`), or an upstream change can silently alter your infrastructure on the next `init`.
+
+Good modules follow the advice for good functions: a small, clear interface; safe defaults; one job. A module with 80 variables has become a configuration language of its own.
+
+---
+
+## Environments: one codebase, several deployments
+
+Staging and production should be built from **the same code**, differing only in **inputs**. Otherwise "it worked in staging" means nothing. The common layout is one configuration plus a variables file and a backend file per environment:
+
+```text
+infra/
+├── main.tf, variables.tf, outputs.tf, versions.tf
+└── envs/
+    ├── staging.tfvars            instance_count = 1, multi_az = false
+    ├── staging.backend.hcl       key = "app/staging/terraform.tfstate"
+    ├── production.tfvars         instance_count = 3, multi_az = true
+    └── production.backend.hcl    key = "app/production/terraform.tfstate"
+```
+
+The `backend "s3" {}` block in the code is left empty, and `init` fills it in from the file (a **partial backend configuration**):
+
+```bash
+terraform init -backend-config=envs/production.backend.hcl -reconfigure   # point at production's state
+terraform plan -var-file=envs/production.tfvars                          # with production's inputs
+```
+
+Where environments must *behave* differently, the code expresses it as logic on an input, so the difference is visible and reviewed:
+
+```hcl
+deletion_protection = var.environment == "production"   # only production refuses to be deleted
+```
+
+Each environment has **its own state file**, so a mistake while working on staging can't touch production's state.
+
+Two other layouts are common. **One folder per environment**, each calling shared modules, is more explicit, at the cost of some repetition. **Terraform workspaces** keep several states for one configuration; they're convenient, but it's easy to apply to the wrong one, so many teams avoid them for environments. Whatever the layout, the strongest isolation is **separate cloud accounts** per environment ([chapter 12.4](./iam.mdx)), each with its own state and credentials.
+
+---
+
+## Lock files across platforms
+
+`terraform init` records each provider's exact version and checksums in `.terraform.lock.hcl`, which you commit so everyone gets identical providers. There's a trap. Provider packages are different files for each operating system and CPU, so a lock created on a Linux machine may hold only Linux checksums. A colleague on a Mac then gets an error at `init` saying the provider doesn't match any of the checksums recorded in the lock file.
+
+The fix is to record checksums for every platform your team and CI use:
+
+```bash
+terraform providers lock \
+  -platform=linux_amd64 -platform=linux_arm64 \
+  -platform=darwin_amd64 -platform=darwin_arm64 -platform=windows_amd64
+```
+
+Each provider in the lock file then has one `h1:` hash per platform.
+
+---
+
+## A team workflow
+
+Nobody runs `terraform apply` against production from a laptop. The common pattern:
+
+```mermaid
+flowchart LR
+  PR["Pull request"] --> CI1["CI: fmt, validate,<br/>scan, plan"]
+  CI1 --> R["Humans review<br/>code + plan"]
+  R --> M["Merge to main"]
+  M --> CI2["CI: apply the<br/>saved plan"]
+```
+
+1. A change is proposed in a **pull request**.
+2. CI runs `fmt -check`, `validate`, **security scanning**, and `terraform plan` against the real environment, and posts the plan on the pull request.
+3. Reviewers read the **code and the plan**: every `-/+` (replace) and `-` (destroy).
+4. After approval and merge, CI applies **exactly the reviewed plan** (`terraform plan -out=tfplan`, then `terraform apply tfplan`), so nothing that changed in between sneaks in.
+5. CI authenticates to the cloud with **OIDC** ([chapter 12.4](./iam.mdx)): short-lived credentials, issued only to a pipeline running on the `main` branch, so no long-lived cloud keys sit in CI's secrets. Pull-request plans use a separate, read-only role.
+
+Tools such as **Atlantis**, **HCP Terraform** and **Spacelift** implement this workflow; plain GitHub Actions can too. A scheduled `terraform plan -detailed-exitcode` (exit code 2 means "changes") catches **drift**: someone changing reality by hand.
+
+### Scanning infrastructure code
+
+Scanners such as **Trivy** and **Checkov** read Terraform (and Kubernetes manifests, Dockerfiles, Helm charts) and flag risky configurations **before** they exist: storage buckets open to the public, unencrypted disks, firewall rules open to the whole internet, missing logs. Each finding needs a decision, the same triage you'd do for vulnerable packages ([chapter 9.4](../containers/images-in-production.mdx)):
+
+- **Fix it**, if the scanner is right.
+- **Accept it, in writing**, if it's deliberate: a comment next to the resource saying why, so the next reader (and the scanner) knows it was a choice, not an accident.
+
+Then make the scan **blocking** in CI, so any *new* finding fails the build until it gets one of those two decisions.
+
+### Refactoring without destroying: moved and import
+
+Terraform identifies everything by its **address**. Rename `aws_db_instance.postgres` to `aws_db_instance.main` in the code and Terraform sees one address disappear and a new one appear: "destroy the old database, create a new one". For a database, that's a disaster. A **`moved`** block says they're the same object:
+
+```hcl
+moved {
+  from = aws_db_instance.postgres
+  to   = aws_db_instance.main
+}
+```
+
+The plan then says `has moved to` instead of `must be replaced`, with **0 to destroy**. The same works for whole modules, which you'll do in the lab.
+
+The reverse problem, resources someone built by hand that Terraform doesn't know about yet, is solved by an **`import`** block:
+
+```hcl
+import {
+  to = aws_s3_bucket.legacy_uploads
+  id = "example-legacy-uploads"     # the real bucket's name
+}
+```
+
+`terraform plan -generate-config-out=generated.tf` can even write the matching resource block for you to review. This is how teams move a console-built account into code piece by piece, without recreating anything.
+
+:::warning[What can go wrong]
+- **State in Git, or in an unencrypted bucket**: every secret in it is exposed. Encrypt, version, restrict, and prefer write-only arguments.
+- **No locking**: two concurrent applies corrupt the state.
+- **Applying a different plan than the one reviewed**: always apply the saved plan file in CI.
+- **Renames without `moved`**: a tidy-up that destroys production resources.
+- **One giant configuration** holding everything: slow plans, a huge blast radius, and one team's mistake blocking everyone. Split by lifecycle and ownership (network, data, application), each with its own state, passing values between them through outputs.
+- **Unpinned module versions**: an upstream change quietly alters your infrastructure on the next `init`.
+:::
+
+:::info[In the real world]
+Mature teams treat infrastructure changes exactly like application changes: small pull requests, automated plans and scans, reviews, applied by a pipeline with short-lived credentials, and drift checked nightly. The foundations (accounts, networks, identity) are managed by a platform team in separate states, and application teams consume them through modules and outputs. Nobody has permanent admin rights to production; emergency "break-glass" access exists, but it's logged and alerts someone.
+:::
+
+---
+
+## Apply it to snip: a production-shaped AWS configuration
+
+The project this handbook builds, **snip** (a URL shortener, [chapter 0.3](../start/meet-snip.mdx)), has an AWS configuration in `snip/infra/aws/`: a network module, security groups, a managed Postgres (RDS) and Redis (ElastiCache), the API and worker on ECS Fargate (AWS's serverless containers), a load balancer, and the IAM roles to tie them together. This repository's CI validates and scans it on every push. It's never applied there, because applying it costs real money. Every practice above appears in it.
+
+**Remote state per environment.** `versions.tf` has an empty `backend "s3" {}`, filled in from `envs/staging.backend.hcl` or `envs/production.backend.hcl`:
+
+```hcl title="snip/infra/aws/envs/staging.backend.hcl"
+bucket       = "YOUR-UNIQUE-BUCKET-snip-tfstate"
+key          = "snip/staging/terraform.tfstate"
+region       = "eu-west-1"
+encrypt      = true
+use_lockfile = true # S3-native state locking
+```
+
+**No password in state.** The database password is ephemeral and reaches AWS only through write-only arguments, once for RDS and once for the connection string in Secrets Manager:
+
+```hcl title="snip/infra/aws/main.tf (excerpt)"
 ephemeral "random_password" "db" {
   length  = 32
   special = false
@@ -69,8 +332,11 @@ ephemeral "random_password" "db" {
 
 resource "aws_db_instance" "postgres" {
   # …
-  password_wo         = ephemeral.random_password.db.result   # write-only: sent to AWS, never saved
-  password_wo_version = 1                                     # bump to rotate
+  password_wo         = ephemeral.random_password.db.result
+  password_wo_version = 1 # bump to rotate
+  # …
+  deletion_protection = var.environment == "production"
+  skip_final_snapshot = var.environment != "production"
 }
 
 resource "aws_secretsmanager_secret_version" "db_url" {
@@ -80,90 +346,17 @@ resource "aws_secretsmanager_secret_version" "db_url" {
 }
 ```
 
-- An **ephemeral** resource produces a value that exists only during the run.
-- A **write-only argument** (the `_wo` suffix) is sent to the provider's API but not recorded. Terraform can't compare it later, so a **version** number tells it when to send a new one.
+snip's containers read the connection string from Secrets Manager at start-up, using the execution role from [chapter 12.4](./iam.mdx). Compare the local stack in `snip/infra/local/` ([chapter 12.5](./terraform-from-zero.mdx)): it uses an ordinary `random_password`, so its state *does* hold the password. Fine on a laptop, not in production.
 
-The password goes from Terraform straight to RDS and Secrets Manager. snip's tasks read it from Secrets Manager at start-up ([chapter 12.4](./iam.mdx)'s execution role), and the state never contains it. Compare the local stack from [chapter 12.5](./terraform-from-zero.mdx), which uses an ordinary `random_password` and whose state *does* hold the password: fine on a laptop, not in production.
+**A module for the network.** `main.tf` calls `module "network" { source = "./modules/network" … }`. Inside are the VPC, subnets, gateways and route tables from [chapter 12.2](./cloud-networking.mdx), behind three inputs (`name`, `cidr`, `az_count`) and three outputs (`vpc_id`, `public_subnet_ids`, `private_subnet_ids`). The database, for example, uses `module.network.private_subnet_ids` and knows nothing else about how the network is built.
 
----
+**Two environments, one codebase.** `envs/staging.tfvars` sets `api_count = 1`, `db_instance_class = "db.t4g.micro"`, `multi_az = false`; `envs/production.tfvars` sets `3`, `"db.t4g.small"` and `true`. Production alone gets deletion protection and a final snapshot.
 
-## Modules: reusable infrastructure
+**Lock files for every platform.** `snip/infra/aws/.terraform.lock.hcl` holds five `h1:` hashes per provider, so `init` works on Linux, macOS (Intel and Apple Silicon) and Windows.
 
-A **module** is a directory of Terraform files with inputs (variables) and outputs, used from other configurations like a function. snip's network is one:
+### What the scanner found
 
-```hcl title="main.tf"
-module "network" {
-  source = "./modules/network"
-  name   = local.name
-  cidr   = var.vpc_cidr
-}
-
-# …later, other resources use its outputs:
-subnets = module.network.private_subnet_ids
-```
-
-Inside `modules/network/` are the VPC, subnets, gateways and route tables from [chapter 12.2](./cloud-networking.mdx), exposing just three outputs: `vpc_id`, `public_subnet_ids` and `private_subnet_ids`. The rest of the configuration doesn't need to know how the network is built.
-
-Modules come from local paths, Git repositories, or registries (the public **Terraform Registry** has widely used community modules, such as a full-featured VPC module). Good modules follow the same advice as good code: a small, clear interface; sensible, secure defaults; pinned versions when you consume them (`version = "~> 5.0"`); and not too many options. A module with 80 variables is a configuration language of its own.
-
----
-
-## Environments: one codebase, several deployments
-
-Staging and production should be built from **the same code**, differing only in inputs. snip does it with a variables file and a backend file per environment:
-
-```text
-snip/infra/aws/
-├── main.tf, compute.tf, iam-github.tf, …
-└── envs/
-    ├── staging.tfvars            environment = "staging",    api_count = 1, multi_az = false
-    ├── staging.backend.hcl       its own state file
-    ├── production.tfvars         environment = "production", api_count = 3, multi_az = true
-    └── production.backend.hcl
-```
-
-```bash
-terraform init  -backend-config=envs/production.backend.hcl -reconfigure
-terraform plan  -var-file=envs/production.tfvars
-```
-
-The code expresses the differences as logic on inputs, for example `deletion_protection = var.environment == "production"`. Separate state files mean a mistake in staging can't touch production's state.
-
-Other common layouts: **one directory per environment** (each calling shared modules; more explicit, some duplication) and **Terraform workspaces** (several states for one configuration; convenient, but easy to apply to the wrong one, so many teams avoid them for environments). Whatever the layout, the strongest isolation is **separate cloud accounts** per environment ([chapter 12.4](./iam.mdx)), each with its own state and credentials.
-
----
-
-## Lock files across platforms
-
-[Chapter 12.5](./terraform-from-zero.mdx) said to commit `.terraform.lock.hcl`. There's a trap: the lock records checksums of provider packages, which differ per operating system and CPU. A lock created on a Linux machine can hold only Linux checksums, and then `terraform init` on a colleague's Mac fails with "the checksums don't match". snip's lock files were generated for all the platforms readers use:
-
-```bash
-terraform providers lock \
-  -platform=linux_amd64 -platform=linux_arm64 \
-  -platform=darwin_amd64 -platform=darwin_arm64 -platform=windows_amd64
-```
-
-Each provider in `snip/infra/aws/.terraform.lock.hcl` has five `h1:` hashes, one per platform.
-
----
-
-## A team workflow
-
-Nobody runs `terraform apply` for production from a laptop. The common pattern:
-
-1. A change is proposed in a **pull request**.
-2. CI runs `fmt -check`, `validate`, **security scanning**, and `terraform plan` against the real environment, and posts the plan on the PR.
-3. Reviewers read the **code and the plan**: every `-/+` and `-`.
-4. After approval and merge, CI runs `apply` with **exactly that plan** (`terraform plan -out=tfplan`, then `terraform apply tfplan`), so what was reviewed is what happens.
-5. CI authenticates to the cloud with **OIDC** ([chapter 12.4](./iam.mdx)), using a role that only the main-branch pipeline can assume. A separate, read-only role is used for PR plans.
-
-Tools like **Atlantis**, **HCP Terraform** and similar services implement this workflow; plain GitHub Actions can too. A scheduled `plan -detailed-exitcode` job catches drift ([chapter 12.5](./terraform-from-zero.mdx)).
-
-### Scanning infrastructure code
-
-Scanners read Terraform (and Kubernetes manifests, Dockerfiles, Helm charts) and flag risky configurations **before** they exist: public buckets, unencrypted disks, security groups open to the world, missing logging. snip's CI runs **Trivy** in configuration mode over `snip/infra` and `snip/deploy` on every push:
-
-The first time it ran against snip's AWS configuration, it reported four findings:
+CI runs Trivy in configuration mode over `snip/infra` and `snip/deploy`. The first time it read the AWS configuration, it reported four findings:
 
 ```text
 aws/compute.tf (terraform)
@@ -174,7 +367,7 @@ aws/main.tf (terraform)
 AWS-0104 (CRITICAL): Security group rule allows unrestricted egress to any IP address.
 ```
 
-Each got a decision, which is what scanning is for ([chapter 9.4](../containers/images-in-production.mdx)'s triage):
+Each got a decision:
 
 | Finding | Decision |
 |---|---|
@@ -183,77 +376,90 @@ Each got a decision, which is what scanning is for ([chapter 9.4](../containers/
 | **AWS-0053**: load balancer is public | **Accepted**: it's snip's front door, public on purpose |
 | **AWS-0054**: no HTTPS listener | **Accepted for the example** (no domain to get a certificate for), with a note that production must add HTTPS |
 
-Accepted findings are recorded **in the code**, next to the resource, with the reason:
+Accepted findings are recorded in the code, next to the resource:
 
-```hcl
+```hcl title="snip/infra/aws/compute.tf (excerpt)"
 #trivy:ignore:AWS-0053 snip's load balancer is its public front door: internet-facing on purpose
 resource "aws_lb" "this" {
 ```
 
-The same scan found that the **Postgres and Redis Kubernetes manifests** ([chapter 10.2](../kubernetes/core-objects.mdx)) ran with default security contexts, which allow root. snip's own Pods were already locked down, but these two, adapted from the Compose stack, weren't. They now run as the images' non-root users with read-only root filesystems, like snip. After that, the scan reported zero HIGH or CRITICAL findings, and CI was switched from *report only* to **blocking**: any new finding now fails the build until it's fixed or accepted with a written reason.
-
-### Refactoring without destroying: moved and import
-
-Renaming a resource in code (`aws_db_instance.postgres` → `aws_db_instance.main`) looks to Terraform like "delete the old one, create a new one", which for a database is a disaster. A **`moved`** block tells it they're the same:
-
-```hcl
-moved {
-  from = aws_db_instance.postgres
-  to   = aws_db_instance.main
-}
-```
-
-The plan then shows a move, not a replacement. Likewise, **`import`** blocks bring existing, hand-made resources under Terraform's management without recreating them:
-
-```hcl
-import {
-  to = aws_s3_bucket.legacy_uploads
-  id = "snip-legacy-uploads"
-}
-```
-
-`terraform plan -generate-config-out=generated.tf` can even write the resource block for you. This is how teams gradually move a console-built account into code.
-
-:::warning[What can go wrong]
-- **State in Git, or in an unencrypted bucket**: every secret in it is exposed. Encrypt, version, restrict, and prefer write-only arguments.
-- **No locking**: two concurrent applies corrupt state.
-- **Applying a different plan than the one reviewed**: always apply the saved plan file in CI.
-- **Renames without `moved`**: a refactor that destroys production resources.
-- **Giant single configuration** holding everything: slow plans, a huge blast radius, and one team's mistake blocking everyone. Split by lifecycle and ownership (network, data, application), each with its own state.
-- **Module versions not pinned**: an upstream change silently alters your infrastructure on the next init.
-:::
-
-:::info[In the real world]
-Mature teams treat infrastructure changes exactly like application changes: small pull requests, automated plans and scans, reviews, applied by a pipeline with short-lived credentials, and drift detected nightly. The foundations (accounts, networks, identity) are managed by a platform team in separate states, and application teams consume them through modules and outputs. Nobody has permanent admin rights to production. Changes go through the pipeline, and break-glass access is logged and alerted.
-:::
+The same scan found that the Postgres and Redis **Kubernetes** manifests ([chapter 10.2](../kubernetes/core-objects.mdx)) ran with default security settings, which allow running as root. snip's own Pods were already locked down; these two, adapted from the Compose stack, weren't. They now run as the images' non-root users with read-only root filesystems. With zero HIGH or CRITICAL findings left, CI switched the scan from *report only* to **blocking**.
 
 ---
 
 ## Lab
 
-Free, **no cloud account needed**: you'll plan-check the real AWS configuration without applying it. (Everything here also runs in snip's CI.)
+Free, on your computer with Docker; **no cloud account needed**. Steps 1–3 are a standalone module exercise; steps 4–6 read snip's AWS configuration without applying it.
 
-1. **Initialise without a backend, and validate.**
+1. **Build a module and call it twice.** In a new folder, create `modules/site/main.tf` and `main.tf` from the "Modules" section, then:
+   ```bash
+   terraform init                      # finds the module and the provider
+   terraform apply                     # 3 to add: one image, two containers
+   curl localhost:8091; curl localhost:8092
+   terraform state list                # module.blog.docker_container.web, …
+   ```
+   Notice the addresses: each module call gets its own copy of the module's resources.
+
+2. **Refactor without destroying.** Replace the two `module` blocks and the output with one `for_each` call plus two `moved` blocks:
+   ```hcl
+   locals {
+     sites = {
+       blog = { port = 8091, message = "The blog" }
+       docs = { port = 8092, message = "The docs" }
+     }
+   }
+
+   module "site" {
+     source   = "./modules/site"
+     for_each = local.sites
+     name     = "site-${each.key}"
+     port     = each.value.port
+     message  = each.value.message
+     image_id = docker_image.nginx.image_id
+   }
+
+   moved {
+     from = module.blog
+     to   = module.site["blog"]
+   }
+
+   moved {
+     from = module.docs
+     to   = module.site["docs"]
+   }
+
+   output "urls" {
+     value = [for s in module.site : s.url]
+   }
+   ```
+   ```bash
+   terraform init && terraform plan    # "has moved to" … Plan: 0 to add, 0 to change, 0 to destroy.
+   ```
+   Now delete the two `moved` blocks and plan again: `2 to add, 0 to change, 2 to destroy`. That's what an innocent-looking rename does without them. Put them back, `terraform apply`, and the containers are never touched.
+
+3. **Clean up.** `terraform destroy`, then `docker ps -a --filter name=site-` shows nothing.
+
+4. **Validate a real cloud configuration without a cloud account.** Clone this handbook's repository if you haven't (`git clone https://github.com/jawwadzafar/zero-to-prod ~/code/zero-to-prod`):
    ```bash
    cd ~/code/zero-to-prod/snip/infra/aws
    terraform init -backend=false        # skip the S3 backend: no AWS account needed
    terraform validate                   # Success! The configuration is valid.
-   terraform fmt -check -recursive
+   grep -c h1: .terraform.lock.hcl      # 10: five platforms × two providers
    ```
 
-2. **Find the secret-handling.** Search the configuration for `ephemeral` and `_wo`. Then look at the local stack (`../local/main.tf`): which of the two would store the database password in state, and why? (The local stack: it uses a regular `random_password` resource, whose result is an attribute saved in state.)
+5. **Find the secret handling and the environment differences.**
+   ```bash
+   grep -n 'ephemeral\|_wo' *.tf                     # the password's whole journey
+   diff envs/staging.tfvars envs/production.tfvars   # what differs between environments
+   grep -n 'environment ==\|environment !=' *.tf     # where the code behaves differently for production
+   ```
+   Then open `../local/main.tf`: which of the two configurations stores its database password in state, and why? (The local one: a regular `random_password` resource's `result` is an attribute, and attributes are saved.)
 
-3. **Trace a module.** In `main.tf`, find `module "network"`. In `modules/network/`, list its inputs (`variables.tf`) and outputs (`outputs.tf`). Which resources in `compute.tf` depend on the network, and through which outputs?
-
-4. **Compare environments.** Diff the two variable files: `diff envs/staging.tfvars envs/production.tfvars`. Then find every place the code behaves differently for production (`grep -n 'environment ==\|environment !=' *.tf`).
-
-5. **Scan it yourself** (optional, with Docker):
+6. **Scan it yourself** (optional):
    ```bash
    docker run --rm -v "$PWD/..:/src:ro" aquasec/trivy:0.74.0 config --severity HIGH,CRITICAL /src/aws
    ```
-   For each finding, decide: fix it, or accept it with a written reason?
-
-6. **Read the lock file.** `grep -c h1: .terraform.lock.hcl` counts the platform checksums. Why would a lock with only Linux checksums break for Mac users?
+   You should see no failures: the remaining findings are accepted with `#trivy:ignore` comments. Delete the `drop_invalid_header_fields` line from `compute.tf`, scan again, and watch AWS-0052 come back. (Then `git checkout compute.tf`.)
 
 ## Self-check
 
@@ -269,7 +475,7 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'To keep the code private, since state holds a copy of it',
       ],
       answer: 1,
-      explain: 'Everyone must work from the same state, and locking stops two concurrent applies from corrupting it. One shared, locked, encrypted, versioned copy is the team’s record of what exists.',
+      explain: 'Everyone must work from the same record of what exists, and locking stops two concurrent runs overwriting each other. Terraform happily applies from local state (that is the problem: each person has a different copy), and state holds resource attributes, not your code.',
     },
     {
       q: 'Does sensitive = true on an output keep the value out of the state file?',
@@ -280,18 +486,18 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'Only with remote state, which drops sensitive values when saving',
       ],
       answer: 1,
-      explain: 'No: it only hides the value in terminal output. It’s still stored in state in plain text. To keep secrets out of state, use ephemeral values and write-only arguments, or let the provider manage the secret.',
+      explain: 'sensitive only hides the value in terminal output. State still stores it in plain text; backend encryption protects the whole file at rest, not that value from anyone who can read the state. To keep a secret out of state, use an ephemeral value and write-only arguments.',
     },
     {
-      q: 'How does snip’s AWS configuration keep the database password out of state?',
+      q: 'How do ephemeral values and write-only arguments keep a database password out of state?',
       options: [
-        'It asks for the password at apply time, and Terraform forgets it afterwards',
-        'An ephemeral password goes into write-only arguments, never recorded',
-        'It marks the password output sensitive, which keeps it out of state',
-        'It has no password; the database only accepts IAM login',
+        'Terraform asks for the password at apply time, then deletes it from state afterwards',
+        'The value exists only during the run and is sent to the API without being recorded',
+        'They mark the password sensitive, which keeps it out of state',
+        'They encrypt the password inside the state file',
       ],
       answer: 1,
-      explain: 'An ephemeral random_password feeds write-only arguments (password_wo, secret_string_wo), which are sent to AWS but never recorded. The value exists only during the apply; a version number triggers rotation.',
+      explain: 'An ephemeral resource’s value is never written to plan or state, and a write-only (_wo) argument sends it to the provider without recording it. Because Terraform can’t compare a value it never saved, a companion _version number tells it when to send a new one.',
     },
     {
       q: 'You rename a resource in code. What prevents Terraform from destroying and recreating it?',
@@ -302,7 +508,7 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'terraform refresh, which rewrites the old address in the state file to match',
       ],
       answer: 1,
-      explain: 'moved tells Terraform it’s the same object under a new name. The plan shows a move, not a replacement.',
+      explain: 'moved tells Terraform the old and new addresses are the same object, so the plan shows "has moved to" and 0 to destroy. fmt only reformats files, and refresh only re-reads attributes from the real world; neither renames anything.',
     },
     {
       q: 'Why apply the exact saved plan file in CI instead of running apply fresh?',
@@ -313,40 +519,40 @@ Free, **no cloud account needed**: you'll plan-check the real AWS configuration 
         'It skips validation and refresh, so the apply finishes much sooner',
       ],
       answer: 1,
-      explain: 'So what reviewers approved is exactly what happens, even if something changed between review and apply. A fresh apply computes a new plan, which might differ from the reviewed one.',
+      explain: 'A fresh apply computes a new plan, which may differ from the reviewed one if reality or the code changed in between. Applying the saved file guarantees the reviewed actions, and Terraform refuses it if the state has moved on. Both kinds of apply take the lock.',
     },
     {
-      q: 'Why did snip’s lock files need checksums for five platforms?',
+      q: 'A colleague on a Mac gets a checksum error at terraform init, but it works on your Linux laptop and in CI. What is the likely cause?',
       options: [
-        'For speed, so each machine downloads only its own provider build',
-        'Providers differ per OS and CPU; Linux-only checksums fail on Mac and Windows',
-        'Terraform requires a checksum for each platform it has a release for',
-        'For state encryption, with one key for each developer’s machine',
+        'The Mac has an older Terraform, which can’t read the lock file',
+        'The lock file only has Linux checksums; run terraform providers lock for every platform',
+        'The state file is corrupted and must be restored from a backup',
+        'macOS blocks providers that aren’t signed by HashiCorp',
       ],
       answer: 1,
-      explain: 'Provider packages differ per OS and CPU; a lock with only Linux checksums makes terraform init fail on Macs and Windows. terraform providers lock -platform=… records checksums for every platform your team and CI use.',
+      explain: 'Provider packages differ per OS and CPU, and the lock records checksums of the packages it saw. A lock written on Linux may hold only Linux hashes. terraform providers lock -platform=… records all of them. The state has nothing to do with init’s provider checks.',
     },
   ]}
 />
 
 <details>
-<summary>Design the Terraform setup for snip across staging and production accounts, including who can apply what.</summary>
+<summary>Design the Terraform setup for a service like snip across staging and production accounts, including who can apply what.</summary>
 
-- **Accounts**: separate AWS accounts for staging and production (and a third for shared state and logs), in one organisation with guardrail policies.
-- **State**: an S3 bucket per environment (versioned, encrypted, locked), in the shared account or each environment's own. Only the pipeline roles can write to it.
-- **Code**: one configuration (`snip/infra/aws`) plus per-environment `tfvars` and backend files. Shared building blocks (the network) as pinned modules.
-- **Pipeline**: on a PR, CI assumes a **read-only plan role** in each account via OIDC, runs fmt/validate/scan/plan, and posts the plans. On merge to `main`, CI assumes the **apply role** (trust restricted to `main`, [chapter 12.4](./iam.mdx)), applies the saved plan to staging, runs smoke tests, then waits for approval before production.
-- **Secrets**: ephemeral and write-only for generated passwords; everything else in Secrets Manager, never in tfvars or state.
+- **Accounts**: separate cloud accounts for staging and production (and a third for shared state and logs), in one organisation with guardrail policies.
+- **State**: a versioned, encrypted, locked bucket per environment. Only the pipeline roles can write to it.
+- **Code**: one configuration plus per-environment `tfvars` and backend files. Shared building blocks (the network) as pinned modules.
+- **Pipeline**: on a pull request, CI assumes a **read-only plan role** in each account via OIDC, runs fmt, validate, scan and plan, and posts the plans. On merge to `main`, CI assumes the **apply role** (trusted only for `main`, [chapter 12.4](./iam.mdx)), applies the saved plan to staging, runs smoke tests, then waits for a human approval before production.
+- **Secrets**: ephemeral values and write-only arguments for generated passwords; everything else in a secrets manager, never in `tfvars` or state.
 - **Humans**: read-only console access by default; a logged, time-limited break-glass role for emergencies.
-- **Drift**: a nightly `plan -detailed-exitcode` per environment, alerting on changes.
+- **Drift**: a nightly `plan -detailed-exitcode` per environment, alerting on exit code 2.
 
 </details>
 
 <details>
 <summary>An apply failed halfway: some resources were created, others weren't. What state are you in, and what do you do?</summary>
 
-Terraform records each resource in state **as it's created**, so the state reflects exactly what exists: the created resources are in it, the failed and uncreated ones aren't. It's not "corrupted", just partially applied. Resources whose creation failed partway may be marked **tainted** (to be replaced next time).
+Terraform records each resource in state **as soon as it's created**, so the state reflects exactly what exists: the created resources are in it, the failed and uncreated ones aren't. It's not corrupted, just partially applied. A resource whose creation failed partway may be marked **tainted**, meaning "replace this next time".
 
-What to do: read the error (often a permission, a quota, a name conflict or a transient API failure), fix the cause, and run `plan` again. It shows only what's still missing (plus replacements for tainted resources). Then `apply`. Don't delete or hand-edit the state file. If the state lock was left behind by the crashed run, `terraform force-unlock <ID>` releases it, once you're sure no other run is active.
+What to do: read the error (often a permission, a quota, a name conflict or a transient API failure), fix the cause, and run `plan` again. It shows only what's still missing, plus replacements for anything tainted. Then `apply`. Don't delete or hand-edit the state file. If the crashed run left its lock behind, `terraform force-unlock <ID>` releases it, once you're sure no other run is active.
 
 </details>

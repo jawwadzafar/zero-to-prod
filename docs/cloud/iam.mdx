@@ -6,7 +6,7 @@ description: "Who can do what in a cloud account: identities (users, groups, rol
 
 # 12.4 IAM: identity & permissions in the cloud
 
-Everything in a cloud account is an API call: creating a database, reading a secret, deleting a bucket, launching a hundred machines. **IAM** (identity and access management) decides, for every single call, **who** is making it and **whether they're allowed**. It's the most important security control in the cloud, and the one behind most cloud breaches, usually through credentials that were too powerful, lived too long, or leaked. This chapter explains how cloud permissions work, using AWS's model (Azure and Google Cloud use different names for the same ideas). It covers the modern best practice of **temporary credentials everywhere** and walks through snip's two real roles: the one ECS uses to start snip's tasks, and the one GitHub Actions uses to deploy with **no stored keys at all**. The lab reads a real token from GitHub, and that token revealed a bug in this handbook's own configuration.
+Everything in a cloud account is an API call: creating a database, reading a secret, deleting a bucket, launching a hundred machines. **IAM** (identity and access management) decides, for every single call, **who** is making it and **whether they're allowed**. It's the most important security control in the cloud, and the one behind most cloud breaches, usually through credentials that were too powerful, lived too long, or leaked. This chapter explains how cloud permissions work, using AWS's model (Azure and Google Cloud use different names for the same ideas). It covers the modern best practice of **temporary credentials everywhere**, then reads two real roles from snip, the URL shortener this handbook builds: the one AWS uses to start snip's containers, and the one GitHub Actions uses to deploy with **no stored keys at all**. The lab reads a real token from GitHub, and that token revealed a bug in this handbook's own configuration.
 
 ## What you'll learn
 
@@ -37,18 +37,7 @@ Human access today usually goes through **single sign-on** (SSO): you log in wit
 
 ## Policies: what is allowed?
 
-Permissions are written as **policies**: JSON documents with **statements**. Each statement says an **Effect** (Allow or Deny) for **Actions** (API operations like `s3:GetObject`) on **Resources** (identified by **ARNs**, Amazon Resource Names), optionally under **Conditions**. snip's ECS execution role may read exactly one secret:
-
-```hcl
-data "aws_iam_policy_document" "read_db_secret" {
-  statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.db_url.arn]   # this secret, and no other
-  }
-}
-```
-
-Terraform renders that as the JSON AWS reads:
+Permissions are written as **policies**: JSON documents with **statements**. Each statement says an **Effect** (Allow or Deny) for **Actions** (API operations like `s3:GetObject`) on **Resources** (identified by **ARNs**, Amazon Resource Names), optionally under **Conditions**. Here is a complete policy that lets an application read exactly one secret, its database password, and nothing else:
 
 ```json
 {
@@ -56,10 +45,12 @@ Terraform renders that as the JSON AWS reads:
   "Statement": [{
     "Effect": "Allow",
     "Action": "secretsmanager:GetSecretValue",
-    "Resource": "arn:aws:secretsmanager:eu-west-1:123456789012:secret:snip-staging/database-url-AbCdEf"
+    "Resource": "arn:aws:secretsmanager:eu-west-1:123456789012:secret:shop-prod/database-url-AbCdEf"
   }]
 }
 ```
+
+Read it as a sentence: *allow* the action *read a secret's value* on *this one secret*. `Version` is the policy language's version (always that date). An ARN reads left to right: `arn:aws`, the service (`secretsmanager`), the region, the account number, then the resource's own name. In Terraform you write the same thing as an `aws_iam_policy_document` with `actions` and `resources`; you'll see a real one further down.
 
 ### How a request is evaluated
 
@@ -125,6 +116,17 @@ An application running in the cloud gets its permissions from **where it runs**,
 | GKE / AKS | **Workload Identity** (GKE) / Microsoft Entra Workload ID (AKS) |
 
 The cloud SDKs find these credentials automatically. snip's Go code never contains a secret key, and there's nothing to leak or rotate by hand. snip's tasks don't call AWS APIs at all, so they don't even have a task role: only the **execution role** ECS uses on their behalf to pull the image, write logs and inject the database URL.
+
+That execution role's permission to read the database URL is the one-secret policy from earlier, written in Terraform (`snip/infra/aws/compute.tf`):
+
+```hcl
+data "aws_iam_policy_document" "read_db_secret" {
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.db_url.arn] # this secret, and no other
+  }
+}
+```
 
 ### CI without keys: OIDC federation
 

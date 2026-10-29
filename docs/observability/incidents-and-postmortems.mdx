@@ -6,7 +6,7 @@ description: "What to do when things break, and how to learn from it: declaring 
 
 # 13.5 Incidents & postmortems
 
-Everything in this part so far helps you *notice* that something is wrong. This chapter is about what happens next. Things will break: a dependency dies, a deploy goes bad, a disk fills up, traffic triples overnight. You can't prevent every failure. What separates good teams from struggling ones is how they **respond** (calmly, in a structured way, fixing the damage first) and whether they **learn** (so the same failure doesn't happen twice). This chapter covers both, and it isn't theory: while writing it, we ran a **game day** on snip, froze its Redis on purpose, and found two real bugs that turned a "harmless" cache outage into a total one. You'll see exactly what we saw, the fixes, and the postmortem we wrote. Then, in the lab, you'll run the same game day yourself.
+Logs, metrics, traces and alerts ([chapters 13.1–13.4](./logs.mdx)) help you *notice* that something is wrong. This chapter is about what happens next. Things will break: a dependency dies, a deploy goes bad, a disk fills up, traffic triples overnight. You can't prevent every failure. What separates good teams from struggling ones is how they **respond** (calmly, in a structured way, fixing the damage first) and whether they **learn** (so the same failure doesn't happen twice). This chapter covers both, and it isn't theory: while writing it, we ran a **game day** on snip (the URL shortener this handbook builds), froze its cache on purpose, and found two real bugs that turned a "harmless" cache outage into a total one. You'll see exactly what we saw, the fixes, and the postmortem we wrote. Then, in the lab, you'll run the same game day yourself.
 
 ## What you'll learn
 
@@ -29,9 +29,9 @@ An **incident** is an unplanned event that hurts (or is about to hurt) your user
 
 **Declaring** an incident is a deliberate act: someone says "this is an incident", opens a dedicated channel, and the response structure kicks in. Teams that hesitate to declare lose the most time, because five people investigate the same thing separately, nobody tells users anything, and nobody is sure who decides. A good rule: **if you're wondering whether it's an incident, declare it.** Downgrading a false alarm costs a minute; a late declaration costs much more.
 
-Most teams grade incidents by **severity level** (often written **SEV1**, **SEV2**, **SEV3**), so everyone knows how loud to be. Here's what they'd mean for snip:
+Most teams grade incidents by **severity level** (often written **SEV1**, **SEV2**, **SEV3**), so everyone knows how loud to be. Here's what they could mean for a URL shortener like snip:
 
-| Level | Means | snip example | Response |
+| Level | Means | Example | Response |
 |---|---|---|---|
 | **SEV1** | Core function down for many users, or data being lost or leaked | Redirects failing for everyone; an API key leak | Page immediately, all hands, updates every 15–30 minutes |
 | **SEV2** | Core function degraded, or a minor function down | Redirects slow (the latency SLO burning); link creation failing | Page the on-call, updates every 30–60 minutes |
@@ -75,7 +75,7 @@ flowchart LR
 - **Resolve**: fix the underlying problem for real.
 - **Learn**: the postmortem, and the action items that come out of it.
 
-The most important habit here is the gap between **mitigation** and **resolution**. During an incident, your job is to **stop the bleeding**, not to understand the wound. If snip's errors started 3 minutes after a deploy, **roll back now** and investigate afterwards, with users happy again and no pressure. Other mitigations: scale out, fail over to a replica, turn off a feature flag, block an abusive client, restart the stuck thing (and take a memory dump first if you can). All of them buy time without requiring the answer.
+The most important habit here is the gap between **mitigation** and **resolution**. During an incident, your job is to **stop the bleeding**, not to understand the wound. If errors started 3 minutes after a deploy, **roll back now** and investigate afterwards, with users happy again and no pressure. Other mitigations: scale out, fail over to a replica, turn off a feature flag, block an abusive client, restart the stuck thing (and take a memory dump first if you can). All of them buy time without requiring the answer.
 
 Engineers find this hard, because the puzzle is right there and it's interesting. But every minute spent understanding the bug before mitigating is a minute users are suffering. Understanding comes in the postmortem.
 
@@ -145,7 +145,7 @@ A postmortem is only worth something if things change. Good action items are:
 A fire drill. Nobody waits for a real fire to discover that the fire exit is locked, or that half the staff don't know where the assembly point is. You practise when it's calm, safe and scheduled, and fix what you find.
 :::
 
-A **game day** is a planned exercise where you deliberately break part of your system (stop a database, cut the network to a service, fill a disk) and watch what happens. You check your **assumptions** ("the cache is optional, so snip will be fine"), your **alerts** (did anything fire?), your **dashboards** (could you see it?) and your **runbooks** (did the steps work?).
+A **game day** is a planned exercise where you deliberately break part of your system (stop a database, cut the network to a service, fill a disk) and watch what happens. You check your **assumptions** ("the cache is optional, so the service will be fine"), your **alerts** (did anything fire?), your **dashboards** (could you see it?) and your **runbooks** (did the steps work?).
 
 **Chaos engineering** is the more systematic version: running such experiments regularly, sometimes automatically and in production, with a hypothesis written down first. Netflix made it famous with *Chaos Monkey*, a tool that randomly terminates production servers during working hours, so engineers are forced to build services that survive it. You don't need to go that far. A game day in a local or staging environment, every few months, finds a surprising amount.
 

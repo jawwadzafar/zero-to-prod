@@ -6,7 +6,7 @@ description: "The building blocks you rent: compute (VMs, containers on ECS/Farg
 
 # 12.3 Compute, storage & managed databases
 
-[Chapter 12.2](./cloud-networking.mdx) built snip a network. Now it needs things to put in it: somewhere to **run** snip, somewhere to **keep files**, and a **database** that doesn't lose data when a machine dies. Every cloud offers several versions of each, from "here's a raw virtual machine, good luck" to "give us your container and forget about servers". The skill is choosing the least work that meets your needs. This chapter surveys the options for compute, storage and databases, explains what "managed" really buys you, and walks through the choices in snip's AWS configuration: containers on **ECS Fargate**, a managed **Postgres** and **Redis**, and logs in the cloud's log service. You'll also use real **object storage** over plain HTTP, no account needed, to see how it differs from the filesystem on your laptop.
+Every web application needs the same three things: somewhere to **run** its code, somewhere to **keep files** (uploads, backups, logs), and a **database** that doesn't lose data when a machine dies. Every cloud offers several versions of each, from "here's a raw virtual machine, good luck" to "give us your container and forget about servers". The skill is choosing the least work that meets your needs. This chapter surveys the options for compute, storage and databases, explains what "managed" really buys you, and lets you use real **object storage** over plain HTTP, no account needed, to see how it differs from the filesystem on your laptop. At the end you'll read how snip, the URL shortener this handbook builds, puts the pieces together on AWS: containers on **ECS Fargate**, a managed **Postgres** and **Redis**, and logs in the cloud's log service.
 
 ## What you'll learn
 
@@ -14,16 +14,16 @@ description: "The building blocks you rent: compute (VMs, containers on ECS/Farg
 - The three kinds of storage: **block**, **object** and **file**, and when to use each.
 - **Object storage** in practice: buckets, keys, public access, pre-signed URLs, lifecycle rules.
 - **Managed databases**: failover, read replicas, backups, point-in-time recovery, connection limits.
-- How snip's AWS configuration puts it all together.
+- How a real service's AWS configuration puts it all together.
 
 ---
 
-## Compute: where snip runs
+## Compute: from a raw machine to "just run my container"
 
 | Option | You provide | The provider handles | Scales by | Good for |
 |---|---|---|---|---|
 | **Virtual machines** (EC2, Compute Engine, Azure VMs) | An OS image, patches, your service (systemd, [chapter 2.5](../linux/running-a-linux-server.mdx)) | Hardware, hypervisor | Adding machines (autoscaling groups) | Special OS needs, legacy software, full control |
-| **Containers, serverless** (ECS on **Fargate**, **Cloud Run**, Azure Container Apps, App Runner) | An image and its settings | Servers, OS, placement, scaling | Adding tasks, automatically | Most web services and APIs, including snip |
+| **Containers, serverless** (ECS on **Fargate**, **Cloud Run**, Azure Container Apps, App Runner) | An image and its settings | Servers, OS, placement, scaling | Adding tasks, automatically | Most web services and APIs |
 | **Managed Kubernetes** (EKS, GKE, AKS) | Workloads ([Part 10](../kubernetes/why-orchestration.mdx)) and some cluster settings | Control plane (and optionally nodes) | Pods and nodes | Many services and teams, the Kubernetes ecosystem |
 | **Functions** (Lambda, Cloud Functions, Azure Functions) | A function per event or route | Everything else; scales to zero | Per request | Event handlers, glue, spiky low-volume work |
 
@@ -31,27 +31,12 @@ description: "The building blocks you rent: compute (VMs, containers on ECS/Farg
 Feeding people at an event: you can hire a **kitchen** and cook everything yourself (VMs); hire **caterers** who bring their own kitchen and just need your recipes (serverless containers); run a **food court** with many vendors and a manager allocating stalls (Kubernetes); or order **per portion from a delivery app** when someone's hungry (functions). Each step hands more work to someone else, and trades control for convenience.
 :::
 
-snip's AWS configuration uses **ECS on Fargate**: AWS's container service, in the mode where you never see a server. You give it a **task definition** (image, CPU, memory, environment, secrets, logging) and a **service** ("keep 2 copies running behind this load balancer"), much like a Kubernetes Deployment and Service:
+The middle row is where most new web services land, so it's worth seeing how one works. Take AWS's version, **ECS on Fargate**: ECS (Elastic Container Service) is AWS's container service, and Fargate is the mode where you never see a server. You hand it two things:
 
-```hcl
-resource "aws_ecs_service" "api" {
-  name            = "api"
-  task_definition = aws_ecs_task_definition.api.arn
-  desired_count   = var.api_count
-  launch_type     = "FARGATE"
-  network_configuration {
-    subnets         = module.network.private_subnet_ids   # spread across both zones
-    security_groups = [aws_security_group.app.id]
-  }
-  deployment_minimum_healthy_percent = 100                # like maxUnavailable: 0
-  deployment_circuit_breaker {
-    enable   = true
-    rollback = true                                       # a deploy that never gets healthy rolls itself back
-  }
-}
-```
+- a **task definition**: which image to run, how much CPU and memory, which environment variables and secrets, where logs go;
+- a **service**: "keep 2 copies of that task running, spread across zones, behind this load balancer, and replace any that fail its health check".
 
-Every idea from Parts [9](../containers/what-a-container-is.mdx)–[11](../shipping/how-software-ships.mdx) is here with different names: the image, readiness via the load balancer's health check on `/readyz`, rolling deploys that keep capacity, automatic rollback, secrets injected at runtime, and logs to a central service. The task definition even runs snip on **ARM** processors (`cpu_architecture = "ARM64"`), which are cheaper on AWS, possible because snip's image is multi-architecture ([chapter 9.4](../containers/images-in-production.mdx)).
+AWS finds the capacity, starts the containers, restarts them when they crash, and rolls out a new image a few copies at a time. If you've met Kubernetes, that's a Deployment and a Service under different names ([chapter 10.2](../kubernetes/core-objects.mdx)); Google's Cloud Run and Azure Container Apps are the same idea with even fewer knobs.
 
 **How to choose:** start at the top of "least work" that fits. For a typical HTTP service, serverless containers (Fargate, Cloud Run) are hard to beat: no servers, no cluster to upgrade, scaling built in. Move to Kubernetes when you have many services and the platform investment pays off ([chapter 10.1](../kubernetes/why-orchestration.mdx)). Use functions for event-driven glue. Use VMs when nothing else fits.
 
@@ -81,38 +66,24 @@ Things to know about object storage:
 
 Running Postgres yourself means installing, configuring, patching, backing up, monitoring, and failing over at 3 a.m. A **managed database** (Amazon RDS and Aurora, Cloud SQL, Azure Database for PostgreSQL) does the operational work. You still own the schema, queries, indexes and data ([chapters 6](../data/why-databases.mdx).x).
 
-| Feature | What it gives you | snip's configuration |
-|---|---|---|
-| **Automated backups** + **point-in-time recovery** (PITR) | Restore the database to any second in the retention window: "just before the bad migration at 14:03" | `backup_retention_period = 7` |
-| **Multi-AZ** | A synchronous **standby** in another zone. If the primary's zone or machine fails, it fails over automatically, typically in a minute or two, with the same endpoint | `multi_az = true` in production, `false` in staging to save money |
-| **Read replicas** | Extra copies for read traffic ([chapter 8.6](../distributed/scaling.mdx)), in the same or another region | (not needed yet) |
-| **Patching and upgrades** | Minor versions applied in a maintenance window you choose | automatic minor upgrades |
-| **Encryption at rest** | Disk and backups encrypted with managed keys | `storage_encrypted = true` |
-| **Monitoring** | Metrics, slow-query insights | `performance_insights_enabled = true` |
-| **Deletion protection** | Refuses deletion until the flag is turned off | on for `production` |
-
-```hcl
-resource "aws_db_instance" "postgres" {
-  engine                  = "postgres"
-  engine_version          = "16"
-  instance_class          = var.db_instance_class     # db.t4g.micro in staging
-  storage_encrypted       = true
-  multi_az                = var.multi_az
-  publicly_accessible     = false                      # private subnets only (chapter 12.2)
-  backup_retention_period = 7
-  deletion_protection     = var.environment == "production"
-  password_wo             = ephemeral.random_password.db.result   # never stored in state (chapter 12.6)
-}
-```
+| Feature | What it gives you |
+|---|---|
+| **Automated backups** + **point-in-time recovery** (PITR) | Restore the database to any second in the retention window: "just before the bad migration at 14:03" |
+| **Multi-AZ** | A synchronous **standby** in another zone. If the primary's zone or machine fails, it fails over automatically, typically in a minute or two, with the same endpoint |
+| **Read replicas** | Extra copies for read traffic ([chapter 8.6](../distributed/scaling.mdx)), in the same or another region |
+| **Patching and upgrades** | Minor versions applied in a maintenance window you choose |
+| **Encryption at rest** | Disk and backups encrypted with managed keys |
+| **Monitoring** | Metrics, slow-query insights |
+| **Deletion protection** | Refuses deletion until the flag is turned off |
 
 Things managed databases **don't** do for you:
 
-- **Connection limits** still apply ([chapter 8.6](../distributed/scaling.mdx)). Twenty snip tasks with ten connections each can exhaust a small instance. Size pools, or use a proxy like **RDS Proxy** (a managed PgBouncer).
+- **Connection limits** still apply ([chapter 8.6](../distributed/scaling.mdx)). Twenty app containers with ten connections each can exhaust a small instance. Size pools, or use a proxy like **RDS Proxy** (a managed PgBouncer).
 - **Bad queries are still slow.** Managed hardware doesn't fix a missing index ([chapter 6.4](../data/indexes-and-performance.mdx)).
 - **Backups you've never restored are hopes, not backups.** Test a restore regularly.
 - **Major version upgrades** still need planning and testing.
 
-snip's **Redis** is managed too (**ElastiCache**; Memorystore on Google Cloud). For snip it's a cache and a queue that can be rebuilt, so a single node is acceptable in staging. Production would use a replicated setup with automatic failover. Other managed building blocks you'll meet: **queues** (SQS, Pub/Sub), **streams** (Kinesis, managed Kafka), and **search** (OpenSearch).
+**Redis** (an in-memory store used for caches and queues) comes managed too: **ElastiCache** on AWS, Memorystore on Google Cloud. Other managed building blocks you'll meet: **queues** (SQS, Pub/Sub), **streams** (Kinesis, managed Kafka), and **search** (OpenSearch).
 
 :::warning[What can go wrong]
 - **Choosing the biggest instance "to be safe"**: databases bill every hour. Start small, watch the metrics, resize (a few minutes' interruption, or none with Multi-AZ).
@@ -125,6 +96,63 @@ snip's **Redis** is managed too (**ElastiCache**; Memorystore on Google Cloud). 
 :::info[In the real world]
 A very common production stack, on any cloud: containers on a serverless container platform or managed Kubernetes, a managed relational database with Multi-AZ and PITR, a managed Redis, object storage for files and backups behind a CDN, a managed queue for background work, and the provider's log and metrics services, often forwarded to a third-party observability tool ([Part 13](../observability/logs.mdx)). Almost none of it runs on a server anyone logs into.
 :::
+
+---
+
+## Apply it to snip: the choices in its AWS configuration
+
+snip's AWS configuration (`snip/infra/aws/`) picks the "least work" option at each layer.
+
+**Compute: ECS on Fargate.** The API service, from `snip/infra/aws/compute.tf`:
+
+```hcl
+resource "aws_ecs_service" "api" {
+  name            = "api"
+  cluster         = aws_ecs_cluster.this.id
+  task_definition = aws_ecs_task_definition.api.arn
+  desired_count   = var.api_count
+  launch_type     = "FARGATE"
+  network_configuration {
+    subnets         = module.network.private_subnet_ids # spread across zones
+    security_groups = [aws_security_group.app.id]
+  }
+  load_balancer {
+    target_group_arn = aws_lb_target_group.api.arn
+    container_name   = "api"
+    container_port   = 8080
+  }
+  deployment_minimum_healthy_percent = 100 # like maxUnavailable: 0 (chapter 10.2)
+  deployment_maximum_percent         = 200
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true # a deployment that never gets healthy rolls itself back
+  }
+  depends_on = [aws_lb_listener.http]
+}
+```
+
+Every idea from Parts [9](../containers/what-a-container-is.mdx)–[11](../shipping/how-software-ships.mdx) is here under different names: the image, readiness through the load balancer's health check on snip's `/readyz`, rolling deploys that never drop below full capacity, automatic rollback, secrets injected at start-up, and logs to a CloudWatch log group kept for 14 days. The task definitions even run snip on **ARM** processors (`cpu_architecture = "ARM64"`), which are cheaper on AWS; that works because snip's image is built for both architectures ([chapter 9.4](../containers/images-in-production.mdx)).
+
+**Database: RDS for Postgres**, from `snip/infra/aws/main.tf` (excerpt):
+
+```hcl
+resource "aws_db_instance" "postgres" {
+  engine                       = "postgres"
+  engine_version               = "16"
+  instance_class               = var.db_instance_class # db.t4g.micro in staging
+  storage_encrypted            = true
+  password_wo                  = ephemeral.random_password.db.result # never stored in state (chapter 12.6)
+  multi_az                     = var.multi_az                         # true only in production
+  publicly_accessible          = false                                # private subnets only (chapter 12.2)
+  backup_retention_period      = 7                                    # PITR over the last 7 days
+  deletion_protection          = var.environment == "production"
+  performance_insights_enabled = true
+}
+```
+
+Each line maps to a row of the managed-database table. Staging saves money with a smaller instance and no standby; production pays for Multi-AZ.
+
+**Cache and queue: ElastiCache for Redis**, a single node. For snip, Redis holds a cache and a click-event queue that can be rebuilt, so one node is acceptable in staging. Production would use a replicated group with automatic failover.
 
 ---
 
