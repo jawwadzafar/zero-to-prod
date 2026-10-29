@@ -58,7 +58,8 @@ chapter.** The owner should never have to repeat what is written here.
 ├── sidebars.ts               ← generated from curriculum.json (only written chapters appear)
 ├── src/
 │   ├── data/curriculum.json  ← SINGLE SOURCE OF TRUTH: tracks, parts, chapters, order, minutes
-│   ├── lib/progress.ts       ← localStorage progress store (done chapters, quiz scores, track)
+│   ├── lib/progress.ts       ← localStorage progress store (done chapters, quiz scores, track, review cards)
+│   ├── lib/review.ts         ← spaced-repetition schedule (Leitner boxes) and question keys
 │   ├── lib/curriculum.ts     ← helpers over curriculum.json
 │   ├── components/
 │   │   ├── Roadmap/          ← roadmap graph + track picker + progress summary
@@ -68,10 +69,11 @@ chapter.** The owner should never have to repeat what is written here.
 │   │   └── ChapterComplete/  ← "Mark complete" + next-in-track, under every chapter
 │   ├── theme/                ← Root (mounts AskPanel), MDXComponents (global components),
 │   │                           DocItem/Footer (mounts ChapterComplete)
-│   └── pages/                ← home (index.tsx), /roadmap, /progress
+│   └── pages/                ← home (index.tsx), /roadmap, /progress, /review
 ├── plugins/curriculum.js     ← exposes which chapters exist (for "coming soon")
 ├── scripts/
 │   ├── build-ask-index.mjs   ← builds static/ask-index.json (runs before start/build)
+│   ├── build-quiz-bank.mjs   ← builds static/quiz-bank.json from every <Quiz> (for /review)
 │   ├── status.mjs            ← prints written/total chapters per part
 │   └── make-social-card.py   ← regenerates static/img/social-card.png
 ├── docs/                     ← the handbook: docs/<partId>/<chapterId>.mdx
@@ -145,7 +147,6 @@ that introduces it.
 - Semantic retrieval for Ask (embeddings built at deploy time, queried in the
   browser with transformers.js) and an optional fully in-browser model
   (WebLLM) so AI answers work with no key at all.
-- Spaced-repetition review of past quiz questions on the progress page.
 - In-browser terminal/Linux sandbox for Part 2 labs (e.g. WebVM/v86).
 - Interactive diagrams (step-through request lifecycle), Go playground embeds.
 - Printable/PDF edition; i18n (translations) via Docusaurus i18n.

@@ -42,7 +42,7 @@ Each chapter teaches its topic on its own first, with a small example you can ru
 Everything runs in your browser — the site is static and hosted free on GitHub Pages:
 
 - 🗺️ **Roadmap graph** with tracks and your progress (saved in `localStorage`, exportable)
-- 🧩 **Quizzes** that explain every answer
+- 🧩 **Quizzes** that explain every answer, and a **Review** page that brings each question back after a growing gap (spaced repetition), so it sticks
 - 🐘 **A real PostgreSQL** in the page (PGlite / WebAssembly) for the SQL chapters
 - 💬 **Ask the handbook**: instant retrieval over every section; optional AI answers with citations using your own API key (sent only from your browser to the provider)
 

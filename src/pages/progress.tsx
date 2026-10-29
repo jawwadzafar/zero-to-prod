@@ -3,6 +3,7 @@ import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 import Link from '@docusaurus/Link';
 import {useProgress, exportProgress, importProgress, resetProgress} from '@site/src/lib/progress';
+import {dueKeys} from '@site/src/lib/review';
 import {flat, tracks, trackChapters} from '@site/src/lib/curriculum';
 import {TrackPicker} from '@site/src/components/Roadmap';
 
@@ -12,6 +13,8 @@ export default function ProgressPage() {
   const [msg, setMsg] = useState('');
   const doneList = flat.filter((c) => p.done[c.id]).sort((a, b) => p.done[b.id] - p.done[a.id]);
   const quizzes = Object.entries(p.quiz);
+  const scheduled = Object.keys(p.review ?? {}).length;
+  const due = dueKeys(p.review ?? {}).length;
 
   function download() {
     const blob = new Blob([exportProgress()], {type: 'application/json'});
@@ -30,6 +33,18 @@ export default function ProgressPage() {
           No account, no tracking. Everything here lives in <strong>this browser</strong>. To move it to another device, export
           it and import it there.
         </p>
+
+        {due > 0 ? (
+          <p className="alert alert--info">
+            🔁 <strong>{due}</strong> quiz question{due === 1 ? '' : 's'} due for review. <Link to="/review">Review now →</Link>
+          </p>
+        ) : (
+          scheduled > 0 && (
+            <p className="alert alert--success">
+              🔁 Review all caught up: {scheduled} question{scheduled === 1 ? '' : 's'} scheduled. <Link to="/review">How review works</Link>
+            </p>
+          )
+        )}
 
         <Heading as="h2">Your track</Heading>
         <TrackPicker />

@@ -2,12 +2,14 @@
 // no account. Every read/write is wrapped so private windows or blocked
 // storage degrade to "nothing saved" instead of crashing the page.
 import {useSyncExternalStore} from 'react';
+import {schedule, type Card} from './review';
 
 const KEY = 'z2p:progress:v1';
 
 export type Progress = {
   done: Record<string, number>; // docId -> completed-at (epoch ms)
   quiz: Record<string, {correct: number; total: number}>; // quizId -> best score
+  review?: Record<string, Card>; // questionKey -> spaced-repetition box and due time
   track?: string; // chosen track id
 };
 
@@ -68,6 +70,18 @@ export function recordQuiz(quizId: string, correct: number, total: number) {
   const prev = p.quiz[quizId];
   if (prev && prev.correct >= correct) return;
   write({...p, quiz: {...p.quiz, [quizId]: {correct, total}}});
+}
+
+/**
+ * Schedule one answered question for spaced review (see ./review.ts). With
+ * firstOnly, a question that's already scheduled is left alone: re-answering
+ * a chapter quiz right after reading its explanation shouldn't promote it.
+ */
+export function recordAnswer(key: string, correct: boolean, {firstOnly = false} = {}) {
+  const p = read();
+  const review = p.review ?? {};
+  if (firstOnly && review[key]) return;
+  write({...p, review: {...review, [key]: schedule(review[key], correct)}});
 }
 
 export function setTrack(track: string | undefined) {

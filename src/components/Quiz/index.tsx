@@ -1,6 +1,7 @@
 import React, {useMemo, useState} from 'react';
 import clsx from 'clsx';
-import {recordQuiz} from '@site/src/lib/progress';
+import {recordAnswer, recordQuiz} from '@site/src/lib/progress';
+import {questionKey} from '@site/src/lib/review';
 import styles from './styles.module.css';
 
 export type Question = {
@@ -59,6 +60,7 @@ export default function Quiz({id, questions, title = 'Quick check'}: {id: string
     const next = [...picked];
     next[qi] = oi;
     setPicked(next);
+    recordAnswer(questionKey(id, questions[qi].q), oi === questions[qi].answer, {firstOnly: true});
     if (next.every((p) => p !== null)) {
       recordQuiz(id, next.filter((p, i) => p === questions[i].answer).length, questions.length);
     }

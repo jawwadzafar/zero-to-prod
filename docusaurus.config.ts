@@ -83,6 +83,7 @@ const config: Config = {
       items: [
         {type: 'docSidebar', sidebarId: 'learn', position: 'left', label: 'Learn'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
+        {to: '/review', label: 'Review', position: 'left'},
         {to: '/progress', label: 'My progress', position: 'left'},
         {href: `https://github.com/${GITHUB_USER}/${REPO}`, label: 'GitHub', position: 'right'},
       ],
@@ -95,6 +96,7 @@ const config: Config = {
           items: [
             {label: 'Start here', to: '/learn'},
             {label: 'Roadmap', to: '/roadmap'},
+            {label: 'Review', to: '/review'},
             {label: 'My progress', to: '/progress'},
             {label: 'Glossary', to: '/learn/glossary'},
           ],
