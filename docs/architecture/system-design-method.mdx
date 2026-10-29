@@ -6,9 +6,9 @@ description: "A repeatable method for designing a system, in the order that avoi
 
 # 15.1 System design: a method
 
-"Design a URL shortener" is one of the most common system design interview questions in the world. You've spent this whole handbook building one. So you know something most candidates don't: the interesting parts aren't the boxes on the whiteboard. They're the questions behind them. How many redirects a second? What happens when the cache dies? Why a 302 and not a 301? Where do click counts go so redirects stay fast? Each of those was a chapter, and each has a real answer in snip's code.
+"Design a URL shortener." "Design a chat app." "Design the system behind this feature we're starting next sprint." Whether it's an interview or a real project, most people respond the same way: they start drawing boxes, a load balancer here, a database there, a queue because queues look serious. The interesting parts of a design aren't the boxes, though. They're the questions behind them. How many requests a second? What happens when the cache dies? Which operation must keep working when everything else fails? Answer those first and the boxes mostly draw themselves.
 
-This part of the handbook steps back from building and looks at **designing**: deciding what to build, before and around the code. This chapter gives you a method that works for any system, from an interview question to a real project at work, and walks through it once, completely, on snip.
+This chapter gives you a method, six steps in an order that avoids the classic mistakes, that works for any system. Then it walks through the method once, completely, on the most common interview question of all: a URL shortener. It's also the project this handbook builds, **snip**, so every decision in the worked example has real code and real measurements behind it.
 
 ## What you'll learn
 
@@ -54,7 +54,7 @@ The order matters. Most bad designs come from skipping the first two steps: a be
 - Owners can list and delete their links, and see click counts.
 - Access to the management API needs an API key.
 
-**Non-functional requirements** are *how well*: speed, availability, scale, security, cost. These drive the design far more than the features do. For snip:
+**Non-functional requirements** are *how well*: speed, availability, scale, security, cost. These drive the design far more than the features do. For a URL shortener (with snip's actual targets):
 
 - **Redirects are fast**: 99% within 250 ms (snip's SLO, [chapter 13.4](../observability/slos-alerting-on-call.mdx)). A redirect is in front of every click, so it's the hot path.
 - **Redirects are highly available**; creating links can be a little less so. A broken redirect breaks every link ever shared. A failing "create" blocks one person for a minute.
@@ -249,7 +249,7 @@ Pen and paper, or a text file. About an hour.
       q: '1 million new links a day is roughly how many writes per second?',
       options: ['1', '12', '1,000', '100,000'],
       answer: 1,
-      explain: '1,000,000 ÷ 86,400 ≈ 11.6. A day is about 100,000 seconds, a handy approximation.',
+      explain: '1,000,000 ÷ 86,400 seconds in a day ≈ 11.6. A day is about 100,000 seconds, a handy approximation: divide a daily count by 100,000 and you are within 15%. The tempting 1,000 comes from dividing by the 1,440 minutes in a day (giving about 700 a minute), not by seconds.',
     },
     {
       q: 'Why does snip redirect with 302 rather than 301?',
