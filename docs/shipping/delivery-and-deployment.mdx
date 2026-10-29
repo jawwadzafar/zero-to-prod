@@ -1,12 +1,12 @@
 ---
 title: "11.3 Delivery & deployment strategies"
 sidebar_label: "11.3 Delivery & deployment"
-description: "Getting a new version in front of users safely: deploy vs release, recreate, rolling, blue-green and canary deployments, feature flags, automated rollback on bad metrics (progressive delivery), and changing a database schema without downtime (expand and contract) — with a live canary release of snip through a Gateway API route."
+description: "Getting a new version in front of users safely: deploy vs release, recreate, rolling, blue-green and canary deployments, feature flags, automated rollback on bad metrics (progressive delivery), and changing a database schema without downtime (expand and contract) — with a live canary release through a Gateway API route, first of a tiny web server, then of snip."
 ---
 
 # 11.3 Delivery & deployment strategies
 
-You've built a new version of snip. It passed every test in CI. It's still a risk: tests never cover everything, production traffic does things staging never did, and the most dangerous moment in a system's life is when something changes. **Deployment strategies** are ways of changing production that limit the damage when a new version is bad. They let only a few users meet it first, keep the old version ready to take over instantly, or keep new code switched off until you choose. This chapter covers the main strategies, what each costs, how to change a database under a running application, and how teams automate "roll back if the numbers look bad". Then you'll run a real **canary release** of snip: 10% of traffic to the new version, checked, then promoted to 100%.
+You've built a new version of your service. It passed every test in CI. It's still a risk: tests never cover everything, production traffic does things staging never did, and the most dangerous moment in a system's life is when something changes. **Deployment strategies** are ways of changing production that limit the damage when a new version is bad. They let only a few users meet it first, keep the old version ready to take over instantly, or keep new code switched off until you choose. This chapter covers the main strategies, what each costs, how to change a database under a running application, and how teams automate "roll back if the numbers look bad". Then you'll run a real **canary release**: 10% of traffic to the new version, checked, then promoted to 100%, first with a tiny web server and then with snip.
 
 ## What you'll learn
 
@@ -42,35 +42,104 @@ A restaurant changing its menu doesn't swap every dish on the busiest night. It 
 | **Blue-green** | Run the new version (green) fully alongside the old (blue), then switch all traffic at once | Switch back: **instant** | Double capacity during the switch | Everyone switches at once, but can switch back instantly |
 | **Canary** | Send a small share of traffic (1%, 10%) to the new version, watch, then increase | Set the share to 0 | Small extra capacity | Only a fraction of users meet a bad version, briefly |
 
-**Rolling** is Kubernetes' default and what snip's Deployment does ([chapter 10.2](../kubernetes/core-objects.mdx)): with `maxUnavailable: 0`, a new version that never becomes ready can't take down the old one. But readiness only checks "does it respond?", not "is it correct?". A version that responds quickly with wrong answers rolls out to 100% happily.
+```mermaid
+flowchart LR
+  U["Users"] --> R["Router<br/>(load balancer, Gateway)"]
+  R -->|"90%"| V1["v1 (stable)"]
+  R -->|"10%"| V2["v2 (canary)"]
+```
+
+The picture is a canary: one router, two versions, and a number that decides who meets which. Blue-green is the same picture with the number jumping from 0 to 100 in one step.
+
+**Rolling** is Kubernetes' default for Deployments ([chapter 10.2](../kubernetes/core-objects.mdx)): with `maxUnavailable: 0`, a new version that never becomes ready can't take down the old one. But readiness only checks "does it respond?", not "is it correct?". A version that responds quickly with wrong answers rolls out to 100% happily.
 
 **Blue-green** gives an instant, complete rollback, because the old version is still running, untouched. It's popular where a mixed state is unacceptable or where you want to test the new stack fully before any user touches it. The cost is running two full copies at the switch, and everyone moves at once.
 
 **Canary** limits the **blast radius**: if the new version is bad, only its small share of users are affected, and only until you notice. It's the most common strategy for services with real traffic, because it tests the new version with *real* users and *real* data, which no test environment can fully reproduce.
 
-Both blue-green and canary need something that can **steer traffic** between versions: a load balancer, a Gateway API route with **weights** ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)), a service mesh, or a DNS switch.
+Both blue-green and canary need something that can **steer traffic** between versions: a load balancer, a Gateway API route with **weights** ([chapter 10.3](../kubernetes/networking-and-ingress.mdx): the standard Kubernetes objects for routing traffic in from outside), a service mesh, or a DNS switch.
 
 ### A canary in Gateway API
 
-snip's canary route (`snip/deploy/k8s/canary/route.yaml`) splits traffic by weight between two Services:
+Run the two versions as two Deployments, each with its own Service, and one HTTPRoute that splits requests between the Services by weight. Here, two copies of the tiny `http-echo` web server ([chapter 10.2](../kubernetes/core-objects.mdx)) that answer `v1` and `v2`:
 
-```yaml
-rules:
-  - matches:
-      - path: { type: PathPrefix, value: / }
-    backendRefs:
-      - name: api              # the stable version
-        port: 80
-        weight: 90
-      - name: api-canary       # the new version
-        port: 80
-        weight: 10
+```yaml title="versions.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: echo-v1, namespace: demo }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: echo, track: stable } }
+  template:
+    metadata: { labels: { app: echo, track: stable } }
+    spec:
+      containers:
+        - name: echo
+          image: hashicorp/http-echo:1.0
+          env: [{ name: ECHO_TEXT, value: "v1" }]      # the current version
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: echo-v2, namespace: demo }
+spec:
+  replicas: 1                                         # a canary is small
+  selector: { matchLabels: { app: echo, track: canary } }
+  template:
+    metadata: { labels: { app: echo, track: canary } }
+    spec:
+      containers:
+        - name: echo
+          image: hashicorp/http-echo:1.0
+          env: [{ name: ECHO_TEXT, value: "v2" }]      # the new version
+---
+apiVersion: v1
+kind: Service
+metadata: { name: echo-v1, namespace: demo }
+spec:
+  selector: { app: echo, track: stable }
+  ports: [{ port: 80, targetPort: 5678 }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: echo-v2, namespace: demo }
+spec:
+  selector: { app: echo, track: canary }
+  ports: [{ port: 80, targetPort: 5678 }]
 ```
 
-Promoting the canary is editing two numbers: 90/10 → 50/50 → 0/100. Then the stable Deployment gets the new image, and the canary is removed. Rolling back is setting the canary's weight to 0: one apply, taking effect in seconds, with no Pods restarting.
+```yaml title="route.yaml"
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata: { name: eg }
+spec: { controllerName: gateway.envoyproxy.io/gatewayclass-controller }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata: { name: web, namespace: demo }
+spec:
+  gatewayClassName: eg
+  listeners: [{ name: http, protocol: HTTP, port: 80 }]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: echo, namespace: demo }
+spec:
+  parentRefs: [{ name: web }]
+  hostnames: [echo.localhost]
+  rules:
+    - backendRefs:
+        - name: echo-v1        # stable
+          port: 80
+          weight: 90
+        - name: echo-v2        # canary
+          port: 80
+          weight: 10
+```
+
+Promoting the canary is editing two numbers: 90/10 → 50/50 → 0/100. Then the stable Deployment gets the new version, and the canary is removed. Rolling back is setting the canary's weight to 0: one apply, taking effect in seconds, with no Pods restarting.
 
 :::info[If you've written code]
-Weighted routing sends a *random* 10% of **requests**, so one user's requests can bounce between versions. That's fine for stateless APIs like snip, but confusing for a user interface where page one comes from v1 and page two from v2. For those, canaries are usually **sticky**: route by a cookie or a header (Gateway API can match on headers), or by user ID in the application, so each user consistently sees one version. The same header matching lets staff test the canary deliberately: send `x-canary: true` and always get the new version.
+Weighted routing sends a *random* 10% of **requests**, so one user's requests can bounce between versions. That's fine for stateless APIs, but confusing for a user interface where page one comes from v1 and page two from v2. For those, canaries are usually **sticky**: route by a cookie or a header (Gateway API can match on headers), or by user ID in the application, so each user consistently sees one version. The same header matching lets staff test the canary deliberately: send `x-canary: true` and always get the new version.
 :::
 
 ---
@@ -85,7 +154,7 @@ if flags.Enabled(ctx, "link-previews", user) {
 }
 ```
 
-The code for link previews can be deployed weeks before anyone sees it (a **dark launch**), then turned on for staff, then 5% of users, then everyone, all **without a deployment**. And turned off instantly if it misbehaves. Flags make trunk-based development work ([chapter 11.1](./how-software-ships.mdx)). They move *release* decisions to whoever controls the flags, often product managers. And they give the fastest possible rollback for a feature: flipping a switch.
+The code for link previews can be deployed weeks before anyone sees it (a **dark launch**), then turned on for staff, then 5% of users, then everyone, all **without a deployment**. And turned off instantly if it misbehaves. Flags make trunk-based development work ([chapter 11.1](./how-software-ships.mdx): everyone merges small changes to `main` daily). They move *release* decisions to whoever controls the flags, often product managers. And they give the fastest possible rollback for a feature: flipping a switch.
 
 Flags need discipline: they're conditional code, so every flag doubles the paths to test. Remove a flag as soon as its feature is fully launched. Managed flag services (LaunchDarkly, Unleash, Flagsmith, and the vendor-neutral **OpenFeature** standard) add targeting, audit logs and gradual rollouts.
 
@@ -111,7 +180,7 @@ Tools like **Argo Rollouts** and **Flagger** do this on Kubernetes, reading Prom
 
 Code rolls back easily, but data doesn't. If version 2 renamed a column, version 1 can't run against the new schema, so "just roll back" breaks everything. And during any rolling or canary deployment, **old and new versions run at the same time**, against **the same database**. So every schema change must work with both versions at once.
 
-The standard technique is **expand and contract** (also called parallel change). Suppose snip wants to rename `links.url` to `links.target_url`:
+The standard technique is **expand and contract** (also called parallel change). Suppose an app wants to rename the column `links.url` to `links.target_url`:
 
 | Step | Deploy | Schema | Works with |
 |---|---|---|---|
@@ -120,10 +189,10 @@ The standard technique is **expand and contract** (also called parallel change).
 | 3. | (wait until no old code runs) | Make `target_url` required | New code |
 | 4. **Contract** | Code v3, then migration | Stop writing `url`; later, drop `url` | New code |
 
-Each step is backwards compatible with the version before it, so every deployment in the sequence can be rolled back safely. It's slower than a single "rename column" migration, and it's how teams change schemas without downtime. snip's own migrations run at startup under an advisory lock ([chapter 6.6](../data/postgres-from-go.mdx)), so many API Pods starting at once apply each migration exactly once. They also have to follow this discipline once snip has real users.
+Each step is backwards compatible with the version before it, so every deployment in the sequence can be rolled back safely. It's slower than a single "rename column" migration, and it's how teams change schemas without downtime.
 
 :::warning[What can go wrong]
-- **Canaries without metrics**: sending 10% of traffic to a new version and not watching it is just a slower rollout.
+- **Canaries without metrics**: sending 10% of traffic to a new version and not watching it is a slower rollout, nothing more.
 - **Canary traffic too small to tell**: 1% of a quiet service might be three requests in five minutes. Size the share and the duration so the numbers mean something.
 - **Breaking schema changes deployed with the code**: during the rollout, the old version breaks. Always expand first.
 - **Rollback plans never tested**: the first time you try `helm rollback` should not be during an incident.
@@ -136,19 +205,70 @@ A common shape: code reaches production continuously but switched off behind fla
 
 ---
 
-## Lab: a canary release of snip
+## Apply it to snip
 
-Free, on your kind cluster with snip, the Gateway from [chapter 10.3](../kubernetes/networking-and-ingress.mdx), and the `snip:dev` image loaded ([chapter 10.2](../kubernetes/core-objects.mdx)). Every step runs in snip's CI.
+snip, the link shortener you build in this handbook, deploys with every strategy above available:
 
-1. **Deploy the canary.** It's a small, separate Deployment and Service. In a real release it would run the new image; here it runs the same image, and the route labels each response so you can see where it went.
+- **Rolling** by default: its API Deployment uses `maxSurge: 1`, `maxUnavailable: 0` with readiness and a `preStop` sleep, and its CI proves a rollout under traffic loses zero requests ([chapter 10.2](../kubernetes/core-objects.mdx)).
+- **Canary** through its Gateway: `snip/deploy/k8s/canary/canary.yaml` adds a one-replica `api-canary` Deployment, Service and NetworkPolicy, and `snip/deploy/k8s/canary/route.yaml` replaces the plain route with a weighted one. Each backend also stamps a response header, so you can see which version answered without changing snip:
+
+```yaml
+rules:
+  - matches:
+      - path: { type: PathPrefix, value: / }
+    backendRefs:
+      - name: api
+        port: 80
+        weight: 90
+        filters:
+          - type: ResponseHeaderModifier
+            responseHeaderModifier:
+              set:
+                - { name: x-snip-track, value: stable }
+      - name: api-canary
+        port: 80
+        weight: 10
+        filters:
+          - type: ResponseHeaderModifier
+            responseHeaderModifier:
+              set:
+                - { name: x-snip-track, value: canary }
+```
+
+- **The database**: snip's migrations run at startup under a Postgres advisory lock (`snip/internal/store/postgres/postgres.go`, [chapter 6.6](../data/postgres-from-go.mdx)), so many API Pods starting at once apply each migration exactly once. That makes the migration *mechanics* safe; the *schema changes* themselves still have to follow expand-and-contract once snip has real users, because during a canary the old and new API share one database.
+
+---
+
+## Lab: a canary release
+
+Free, on your kind cluster with Envoy Gateway installed ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)'s lab, step 3). Steps 1–4 use the two `echo` versions; step 5 does the same with snip, and runs in snip's CI.
+
+1. **Deploy both versions and the weighted route.** Save `versions.yaml` and `route.yaml` from "A canary in Gateway API", then:
+   ```bash
+   kubectl create namespace demo
+   kubectl apply -f versions.yaml -f route.yaml
+   kubectl -n demo rollout status deploy/echo-v1 && kubectl -n demo rollout status deploy/echo-v2
+   kubectl -n demo wait --for=condition=Accepted gateway/web --timeout=120s
+   kubectl -n envoy-gateway-system wait --for=condition=Ready pod -l gateway.envoyproxy.io/owning-gateway-name=web --timeout=120s
+   ```
+
+2. **Count where 200 requests go.**
+   ```bash
+   SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=web -o name)
+   kubectl -n envoy-gateway-system port-forward "$SVC" 8890:80 &
+   for i in $(seq 1 200); do curl -s -H "Host: echo.localhost" localhost:8890/; done | sort | uniq -c
+   ```
+   You should see roughly 180 `v1` and 20 `v2`. It's random, so exact numbers vary run to run.
+
+3. **Promote it.** Edit `route.yaml` to weights 50/50, apply, and count again. Then 0/100: every response says `v2`. That's a release, with no Pod restarted.
+
+4. **Roll back instantly.** Set the weights back to 100/0, apply, and count once more. Everything is `v1` again within seconds. Clean up with `kubectl delete namespace demo` (the port-forward stops on its own).
+
+5. **Apply it to snip.** On the snip deployment with its Gateway from [chapter 10.3](../kubernetes/networking-and-ingress.mdx) (and the `snip:dev` image loaded, [chapter 10.2](../kubernetes/core-objects.mdx)):
    ```bash
    cd ~/code/zero-to-prod/snip
    kubectl apply -f deploy/k8s/canary/canary.yaml
    kubectl -n snip rollout status deploy/api-canary
-   ```
-
-2. **Send it 10% of traffic.**
-   ```bash
    kubectl apply -f deploy/k8s/canary/route.yaml
    SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=snip -o name)
    kubectl -n envoy-gateway-system port-forward "$SVC" 8889:80 &
@@ -156,13 +276,7 @@ Free, on your kind cluster with snip, the Gateway from [chapter 10.3](../kuberne
      curl -s -D - -o /dev/null -H "Host: snip.localhost" localhost:8889/healthz | grep -i '^x-snip-track'
    done | sort | uniq -c
    ```
-   You should see roughly 180 `stable` and 20 `canary`. It's random, so exact numbers vary run to run.
-
-3. **Promote it.** Edit `route.yaml` to weights 50/50, apply, and count again. Then 0/100: every response says `canary`. That's a release, with no Pod restarted.
-
-4. **Roll back instantly.** Set the weights back to 100/0 (or re-apply [chapter 10.3](../kubernetes/networking-and-ingress.mdx)'s plain route with `kubectl apply -f deploy/k8s/gateway/gateway.yaml`), and count once more. Everything is `stable` again within seconds. Clean up with `kubectl delete -f deploy/k8s/canary/canary.yaml`.
-
-5. **Think it through.** Which metrics would you watch before moving from 10% to 50% for snip? (Suggestions: the rate of 5xx responses and p99 latency for the canary versus stable, the redirect success rate, and whether the canary's Pods are restarting.)
+   Roughly 180 `stable` and 20 `canary`. (The lab's canary runs the same image, since you have only one; in a real release it would run the new one.) Promote and roll back by editing the weights, as before, or re-apply the plain route with `kubectl apply -f deploy/k8s/gateway/gateway.yaml`. Clean up with `kubectl delete -f deploy/k8s/canary/canary.yaml`. Then think it through: which metrics would you watch before moving snip from 10% to 50%? (Suggestions: the rate of 5xx responses and p99 latency for the canary versus stable, the redirect success rate, and whether the canary's Pods are restarting.)
 
 ## Self-check
 
@@ -189,7 +303,7 @@ Free, on your kind cluster with snip, the Gateway from [chapter 10.3](../kuberne
         'Kubernetes ignores readiness during rollouts, to avoid getting stuck',
       ],
       answer: 1,
-      explain: 'Readiness only checks that Pods respond, not that they’re correct; catching wrong behaviour needs metrics-based checks, as in canary analysis. Probes answer "is it up?". Business metrics and error rates answer "is it right?".',
+      explain: 'Readiness only checks that Pods respond, not that they’re correct; catching wrong behaviour needs metrics-based checks, as in canary analysis. Rollouts do wait for readiness at every step. Probes answer "is it up?"; business metrics and error rates answer "is it right?".',
     },
     {
       q: 'What is the main advantage of a canary over blue-green?',
@@ -200,7 +314,7 @@ Free, on your kind cluster with snip, the Gateway from [chapter 10.3](../kuberne
         'Canaries test database migrations on a copy before they run',
       ],
       answer: 1,
-      explain: 'Only a small share of real users meet the new version at first, limiting the blast radius while testing with real traffic. Blue-green switches everyone together (with instant switch-back). Canaries expose a fraction first.',
+      explain: 'Only a small share of real users meet the new version at first, limiting the blast radius while testing with real traffic. Blue-green switches everyone together (with instant switch-back). A canary still needs a little extra capacity, and it does mean a mixed-version period.',
     },
     {
       q: 'Why can’t a release that renamed a database column simply be rolled back?',
@@ -222,13 +336,13 @@ Free, on your kind cluster with snip, the Gateway from [chapter 10.3](../kuberne
         'Feature flags, so the canary can be turned off without a deploy',
       ],
       answer: 1,
-      explain: 'Automatic step-by-step traffic shifting with metric checks, promoting on good numbers and rolling back on bad ones. It replaces a human watching dashboards with an automated, consistent decision.',
+      explain: 'Automatic step-by-step traffic shifting with metric checks, promoting on good numbers and rolling back on bad ones. It replaces a human editing weights while watching dashboards (what you did by hand in the lab) with an automated, consistent decision.',
     },
     {
       q: 'A new feature is deployed but hidden behind a flag that is off. What is this called?',
       options: ['A hotfix', 'A dark launch', 'A rollback', 'A blue-green switch'],
       answer: 1,
-      explain: 'The code is live but invisible until the flag is turned on, for some users or everyone.',
+      explain: 'A dark launch: the code is live but invisible until the flag is turned on, for some users or everyone. Deployed, not yet released.',
     },
   ]}
 />
