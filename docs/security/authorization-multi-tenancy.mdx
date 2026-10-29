@@ -25,15 +25,16 @@ CREATE POLICY tenant_isolation ON links
 
 # 7.4 Authorization & multi-tenancy
 
-[Chapter 7.2](./authentication.mdx) answered *who is this?* Now the harder question: *what may they do?* Authentication is usually one well-tested piece of code at the front door. **Authorization** is scattered through every endpoint and every query: may this user see this link, delete that one, change these settings, read that invoice? Miss the check in just one place and one customer can read — or delete — another customer's data. That's not a hypothetical: **broken object-level authorization** has topped the OWASP list of API security risks since the list began. This chapter shows how to get authorization right, how snip does it, and how systems that serve many customers from one database — **multi-tenant** systems — keep each customer's data walled off.
+[Chapter 7.2](./authentication.mdx) answered *who is this?* Now the harder question: *what may they do?* Authentication is usually one well-tested piece of code at the front door. **Authorization** is scattered through every endpoint and every query: may this user see this link, delete that one, change these settings, read that invoice? Miss the check in just one place and one customer can read — or delete — another customer's data. That's not a hypothetical: **broken object-level authorization** has topped the OWASP list of API security risks since the list began. This chapter shows how to get authorization right, how systems that serve many customers from one database — **multi-tenant** systems — keep each customer's data walled off.
 
 ## What you'll learn
 
 - The core rule: **check authorization on the server, for every request, on every object — deny by default.**
 - **Ownership checks**, **roles** (RBAC), and **attributes and policies** (ABAC) — when to use each.
-- **Broken object-level authorization (BOLA / IDOR)**: how it happens, and how snip prevents it by construction.
+- **Broken object-level authorization (BOLA / IDOR)**: how it happens, and how to prevent it by construction.
 - **Multi-tenancy**: shared tables, separate schemas or separate databases — the trade-offs.
 - **Postgres row-level security**: making the *database* refuse to show one tenant another's rows — live in your browser.
+- How a real service (snip, the URL shortener this handbook builds) scopes every query by owner — and how to attack it yourself.
 
 ---
 
@@ -55,7 +56,7 @@ A hotel key card is authorization done well. It opens **your** room, the gym and
 
 ### Ownership: "is this yours?"
 
-The simplest and most common rule: users may act on the things they own. It's snip's whole model — every link has an `owner_id`, and management operations only work on your own links.
+The simplest and most common rule: users may act on the things they own. Every invoice, document or link has an `owner_id`, and management operations only work on your own.
 
 ### Roles: RBAC
 
@@ -92,44 +93,30 @@ The server authenticates Alice, then runs `SELECT * FROM invoices WHERE id = 104
 
 This is **BOLA** (Broken Object Level Authorization), also called **IDOR** (Insecure Direct Object Reference). It's number one on the OWASP API Security Top 10 because it's so easy to write: the code *works* in every test where users only ask for their own things. Sequential IDs make it trivial to exploit, but random IDs don't fix it — they only make it harder to find.
 
-### How snip prevents it: scope the query, not the result
+### The fix: scope the query, not the result
 
-snip doesn't fetch a link and *then* check its owner in scattered handler code. The ownership condition is **part of the query**, or checked in the one shared service method every endpoint uses. Deleting (`internal/store/postgres/postgres.go`):
+Don't fetch an object and *then* remember to check its owner in scattered handler code. Make the ownership condition **part of the query**, with the owner taken from authentication:
 
-```go
-tag, err := s.pool.Exec(ctx, `DELETE FROM links WHERE slug = $1 AND owner_id = $2`, slug, ownerID)
+```sql
+-- vulnerable: any authenticated caller can read any invoice
+SELECT * FROM invoices WHERE id = $1;
+
+-- fixed: as far as this query knows, the row only exists if it's yours
+SELECT * FROM invoices WHERE id = $1 AND owner_id = $2;   -- $2 = the authenticated user's ID
 ```
-
-Reading (`internal/links/service.go`):
-
-```go
-// Get returns a link's details, but only to its owner.
-func (s *Service) Get(ctx context.Context, ownerID int64, slug string) (Link, error) {
-	l, err := s.store.Get(ctx, slug)
-	if err != nil {
-		return Link{}, err
-	}
-	if l.OwnerID != ownerID {
-		return Link{}, ErrNotFound // don't reveal that someone else's link exists
-	}
-	return l, nil
-}
-```
-
-Listing: `SELECT … WHERE owner_id = $1`. And `ownerID` always comes from the **authenticated key** placed in the request context by `requireKey` ([chapter 7.2](./authentication.mdx)) — **never** from the request body or URL, which the caller controls.
 
 Two details matter:
 
 - **Same answer for "not yours" and "doesn't exist"**: `404 not_found`. A `403` would confirm the object exists, letting attackers map other customers' data ([chapter 5.2](../apis/designing-rest-apis.mdx)).
 - **The owner comes from authentication, not input.** An API that accepts `{"owner_id": 7}` in the request and trusts it has handed authorization to the attacker.
 
-snip's HTTP tests check this path ([chapter 4.4](../go/testing.mdx)), and it's exactly the kind of test worth adding for every endpoint: *user B tries user A's object and must fail.*
+The test that catches BOLA is short and worth writing for every endpoint: *user B tries user A's object, and must fail.* You'll run that attack against a real service in the lab.
 
 ---
 
 ## Multi-tenancy: many customers, one system
 
-A **tenant** is a customer whose data must stay separate from everyone else's: a company on a team plan, a workspace, an organisation. A **multi-tenant** system serves many tenants from shared infrastructure. snip is multi-tenant in a small way — each API key's links are its own. There are three main ways to separate tenants in the database:
+A **tenant** is a customer whose data must stay separate from everyone else's: a company on a team plan, a workspace, an organisation. A **multi-tenant** system serves many tenants from shared infrastructure. There are three main ways to separate tenants in the database:
 
 | Model | How | Pros | Cons |
 |---|---|---|---|
@@ -183,7 +170,7 @@ INSERT INTO links VALUES ('sneaky', 'https://evil.example', 1);
 The `WITH CHECK` clause refuses it. Even a buggy query in application code can't cross the wall.
 
 :::info[In the real world]
-RLS is **defence in depth**, not a replacement for application checks: keep scoping queries in code (clear, testable), and let RLS catch the one you forget. It has costs — policies must be written carefully, connection pools must reset `app.tenant_id` between requests, and complex policies can slow queries. Platforms such as Supabase build their whole security model on Postgres RLS. snip keeps things simple with ownership conditions in every query, but a team version of snip with workspaces would be a natural fit for RLS.
+RLS is **defence in depth**, not a replacement for application checks: keep scoping queries in code (clear, testable), and let RLS catch the one you forget. It has costs — policies must be written carefully, connection pools must reset `app.tenant_id` between requests, and complex policies can slow queries. Platforms such as Supabase build their whole security model on Postgres RLS.
 :::
 
 ---
@@ -208,6 +195,38 @@ Real systems need people who can see across tenants: support engineers, administ
 
 ---
 
+## Apply it to snip: ownership in every query
+
+snip, the URL shortener this handbook builds, is multi-tenant in a small way: each API key's links are its own. It doesn't fetch a link and *then* check its owner in scattered handler code. The ownership condition is **part of the query**, or checked in the one shared service method every endpoint uses. Deleting (`snip/internal/store/postgres/postgres.go`):
+
+```go
+tag, err := s.pool.Exec(ctx, `DELETE FROM links WHERE slug = $1 AND owner_id = $2`, slug, ownerID)
+```
+
+Reading (`snip/internal/links/service.go`):
+
+```go
+// Get returns a link's details, but only to its owner.
+func (s *Service) Get(ctx context.Context, ownerID int64, slug string) (Link, error) {
+	l, err := s.store.Get(ctx, slug)
+	if err != nil {
+		return Link{}, err
+	}
+	if l.OwnerID != ownerID {
+		return Link{}, ErrNotFound // don't reveal that someone else's link exists
+	}
+	return l, nil
+}
+```
+
+Listing: `SELECT … WHERE owner_id = $1`. And `ownerID` always comes from the **authenticated key** placed in the request context by `requireKey` ([chapter 7.2](./authentication.mdx)) — **never** from the request body or URL, which the caller controls.
+
+Both rules from the fix above are visible: someone else's link gets the same `ErrNotFound` (a `404`) as a missing one, and the owner comes from the key. snip's HTTP tests check the "user B tries user A's link" path ([chapter 4.4](../go/testing.mdx)); step 3 of the lab lets you try it by hand.
+
+A team version of snip, with workspaces shared by several people, would be a natural fit for the row-level security below: a `workspace_id` on every row, and a policy that makes the database enforce it.
+
+---
+
 ## Lab
 
 Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
@@ -225,7 +244,7 @@ Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
    ```
    Policies for the same command are combined with **OR**, so support gets visibility without write access.
 
-3. **Attack snip's authorization.** With snip running (Postgres mode, [chapter 6.6](../data/postgres-from-go.mdx)), create **two** keys and a link with the first:
+3. **Apply it to snip: attack its authorization.** With snip running (Postgres mode, [chapter 6.6](../data/postgres-from-go.mdx)), create **two** keys and a link with the first:
    ```bash
    go run ./cmd/snip keys create alice     # KEY_A
    go run ./cmd/snip keys create bob       # KEY_B
