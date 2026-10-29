@@ -13,7 +13,7 @@ You've probably tried to learn something technical before and hit a wall: a tuto
 - The **ladder**: the five steps every idea in this handbook climbs, from "what is this *like*?" to "why is it built *this* way?"
 - How a chapter is laid out, so you always know where you are and what each box on the page means.
 - How to **learn** from a chapter rather than just read it: labs, self-checks, and the habit of explaining things out loud.
-- What **snip** is, and why building one real system beats a hundred toy examples.
+- What **snip** is: the one real project where you *apply* what each chapter teaches — and why every chapter still makes sense on its own, without it.
 - How to use the interactive parts: quizzes, the in-browser database, progress tracking, and the **💬 Ask** button.
 
 ---
@@ -35,7 +35,7 @@ Here's a real example — the idea of a **port**, which you'll meet properly in 
 |---|---|---|
 | **0 · Anchor** | What is this *like*? | An address gets a letter to the right *building*. A port number gets it to the right *apartment* inside. |
 | **1 · Mechanism** | What *actually* happens? | One computer runs many programs. Each program that wants network traffic claims a number from 1 to 65535. The operating system hands incoming traffic to whichever program holds that number. |
-| **2 · Hands on** | Where do I *see* it? | Your snip server claims port `8080`. You run a command and watch it appear in the list of claimed ports. |
+| **2 · Hands on** | Where do I *see* it? | You start a tiny web server with one command, and watch port `8000` appear in your computer's list of claimed ports. Later, the same check on snip (the project you build) shows it holding `8080`. |
 | **3 · What breaks** | How does it go *wrong*? | Start a second copy and it fails with "address already in use" — two programs can't hold the same apartment. You learn how to find the one that's squatting. |
 | **4 · Judgment** | Why *this* way? | Why real systems never expose these ports directly, and put a single front door (a reverse proxy) in front instead. |
 
@@ -111,11 +111,13 @@ Coming back to a chapter's self-check a few days later is worth more than reread
 
 ---
 
-## You'll build one real system: snip
+## You learn the topic first, then apply it to one real system: snip
 
-Most tutorials teach with throwaway examples: a to-do app here, a "hello world" there, never connected. You learn fragments, and the hardest part of real engineering — **how the pieces fit together** — is never taught.
+Every chapter teaches its topic **on its own terms first**: an everyday anchor, the plain mechanism, and the smallest real example you can run — one web server, one container, a two-table database. If you land on a chapter from a search engine and have never heard of anything else here, it still works. When a chapter builds on an earlier one, it links to it *and* recaps the one fact it needs in a sentence, so you're never stranded.
 
-This handbook takes the opposite approach. You build **one** system, **snip**, and grow it as you learn:
+Then comes the payoff. Most tutorials stop at throwaway examples: a to-do app here, a "hello world" there, never connected. You learn fragments, and the hardest part of real engineering — **how the pieces fit together** — is never taught.
+
+So once you understand an idea, you **apply** it to **one** system, **snip**, which grows as you learn. Look for a section near the end of a chapter called something like "Apply it to snip":
 
 ```mermaid
 flowchart LR
@@ -127,6 +129,10 @@ flowchart LR
 snip is a **link shortener**: you give it a long web address, it gives you a short one like `snip.example/abc123`, and anyone who visits the short one is sent to the long one. It's small enough to understand completely, but it touches almost everything a real backend does — storing data, handling lots of visitors, counting clicks, keeping out abusers, and staying up.
 
 By the end of your track, snip will run in containers, on Kubernetes, in the cloud, deployed automatically when you push code, watched by dashboards — and, in the AI track, it will have AI features too. Every chapter adds one piece. You'll meet it properly in [0.3 Meet snip](meet-snip.mdx).
+
+:::tip[snip is where you practise, not a prerequisite]
+You don't need to have built the earlier parts of snip to learn from a chapter. The teaching comes first and stands alone; snip is where you practise it on something real. If you're reading out of order, skip the "Apply it to snip" section and come back to it later.
+:::
 
 ---
 
@@ -208,15 +214,15 @@ No setup needed — this one happens right here, in your browser.
       explain: 'That is the "illusion of competence". Doing (the lab) and retrieving from memory (the self-check, before peeking) are what turn recognition into real skill.',
     },
     {
-      q: 'Why does the handbook build one system (snip) instead of many small examples?',
+      q: 'Each chapter teaches its topic with a small standalone example first. Why does it then apply the idea to snip as well?',
       options: [
-        'Because one system is quicker to write than many separate small examples',
+        'Because the standalone example is only a summary, and the real lesson lives in the snip section',
         'The hardest real skill is how pieces fit together, which isolated examples never teach',
         'Because link shorteners are the most common kind of software you’ll be hired to build',
-        'Because many small examples would each need their own separate install instructions',
+        'Because you cannot understand a chapter unless you have built every earlier part of snip',
       ],
       answer: 1,
-      explain: 'Isolated examples teach fragments. Growing one real system teaches how storage, caching, queues, deployment and monitoring connect — which is what the job actually is.',
+      explain: 'The small example teaches the idea on its own — that is the lesson, and it stands alone. Applying it to one growing system then teaches what isolated examples never do: how storage, caching, queues, deployment and monitoring connect, which is what the job actually is. You never need earlier snip work to learn a chapter\'s topic.',
     },
   ]}
 />

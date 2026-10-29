@@ -14,7 +14,7 @@ When you double-click an app, something changes: a file that was just sitting on
 - What every process has: an ID number, private memory, and an **exit code** that says how it ended.
 - How to **list, inspect and stop** processes from the terminal.
 - What a **thread** is — several workers inside one process sharing the same memory — and how one machine seems to do many things at once.
-- The **race condition**: why two workers updating the same number can lose updates, and why it matters for snip's click counts.
+- The **race condition**: why two workers updating the same number can lose updates, and why it matters for anything that counts, from page views to bank balances.
 
 ---
 
@@ -153,7 +153,7 @@ A server needs concurrency (thousands of visitors in progress) and benefits from
 
 Here's the first genuinely tricky bug in this handbook, and it's worth understanding slowly because it appears everywhere — in threads, in databases, across whole servers.
 
-Imagine snip counting clicks. The count is stored in shared memory. Adding one click takes three tiny steps:
+Imagine a server counting clicks on a link — exactly what snip, the link shortener this handbook builds, has to do. The count is stored in shared memory. Adding one click takes three tiny steps:
 
 1. **Read** the current count.
 2. **Add** one to it.
@@ -180,7 +180,7 @@ Both threads read 10 before either wrote. Both wrote 11. **Two clicks, one count
 How engineers prevent it (you'll use all of these):
 
 - **Locks** (also called mutexes): only one worker may do the read–add–write at a time; others wait their turn. snip's in-memory store uses one ([chapter 4.5](../go/concurrency.mdx)).
-- **Atomic operations**: the machine or database does read–add–write as one indivisible step. snip's Postgres store does `UPDATE links SET clicks = clicks + 1` — a single step the database guarantees can't be interleaved ([chapter 6.5](../data/transactions.mdx)).
+- **Atomic operations**: the machine or database does read–add–write as one indivisible step. In SQL that's `UPDATE links SET clicks = clicks + 1` — one statement the database guarantees can't be interleaved with another (snip's Postgres store, in `snip/internal/store/postgres/postgres.go`, does this with `clicks + $2` to add a whole batch of clicks at once) ([chapter 6.5](../data/transactions.mdx)).
 - **Don't share**: give each piece of data a single owner, and send it messages instead. snip's click worker does this with a queue ([chapter 8.2](../distributed/queues-and-background-work.mdx)).
 
 :::warning[What can go wrong]
