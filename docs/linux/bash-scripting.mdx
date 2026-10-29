@@ -1,12 +1,12 @@
 ---
 title: "2.4 Bash scripting"
 sidebar_label: "2.4 Bash scripting"
-description: Turn commands you'd type by hand into scripts that run the same way every time — variables, quoting, conditions, loops, functions, exit codes and the safety settings every script should start with — by writing a real smoke test for snip.
+description: Turn commands you'd type by hand into scripts that run the same way every time — variables, quoting, conditions, loops, functions, exit codes and the safety settings every script should start with — by writing a real smoke test for a website.
 ---
 
 # 2.4 Bash scripting
 
-Anything you type in the terminal twice, you'll eventually want to type zero times. A **shell script** is just a file full of the commands you'd otherwise type by hand — saved, repeatable, shareable. Scripts start databases, run tests, deploy code, back things up, and check that services are healthy. They're also where a surprising number of production accidents come from, because the shell does exactly what you wrote, not what you meant. In this chapter you'll learn the handful of constructs that cover most scripts, the safety settings that prevent the classic disasters, and you'll write a real script: a smoke test that proves snip works.
+Anything you type in the terminal twice, you'll eventually want to type zero times. A **shell script** is just a file full of the commands you'd otherwise type by hand — saved, repeatable, shareable. Scripts start databases, run tests, deploy code, back things up, and check that services are healthy. They're also where a surprising number of production accidents come from, because the shell does exactly what you wrote, not what you meant. In this chapter you'll learn the handful of constructs that cover most scripts, the safety settings that prevent the classic disasters, and you'll write a real script: a smoke test that proves a website is up and showing what it should.
 
 ## What you'll learn
 
@@ -47,10 +47,10 @@ A script is a written recipe instead of a cook improvising. Improvising works wh
 ## Variables and quoting
 
 ```bash
-name="snip"                        # no spaces around = (name = "snip" is an error)
+name="shop"                        # no spaces around = (name = "shop" is an error)
 port=8080
 echo "Starting $name on port $port"
-echo "Starting ${name}-api"        # braces mark where the name ends
+echo "Starting ${name}-api"        # braces mark where the name ends: prints "shop-api"
 today=$(date +%Y-%m-%d)            # store a command's output
 echo "Backup file: backup-$today.sql"
 ```
@@ -222,9 +222,48 @@ In 2015 a bug in the installer script of Valve's Steam client for Linux ran `rm 
 
 ---
 
-## A real script: a smoke test for snip
+## A real script: a smoke test
 
-A **smoke test** is a quick check that the basics work — "turn it on and see if smoke comes out". Here's one for snip. It starts nothing itself; it assumes snip is running and proves the core flow works end to end. It's also in the repository at `snip/scripts/smoke.sh`.
+A **smoke test** is a quick check that the basics work — "turn it on and see if smoke comes out". Teams run one right after every deploy: if it fails, they roll back before customers notice. Here's a small but complete one that checks any web page: it must answer `200 OK` and contain a piece of text you expect.
+
+```bash
+#!/usr/bin/env bash
+# site-check.sh — prove a web page is up and shows what it should.
+# Usage: ./site-check.sh URL EXPECTED_TEXT
+set -euo pipefail
+
+url="${1:?usage: ./site-check.sh URL EXPECTED_TEXT}"
+expected="${2:?usage: ./site-check.sh URL EXPECTED_TEXT}"
+
+fail() { echo "[check] FAIL: $*" >&2; exit 1; }   # >&2 sends the message to stderr
+
+command -v curl >/dev/null || fail "curl is not installed"
+
+body=$(mktemp)                       # a temporary file to hold the page
+trap 'rm -f "$body"' EXIT            # delete it when the script ends, however it ends
+
+# 1. Fetch the page, keeping only the HTTP status code in a variable.
+status=$(curl -s -o "$body" -w "%{http_code}" "$url" || true)   # "000" if nothing answered
+[[ "$status" == "200" ]] || fail "$url returned HTTP $status, expected 200"
+
+# 2. Check the page says what it should.
+grep -q -- "$expected" "$body" || fail "$url does not contain '$expected'"   # -- = "no more options"
+
+echo "[check] PASS: $url"
+```
+
+Most of it is from this chapter. The lines worth a closer look:
+
+- `${1:?message}` stops the script with `message` if the argument is missing — a one-line guard for required input.
+- `mktemp` creates a uniquely named temporary file, and **`trap '…' EXIT`** runs a cleanup command when the script ends — whether it passed, failed, or hit `set -e`. No leftover files, ever.
+- `|| true` after `curl` is deliberate: when nothing answers at all, `curl` exits non-zero and `set -e` would end the script *silently*. With `|| true`, the status is `000` and the next line prints a clear failure instead.
+- Every check compares the **actual result** against what's expected. A page can return `200` and still be the wrong page — an error page, an empty template — so the script also looks for the text.
+
+---
+
+## Apply it to snip: the same smoke test, for a real API
+
+snip, the link shortener this handbook builds, has a smoke test of exactly this shape. It assumes snip is already running and proves its core flow end to end: wait until it's healthy, create a short link, follow it, delete it. It's in the repository at `snip/scripts/smoke.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -267,10 +306,11 @@ curl -fsS -X DELETE "$BASE_URL/api/links/$slug" -H "Authorization: Bearer $SNIP_
 log "PASS"
 ```
 
-Things worth noticing:
+What's new compared with the website check:
 
-- `: "${SNIP_API_KEY:?message}"` stops the script with `message` if the variable is unset — a one-line guard for required configuration.
-- Every check compares the **actual result** against what we expected. It doesn't trust exit codes alone ([chapter 1.2](../foundations/programs-processes-threads.mdx)'s lesson).
+- `: "${SNIP_API_KEY:?message}"` applies the same `:?` guard to an **environment variable**, so the secret API key never appears in the script or in your shell history as an argument.
+- Step 1 is the retry loop from earlier: a freshly started service may need a few seconds before it answers.
+- It checks *where* the redirect points, not merely that one happened. It doesn't trust exit codes alone ([chapter 1.2](../foundations/programs-processes-threads.mdx)'s lesson).
 - Error messages go to **stderr** (`>&2`) and the script exits non-zero, so anything that runs it — you, CI, a deploy pipeline — knows it failed.
 - It cleans up the link it created, so it's safe to run against a real environment.
 
@@ -298,7 +338,7 @@ At that point, reach for a real language — Go ([Part 4](../go/why-go-first-pro
 
 ## Lab
 
-Free, on your own computer. You'll write two scripts, then run snip's real smoke test.
+Free, on your own computer. You'll write three scripts, then run snip's real smoke test.
 
 1. **A script with arguments and a default.**
    ```bash
@@ -326,7 +366,17 @@ Free, on your own computer. You'll write two scripts, then run snip's real smoke
    bash safe.sh; echo "exit code: $?"   # stops at the failed cd, non-zero exit code
    ```
 
-3. **Run snip's real smoke test.** In one terminal, start snip in memory mode from the repository you cloned in [chapter 1.6](../foundations/what-a-server-is.mdx):
+3. **Smoke-test a real website.** Save the `site-check.sh` script from above into `~/scripts-lab`, then:
+   ```bash
+   chmod +x site-check.sh
+   ./site-check.sh https://example.com "Example Domain"   # → [check] PASS
+   ./site-check.sh https://example.com/nope "Example"     # → FAIL: returned HTTP 404
+   ./site-check.sh http://localhost:1 "anything"          # → FAIL: returned HTTP 000 (nothing listening)
+   ./site-check.sh https://example.com; echo "exit: $?"   # → usage message, exit 1
+   ```
+   Notice that each failure names the exact problem and exits non-zero, which is what lets other tools (CI, a deploy pipeline) act on it.
+
+4. **Apply it to snip: run its real smoke test.** In one terminal, start snip in memory mode from the repository you cloned in [chapter 1.6](../foundations/what-a-server-is.mdx):
    ```bash
    cd ~/code/zero-to-prod/snip
    go run ./cmd/snip
@@ -339,7 +389,7 @@ Free, on your own computer. You'll write two scripts, then run snip's real smoke
    ```
    Notice the failing run tells you *exactly* which step failed and why. A test that fails clearly is almost as valuable as one that passes.
 
-4. **Lint it.** If you installed ShellCheck: `shellcheck ~/scripts-lab/*.sh ~/code/zero-to-prod/snip/scripts/smoke.sh`. Then clean up with `rm -r ~/scripts-lab`.
+5. **Lint it.** If you installed ShellCheck: `shellcheck ~/scripts-lab/*.sh ~/code/zero-to-prod/snip/scripts/smoke.sh`. Then clean up with `rm -r ~/scripts-lab`.
 
 ## Self-check
 
