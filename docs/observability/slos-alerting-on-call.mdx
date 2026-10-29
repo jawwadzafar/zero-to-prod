@@ -1,20 +1,20 @@
 ---
 title: "13.4 SLOs, alerting & on-call"
 sidebar_label: "13.4 SLOs, alerting & on-call"
-description: "Deciding how reliable is reliable enough and alerting on what matters: SLIs, SLOs, SLAs and error budgets, burn rates and multi-window alerts, symptoms vs causes, page vs ticket, avoiding alert fatigue, runbooks, and humane on-call — with snip's real SLO rules, their promtool unit tests, and its runbook."
+description: "Deciding how reliable is reliable enough and alerting on what matters: SLIs, SLOs, SLAs and error budgets, burn rates and multi-window alerts (and where the number 14.4 comes from), symptoms vs causes, page vs ticket, absent targets, alert unit tests with promtool, runbooks and humane on-call. Practised on a small standalone rule file, then on a real service's SLO rules and runbook."
 ---
 
 # 13.4 SLOs, alerting & on-call
 
-With metrics ([chapter 13.2](./metrics.mdx)) you *can* measure everything. The hard questions are different. **How reliable should snip be?** 100% is impossible, and chasing it is ruinously expensive. **When should a human be woken up?** Too rarely and users suffer unnoticed; too often and people learn to ignore alerts, and then they miss the real one. This chapter gives you the framework most of the industry now uses: **service level objectives** and **error budgets**. It turns "reliability" into a number users would recognise, and alerts into a question of how fast that budget is burning. snip has real SLOs, real alert rules and a real runbook, and its alerts have **unit tests** that prove they fire for an outage and stay quiet for a blip. The chapter ends with on-call itself: how to share the pager so it's sustainable, and humane.
+Every service you use fails sometimes. A message takes a few seconds to send; a page shows "something went wrong", and works when you reload. You don't mind, as long as it's rare. That raises two hard questions for whoever runs a service. **How reliable should it be?** 100% is impossible, and chasing it is ruinously expensive. **When should a human be woken up?** Too rarely and users suffer unnoticed; too often and people learn to ignore alerts, and then they miss the real one. This chapter gives you the framework most of the industry now uses: **service level objectives** and **error budgets**. They turn "reliability" into a number users would recognise, and alerting into a question of how fast that budget is burning. You'll write an alert rule with a **unit test** that proves it fires for an outage and stays quiet for a blip, then read a real service's SLOs, alerts and runbook. The chapter ends with on-call itself: how to share the pager so it's sustainable, and humane.
 
 ## What you'll learn
 
-- **SLIs**, **SLOs** and **SLAs**, and how to choose them.
-- **Error budgets**: turning reliability into a resource you can spend.
-- **Burn rates** and **multi-window alerts**: page for real problems, not blips.
-- Alerting on **symptoms, not causes**; **page vs ticket**; avoiding **alert fatigue**.
-- **Runbooks** and **on-call** practices.
+- **SLIs**, **SLOs** and **SLAs**: what you measure, what you aim for, and what you promise in a contract.
+- **Error budgets**: the failure an SLO allows, used as a resource you can spend.
+- **Burn rates** and **multi-window alerts**: page for real problems, not blips, and why the magic number is 14.4.
+- Alerting on **symptoms, not causes**; **page vs ticket**; **missing is not down**; avoiding **alert fatigue**.
+- **Testing alerts**, **runbooks** and **on-call** practices.
 
 ---
 
@@ -24,13 +24,13 @@ With metrics ([chapter 13.2](./metrics.mdx)) you *can* measure everything. The h
 A bus company doesn't promise every bus is exactly on time: that's impossible, and trying would cost a fortune. It promises "95% of buses depart within 3 minutes of schedule". That's a measurable target users care about, with room for the occasional delay. The 5% of buses allowed to be late is a **budget**: spend it on a road closure, a snowstorm, or roadworks that make next year better, but not all of it on carelessness.
 :::
 
-| Term | Is | snip's |
+| Term | Is | Example, for an online shop |
 |---|---|---|
-| **SLI** (service level indicator) | A measurement of something users experience, usually as a ratio of good events to all events | The share of requests that didn't fail; the share of redirects faster than 250 ms |
-| **SLO** (service level objective) | A target for an SLI over a time window | 99.5% of requests succeed, and 99% of redirects complete within 250 ms, each over 30 days |
-| **SLA** (service level agreement) | A contract with consequences (refunds, credits) if a level isn't met | None. SLAs are usually looser than internal SLOs, so you notice trouble before it costs money |
+| **SLI** (service level indicator) | A measurement of something users experience, usually as a ratio of good events to all events | The share of requests that didn't fail; the share of product pages that loaded within 300 ms |
+| **SLO** (service level objective) | A target for an SLI over a time window | 99.5% of requests succeed, and 99% of product pages load within 300 ms, each over 30 days |
+| **SLA** (service level agreement) | A contract with consequences (refunds, credits) if a level isn't met | "99% monthly availability, or 10% of the month's fee back". SLAs are usually looser than internal SLOs, so you notice trouble before it costs money |
 
-Good SLIs measure what users feel, at the edge closest to them: success and speed of their requests, not CPU usage. Good SLOs are **deliberately below 100%**. Each extra "nine" (99% → 99.9% → 99.99%) is roughly ten times harder and more expensive, and users often can't tell the difference beyond a point: their own Wi-Fi fails more than that.
+Good SLIs measure what users feel, at the edge closest to them: the success and speed of their requests, not CPU usage. Good SLOs are **deliberately below 100%**. Each extra "nine" (99% → 99.9% → 99.99%) is roughly ten times harder and more expensive, and past a point users can't tell the difference: their own Wi-Fi fails more often than that.
 
 ### Error budgets
 
@@ -45,58 +45,103 @@ It ends the endless argument between "move fast" and "don't break things" with a
 
 ## Alerting on burn rate
 
-The naive alert, "error rate above 1% for 5 minutes", is wrong in both directions: it pages for a harmless two-minute blip and misses a slow leak that quietly burns the budget all week. The better question is: **at this rate, how fast will we use up the error budget?**
+The naive alert, "error rate above 1% for 5 minutes", is wrong in both directions. It pages for a harmless two-minute blip, and it misses a slow leak that quietly burns the budget all week. The better question is: **at this rate, how fast will we use up the error budget?**
 
-The **burn rate** is how many times faster than "exactly on budget" you're spending it. A burn rate of 1 uses the whole 30-day budget in exactly 30 days. A burn rate of **14.4** uses **2% of the budget per hour**, so it's gone in about two days. That's worth waking someone for.
+The **burn rate** is how many times faster than "exactly on budget" you're spending it:
 
-snip's rules (`snip/deploy/prometheus/rules/snip-slo.yml`) first record the error ratio over several windows, then alert on combinations:
+```text
+burn rate = current error ratio ÷ error budget
 
-```yaml
-- record: snip:request_errors:ratio_rate1h
-  expr: |
-    sum(rate(snip_http_requests_total{code=~"5.."}[1h]))
-      / sum(rate(snip_http_requests_total[1h]))
-
-- alert: SnipErrorBudgetFastBurn
-  expr: |
-    snip:request_errors:ratio_rate1h > (14.4 * 0.005)
-    and
-    snip:request_errors:ratio_rate5m > (14.4 * 0.005)
-  labels:
-    severity: page
-  annotations:
-    summary: "snip is failing {{ $value | humanizePercentage }} of requests"
-    description: "… Runbook: snip/docs/runbook.md#high-error-rate"
+errors at 0.5%  with a 0.5% budget  →  burn rate 1     (the budget lasts exactly 30 days)
+errors at 7.2%  with a 0.5% budget  →  burn rate 14.4  (the budget lasts about 2 days)
 ```
 
-**Why two windows?** The **1-hour** window makes sure the problem is significant (a lot of budget is really being spent). The **5-minute** window makes sure it's **still happening**, so the alert resolves quickly once the problem is fixed, instead of staying red for an hour while the long window catches up. This **multi-window, multi-burn-rate** pattern comes from Google's SRE practice:
+**Where 14.4 comes from.** A common rule is "page a human if we've spent **2% of the month's budget in one hour**". A 30-day month has 720 hours, so on-budget spending is 1/720 of the budget per hour, about 0.14%. Spending 2% in an hour is 0.02 × 720 = **14.4** times that. The number isn't magic; it's that policy, worked out.
+
+### Two windows: is it big, and is it still happening?
+
+Prometheus ([chapter 13.2](./metrics.mdx)) first **records** the error ratio over several windows, using **recording rules**: queries it evaluates on a schedule and saves as new series, so alerts can read them cheaply. Then an **alert rule** combines them. For an SLO of 99.5% (budget 0.5%):
+
+```yaml title="slo.yml"
+# SLO: 99.5% of requests succeed over 30 days -> error budget 0.5%.
+groups:
+  - name: shop-slo
+    rules:
+      - record: job:errors:ratio_rate5m
+        expr: |
+          sum(rate(http_requests_total{code=~"5.."}[5m]))
+            / sum(rate(http_requests_total[5m]))
+      - record: job:errors:ratio_rate1h
+        expr: |
+          sum(rate(http_requests_total{code=~"5.."}[1h]))
+            / sum(rate(http_requests_total[1h]))
+      - alert: ErrorBudgetFastBurn
+        expr: |
+          job:errors:ratio_rate1h > (14.4 * 0.005)
+          and
+          job:errors:ratio_rate5m > (14.4 * 0.005)
+        labels:
+          severity: page
+        annotations:
+          summary: "Failing {{ $value | humanizePercentage }} of requests"
+```
+
+**Why two windows?** The **1-hour** window makes sure the problem is significant: a lot of budget is really being spent. The **5-minute** window makes sure it's **still happening**, so the alert clears soon after the problem is fixed, instead of staying red for an hour while the long window catches up. This **multi-window, multi-burn-rate** pattern comes from Google's SRE practice, which typically pairs a fast page with a slower ticket:
 
 | Alert | Burn rate | Windows | Severity | Budget used when it fires |
 |---|---|---|---|---|
-| `SnipErrorBudgetFastBurn` | 14.4× | 1 h and 5 m | **page** | 2% in an hour |
-| `SnipErrorBudgetSlowBurn` | 6× | 6 h and 30 m | **ticket** | 5% in six hours |
-| `SnipRedirectLatencyBudgetBurn` | 14.4× | 1 h and 5 m | **page** | (latency SLO: slow redirects) |
+| Fast burn | 14.4× | 1 h and 5 m | **page** | 2% in an hour |
+| Slow burn | 6× | 6 h and 30 m | **ticket** | 5% in six hours |
 
-The latency SLO uses the histogram's `le="0.25"` bucket: the share of redirects that **didn't** finish within 250 ms is `1 − (bucket count ÷ total count)`.
+The same pattern works for a latency SLO. With a histogram, the share of requests that **didn't** finish within 300 ms is `1 − (count in the le="0.3" bucket ÷ total count)`, and that ratio burns a latency budget exactly as errors burn an availability one.
 
-### Testing alerts
+### Alerts are code, so test them
 
-Alert rules are code, and snip's have **unit tests** (`snip-slo_test.yml`), run by `promtool test rules` in CI on every push. Each test feeds invented metrics and says which alerts must, and mustn't, fire:
+A typo in a metric name gives you an alert that can never fire, and you find out during the outage. Prometheus's command-line tool, **promtool**, can **unit-test** rules: you invent some input series, and say which alerts must, and mustn't, fire at which moment.
 
-1. **Healthy traffic** (600 requests a minute, no errors): nothing fires.
-2. **An outage** (20% of requests failing for an hour): `SnipErrorBudgetFastBurn` fires, with summary `snip is failing 20% of requests`.
-3. **A ten-minute incident, then recovery**: the page fires during it (at minute 60, with 8.345% failing over the last hour), and **stops** by minute 75. The 1-hour window still remembers the incident, but the 5-minute window has recovered.
-4. **A growing click backlog**: `SnipClickBacklogGrowing` stays quiet at 12 minutes (its `for: 15m` hasn't elapsed), then fires with `3000 clicks waiting for the worker`.
-5. **The worker disappears**: `SnipNoWorkerRunning` fires once there's been no worker for 5 minutes.
+```yaml title="slo_test.yml"
+rule_files:
+  - slo.yml
+evaluation_interval: 1m
 
-Writing these tests found a real bug. The first version put the recording rules and the alerts in **separate rule groups**, and the third test gave a different number on different runs (7.627% sometimes, 8.345% other times). Prometheus evaluates **groups concurrently**, so the alert sometimes read the recording rule's value from the *previous* evaluation. Rules **within** a group run in order, so snip's SLO alerts now sit in the same group as the recordings they read. It's the kind of bug that would, in production, make an alert fire or clear one evaluation late: small, and very confusing at 3 a.m.
+tests:
+  # A two-minute blip: half of all requests fail, then it's over. No page.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{code="200"}'
+        values: '0+600x60 36300+300x2 37500+600x30'
+      - series: 'http_requests_total{code="500"}'
+        values: '0x60 300+300x2 900x30'
+    alert_rule_test:
+      - eval_time: 63m
+        alertname: ErrorBudgetFastBurn
+        exp_alerts: []
+
+  # An outage: 20% of requests fail for an hour. Page.
+  - interval: 1m
+    input_series:
+      - series: 'http_requests_total{code="200"}'
+        values: '0+480x90'
+      - series: 'http_requests_total{code="500"}'
+        values: '0+120x90'
+    alert_rule_test:
+      - eval_time: 90m
+        alertname: ErrorBudgetFastBurn
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "Failing 20% of requests"
+```
+
+`values` is shorthand for a counter's readings, one per `interval`: `0+600x60` means "start at 0, add 600 each minute, 60 times". In the blip, the 5-minute window sees 50% errors, but over the hour only about 1.6% failed, below the 7.2% line, so nothing pages. In the outage, both windows see 20%, and the page fires with its summary filled in. You'll run this in the lab, then break the threshold and watch the test catch it.
 
 ---
 
 ## What makes a good alert
 
-- **Alert on symptoms, not causes.** Users feel "requests failing" and "redirects slow", not "CPU at 85%" or "one Pod restarted". Symptom alerts (SLO burn) catch problems whatever the cause, including ones you never predicted. Cause-based signals belong on dashboards and in tickets. snip's exceptions, `SnipTargetDown` and `SnipNoWorkerRunning`, page because without metrics, or without a worker, you're blind or silently losing function.
-- **Every page must be actionable, and urgent.** If the right response is "look tomorrow", it's a **ticket**, not a page. snip's slow burn and click backlog are tickets: counts are delayed, not lost.
+- **Alert on symptoms, not causes.** Users feel "requests failing" and "pages slow", not "CPU at 85%" or "one Pod restarted". Symptom alerts (SLO burn) catch problems whatever the cause, including ones you never predicted. Cause-based signals belong on dashboards and in tickets. The usual exception is losing your eyes: if the metrics themselves stop arriving, page, because you can no longer see symptoms.
+- **Every page must be actionable, and urgent.** If the right response is "look tomorrow", it's a **ticket**, not a page.
 - **Every alert links to a runbook** (below), and says what's wrong in plain words, with the size of the problem (`{{ $value }}`).
 - **Few alerts.** A handful of well-tuned SLO alerts beats a hundred threshold alerts.
 
@@ -104,29 +149,29 @@ Writing these tests found a real bug. The first version put the recording rules 
 
 ### Missing is not down
 
-A subtle trap, found while writing this chapter's lab: an alert like `up{job="snip-worker"} == 0` ("the worker is down") **never fires when the worker is stopped**. With service discovery (Docker DNS, Kubernetes), a stopped worker doesn't become a *down* target: it disappears from the target list, and there's no `up` series to be zero. snip therefore also has:
+A subtle trap. An alert like `up{job="worker"} == 0` ("the worker is down") looks right, and **never fires when the worker is stopped**. With service discovery (DNS, Kubernetes), a stopped worker doesn't become a *down* target: it disappears from the target list, so there's no `up` series at all, and "nothing" is never equal to zero. The fix is `absent()`:
 
 ```yaml
-- alert: SnipNoWorkerRunning
-  expr: absent(up{job="snip-worker"} == 1)   # no healthy worker target at all
+- alert: NoWorkerRunning
+  expr: absent(up{job="worker"} == 1)   # no healthy worker target at all
   for: 5m
   labels:
     severity: page
 ```
 
-`absent()` returns a value exactly when nothing matches, which catches "not there" as well as "there but down". Any component whose absence matters (the only worker, a cron job, a whole service) needs an alert of this kind.
+`absent()` returns a value exactly when nothing matches, which catches "not there" as well as "there but down". Any component whose absence matters (the only worker, a nightly job, a whole service) needs an alert of this kind.
 
 ### Routing
 
-Prometheus evaluates rules and sends firing alerts to **Alertmanager**, which **groups** related alerts into one notification, **deduplicates**, **routes** by labels (`severity: page` → the on-call's phone via PagerDuty, Opsgenie or similar; `severity: ticket` → a chat channel or issue tracker), and supports **silences** during planned maintenance. That's why snip's alerts carry a `severity` label.
+Prometheus evaluates rules and sends firing alerts to **Alertmanager**, which **groups** related alerts into one notification, **deduplicates**, **routes** by labels (`severity: page` → the on-call's phone via PagerDuty, Opsgenie or similar; `severity: ticket` → a chat channel or issue tracker), and supports **silences** during planned maintenance. That's why alerts carry a `severity` label.
 
 ---
 
 ## Runbooks
 
-A **runbook** is the page an on-call engineer opens when an alert fires: what the alert means, how to confirm it, and the first steps to diagnose and mitigate. snip's is `snip/docs/runbook.md`, with one section per alert, and every alert's description links to its section. The high-error-rate section, for example, says: find which route (with the exact PromQL), check whether anything just changed and **roll back first if the timing matches**, check the dependencies, read the failing requests' logs, follow a trace ID to Jaeger.
+A **runbook** is the page an on-call engineer opens when an alert fires: what the alert means, how to confirm it, and the first steps to diagnose and mitigate. Each alert's annotation links to its section, so the path from "my phone buzzed" to "here's what to check" is one tap.
 
-Good runbooks are short, specific (real commands, real dashboard names), and **maintained**: every incident ends with "fix the runbook where it was wrong" ([chapter 13.5](./incidents-and-postmortems.mdx)).
+Good runbooks are short, specific (real commands, real dashboard names, the exact query to run), and **maintained**: every incident ends with "fix the runbook where it was wrong" ([chapter 13.5](./incidents-and-postmortems.mdx)). A runbook that says "investigate the issue" is not a runbook.
 
 ---
 
@@ -146,8 +191,68 @@ Someone must respond when a page fires, at any hour. **On-call** is a rotation t
 - **100% targets**: guarantee constant failure and zero room for change.
 - **Threshold soup**: dozens of cause-based alerts ("disk 80%", "CPU 90%") that page for things users don't feel.
 - **Alerts without runbooks**, or runbooks that say "investigate the issue".
-- **Untested alert rules**: a typo in a metric name makes an alert that can never fire. snip's CI runs `promtool test rules` for exactly this reason.
+- **Untested alert rules**: a typo in a metric name makes an alert that can never fire. Run `promtool test rules` in CI.
+- **Low-traffic false alarms**: at 3 a.m., two failures out of three requests is a 67% error ratio. Add a minimum request rate to the rule so a handful of requests can't page anyone.
 :::
+
+---
+
+## Apply it to snip: real SLOs, tested alerts and a runbook
+
+snip, the URL shortener this handbook builds ([chapter 0.3](../start/meet-snip.mdx)), has two SLOs, written at the top of `snip/deploy/prometheus/rules/snip-slo.yml`:
+
+- **Availability**: 99.5% of requests succeed (anything but a 5xx), over 30 days.
+- **Latency**: 99% of redirects complete within 250 ms, over 30 days.
+
+The rules are the pattern above with snip's metric names. The fast burn, exactly as in the file:
+
+```yaml
+- record: snip:request_errors:ratio_rate1h
+  expr: |
+    sum(rate(snip_http_requests_total{code=~"5.."}[1h]))
+      / sum(rate(snip_http_requests_total[1h]))
+
+- alert: SnipErrorBudgetFastBurn
+  expr: |
+    snip:request_errors:ratio_rate1h > (14.4 * 0.005)
+    and
+    snip:request_errors:ratio_rate5m > (14.4 * 0.005)
+  labels:
+    severity: page
+    slo: availability
+  annotations:
+    summary: "snip is failing {{ $value | humanizePercentage }} of requests"
+    description: "At this rate the 30-day error budget is gone in about 2 days. Runbook: snip/docs/runbook.md#high-error-rate"
+```
+
+The full set of alerts:
+
+| Alert | What it watches | Severity |
+|---|---|---|
+| `SnipErrorBudgetFastBurn` | Availability budget at 14.4× (1 h and 5 m) | **page** |
+| `SnipErrorBudgetSlowBurn` | Availability budget at 6× (6 h and 30 m) | ticket |
+| `SnipRedirectLatencyBudgetBurn` | Latency budget at 14.4×, from the histogram's `le="0.25"` bucket | **page** |
+| `SnipClickBacklogGrowing` | Click events piling up for the worker, for 15 minutes | ticket (counts are delayed, not lost) |
+| `SnipTargetDown` | A scrape target reporting `up == 0` | **page** (you're blind) |
+| `SnipNoWorkerRunning` | `absent(up{job="snip-worker"} == 1)` for 5 minutes | **page** |
+
+The last one exists because of the "missing is not down" trap, found while writing this chapter's lab: with Compose's DNS discovery, stopping the worker made it vanish from Prometheus's targets, and `SnipTargetDown` stayed silent.
+
+### The tests, and the bug they found
+
+`snip-slo_test.yml` holds five tests, run by `promtool test rules` in CI on every push:
+
+1. **Healthy traffic** (600 requests a minute, no errors): nothing fires.
+2. **An outage** (20% of requests failing for an hour): `SnipErrorBudgetFastBurn` fires, with summary `snip is failing 20% of requests`.
+3. **A ten-minute incident, then recovery**: the page fires during it (at minute 60, with 8.345% failing over the last hour), and **stops** by minute 75. The 1-hour window still remembers the incident, but the 5-minute window has recovered.
+4. **A growing click backlog**: `SnipClickBacklogGrowing` stays quiet at 12 minutes (its `for: 15m` hasn't elapsed), then fires with `3000 clicks waiting for the worker`.
+5. **The worker disappears**: `SnipNoWorkerRunning` fires once there's been no worker for 5 minutes.
+
+Writing these tests found a real bug. The first version put the recording rules and the alerts in **separate rule groups**, and test 3 gave a different number on different runs (7.627% sometimes, 8.345% other times). Prometheus evaluates **groups concurrently**, so the alert sometimes read the recording rule's value from the *previous* evaluation. Rules **within** a group run in order, so snip's SLO alerts now sit in the same group as the recordings they read. In production, that bug would make an alert fire or clear one evaluation late: small, and very confusing at 3 a.m.
+
+### The runbook
+
+`snip/docs/runbook.md` has one section per alert (`#high-error-rate`, `#slow-redirects`, `#redis-down`, `#click-backlog`, `#target-down`), and every alert's description links to its section. The high-error-rate section, for example, says: find which route (with the exact PromQL), check whether anything just changed and **roll back first if the timing matches**, check the dependencies, read the failing requests' logs, and follow a trace ID to Jaeger ([chapter 13.3](./tracing.mdx)).
 
 :::info[In the real world]
 SLOs and error budgets, popularised by Google's Site Reliability Engineering books, are now standard in organisations of every size. Tools like **Sloth** and **Pyrra** generate the recording and alert rules shown here from a short SLO definition, and many observability platforms have SLOs built in. The most valuable outcome is cultural: product and engineering agree in advance how reliable the service must be, and use the error budget to decide between features and reliability work.
@@ -157,30 +262,31 @@ SLOs and error budgets, popularised by Google's Site Reliability Engineering boo
 
 ## Lab
 
-Free, on your own computer. You'll run snip's alert tests, then break the rules on purpose.
+Free, on your own computer with Docker. Steps 1–3 need only the two files from this chapter; steps 4–6 use snip's rules.
 
-1. **Get promtool.** It ships with Prometheus. Download the release for your platform from [prometheus.io/download](https://prometheus.io/download/) and unpack it, or use Docker:
+1. **Run the alert tests.** Make a folder, save `slo.yml` and `slo_test.yml` from "Alerts are code, so test them" into it, and run promtool from the Prometheus image (or from a [Prometheus download](https://prometheus.io/download/), which includes it):
    ```bash
-   cd ~/code/zero-to-prod/snip/deploy/prometheus/rules
-   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.0 check rules snip-slo.yml
-   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.0 test rules snip-slo_test.yml
-   ```
-   ```text
-   Checking snip-slo.yml
-     SUCCESS: 11 rules found
-     SUCCESS
+   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.0 check rules slo.yml        # SUCCESS: 3 rules found
+   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.0 test rules slo_test.yml    # SUCCESS
    ```
 
-2. **Break an alert, and watch the test catch it.** In `snip-slo.yml`, change both fast-burn thresholds from `14.4 * 0.005` (7.2%) to `50 * 0.005` (25%). A 20% outage no longer crosses it. Re-run the tests: test 2 fails, showing the alert you expected and the nothing you got. That's what CI would tell you before a too-lax alert reached production. Restore the thresholds.
+2. **Break the alert, and watch the test catch it.** In `slo.yml`, change both thresholds from `14.4 * 0.005` (7.2%) to `50 * 0.005` (25%). A 20% outage no longer crosses it. Re-run the test: it reports `FAILED`, with the alert it expected (`exp`) and the nothing it got (`got:[]`). That's what CI would tell you before a too-lax alert reached production. Restore it, then try the opposite: delete the 1-hour condition and the `and`, leaving only the 5-minute window. Now the *blip* test fails: `exp:[]`, but `got` a page. That's the naive alert, paging someone at 3 a.m. for two bad minutes. Restore the file.
 
 3. **Do the budget arithmetic.** With an SLO of 99.5% over 30 days:
    - How many minutes of total outage does the budget allow? (0.5% × 30 × 24 × 60 = **216 minutes**.)
    - At a burn rate of 14.4, how long until the budget is gone? (30 days ÷ 14.4 ≈ **2.1 days**.)
-   - If snip serves 1 million requests a day, how many failed requests does the monthly budget allow? (0.5% × 30 million = **150,000**.)
+   - If a service handles 1 million requests a day, how many failed requests does the monthly budget allow? (0.5% × 30 million = **150,000**.)
 
-4. **See the rules live.** With the Compose stack and the observability profile running ([chapter 13.2](./metrics.mdx)), open [localhost:9090/rules](http://localhost:9090/rules) (the `snip-slo` group with its recordings and alerts) and [localhost:9090/alerts](http://localhost:9090/alerts). Stop the worker (`docker compose stop worker`) and watch `SnipNoWorkerRunning` go from inactive to **pending**, and to **firing** after 5 minutes. Notice that `SnipTargetDown` doesn't fire: Docker's DNS stops returning the stopped worker, so Prometheus has no target to report as down (see "Missing is not down" above). Start the worker again (`docker compose start worker`).
+4. **Run snip's tests.**
+   ```bash
+   cd ~/code/zero-to-prod/snip/deploy/prometheus/rules
+   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.0 check rules snip-slo.yml   # SUCCESS: 11 rules found
+   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.0 test rules snip-slo_test.yml
+   ```
 
-5. **Read the runbook** (`snip/docs/runbook.md`) as if you'd just been paged for `SnipErrorBudgetFastBurn`. Is there anything you'd need that isn't there?
+5. **See the rules live.** With snip's Compose stack and the observability profile running ([chapter 13.2](./metrics.mdx)), open [localhost:9090/rules](http://localhost:9090/rules) (the `snip-slo` group with its recordings and alerts) and [localhost:9090/alerts](http://localhost:9090/alerts). Stop the worker (`docker compose stop worker`) and watch `SnipNoWorkerRunning` go from inactive to **pending**, and to **firing** after 5 minutes. Notice that `SnipTargetDown` doesn't fire: Docker's DNS stops returning the stopped worker, so Prometheus has no target to report as down. Start the worker again (`docker compose start worker`).
+
+6. **Read the runbook** (`snip/docs/runbook.md`) as if you'd just been paged for `SnipErrorBudgetFastBurn`. Is there anything you'd need that isn't there?
 
 ## Self-check
 
