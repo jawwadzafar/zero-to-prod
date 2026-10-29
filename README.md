@@ -44,7 +44,7 @@ Everything runs in your browser — the site is static and hosted free on GitHub
 - 🗺️ **Roadmap graph** with tracks and your progress (saved in `localStorage`, exportable)
 - 🧩 **Quizzes** that explain every answer, and a **Review** page that brings each question back after a growing gap (spaced repetition), so it sticks
 - 🐘 **A real PostgreSQL** in the page (PGlite / WebAssembly) for the SQL chapters
-- 💬 **Ask the handbook**: instant retrieval over every section; optional AI answers with citations using your own API key (sent only from your browser to the provider)
+- 💬 **Ask the handbook**: instant retrieval over every section, by keyword and (optionally) by meaning, with a small embedding model running on your device; optional AI answers with citations using your own API key (sent only from your browser to the provider)
 
 ## Run it locally
 

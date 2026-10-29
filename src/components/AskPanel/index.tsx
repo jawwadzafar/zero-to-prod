@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useRef, useState} from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
+import {fuse, loadEmbedder, loadVectors, rankByMeaning, type Vectors} from '@site/src/lib/semantic';
 import {useLocation} from '@docusaurus/router';
 import styles from './styles.module.css';
 
@@ -18,6 +19,7 @@ type Hit = Passage & {score: number};
 type Turn = {role: 'user' | 'assistant'; text: string; sources?: Hit[]; cites?: number[][]; error?: string};
 
 const KEY_STORE = 'z2p:ask:key';
+const SEMANTIC_STORE = 'z2p:ask:semantic';
 const MODEL_STORE = 'z2p:ask:model';
 const MODELS = [
   {id: 'claude-opus-5-5', label: 'Claude Opus 5.5 (best answers)'},
@@ -83,6 +85,8 @@ export default function AskPanel() {
 
 function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
   const indexUrl = useBaseUrl('/ask-index.json');
+  const vectorsMetaUrl = useBaseUrl('/ask-vectors.json');
+  const vectorsUrl = useBaseUrl('/ask-vectors.bin');
   const learnPrefix = useBaseUrl('/learn/');
   const currentDoc = pathname.startsWith(learnPrefix) ? pathname.slice(learnPrefix.length).replace(/\/$/, '') : '';
   const [search, setSearch] = useState<null | ((q: string) => Hit[])>(null);
@@ -94,6 +98,10 @@ function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState(MODELS[0].id);
   const [thisPage, setThisPage] = useState(!!currentDoc);
+  const [semantic, setSemantic] = useState(false);
+  const [semStatus, setSemStatus] = useState<'off' | 'loading' | 'ready' | 'unavailable' | 'error'>('off');
+  const passagesRef = useRef<Passage[]>([]);
+  const meaningRef = useRef<{vectors: Vectors; embed: (t: string) => Promise<Float32Array>} | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -102,6 +110,7 @@ function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
     // A model saved by an older version of this panel may no longer be offered.
     const saved = safeGet(MODEL_STORE);
     setModel(MODELS.some((m) => m.id === saved) ? saved : MODELS[0].id);
+    setSemantic(safeGet(SEMANTIC_STORE) === '1');
     inputRef.current?.focus();
   }, []);
 
@@ -119,6 +128,7 @@ function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
           searchOptions: {boost: {heading: 3, chapter: 2}, fuzzy: 0.2, prefix: true, combineWith: 'OR'},
         });
         ms.addAll(passages);
+        passagesRef.current = passages;
         if (!cancelled) setSearch(() => (query: string) => ms.search(query) as unknown as Hit[]);
       } catch (e: any) {
         if (!cancelled) setLoadError('Could not load the handbook index. Check your connection and try again.');
@@ -129,13 +139,52 @@ function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
     };
   }, [indexUrl]);
 
+  // Search by meaning: load the passage vectors and the model only when asked.
+  useEffect(() => {
+    if (!semantic || !search) {
+      setSemStatus(semantic ? 'loading' : 'off');
+      return;
+    }
+    if (meaningRef.current) {
+      setSemStatus('ready');
+      return;
+    }
+    let cancelled = false;
+    setSemStatus('loading');
+    (async () => {
+      try {
+        const vectors = await loadVectors(vectorsMetaUrl, vectorsUrl, passagesRef.current.length);
+        if (!vectors) {
+          if (!cancelled) setSemStatus('unavailable');
+          return;
+        }
+        const embed = await loadEmbedder(vectors.meta);
+        meaningRef.current = {vectors, embed};
+        if (!cancelled) setSemStatus('ready');
+      } catch {
+        if (!cancelled) setSemStatus('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [semantic, search, vectorsMetaUrl, vectorsUrl]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({top: scrollRef.current.scrollHeight, behavior: 'smooth'});
   }, [turns]);
 
-  function retrieve(query: string): Hit[] {
+  async function retrieve(query: string): Promise<Hit[]> {
     if (!search) return [];
     let hits = search(query);
+    const meaning = semantic ? meaningRef.current : null;
+    if (meaning) {
+      // Keyword and meaning search each rank passages; fuse the two rankings.
+      const passages = passagesRef.current;
+      const byMeaning = rankByMeaning(await meaning.embed(query), meaning.vectors, 50).map((i) => passages[i].id);
+      const byId = new Map(passages.map((p) => [p.id, p]));
+      hits = fuse([hits.slice(0, 50).map((h) => h.id), byMeaning]).map((id, rank) => ({...byId.get(id)!, score: 1 / (1 + rank)}));
+    }
     if (thisPage && currentDoc) {
       hits = hits.map((h) => (h.docId === currentDoc ? {...h, score: h.score * 2.5} : h)).sort((a, b) => b.score - a.score);
     }
@@ -146,7 +195,7 @@ function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
     const question = q.trim();
     if (!question || busy) return;
     setQ('');
-    const sources = retrieve(question);
+    const sources = await retrieve(question);
     const history = turns;
     const next: Turn[] = [...history, {role: 'user', text: question}];
     if (!apiKey) {
@@ -319,11 +368,29 @@ function Panel({onClose, pathname}: {onClose: () => void; pathname: string}) {
       </div>
 
       <div className={styles.footer}>
-        {currentDoc && (
-          <label className={styles.small}>
-            <input type="checkbox" checked={thisPage} onChange={(e) => setThisPage(e.target.checked)} /> Prefer this chapter
+        <div className={styles.toggles}>
+          {currentDoc && (
+            <label className={styles.small}>
+              <input type="checkbox" checked={thisPage} onChange={(e) => setThisPage(e.target.checked)} /> Prefer this chapter
+            </label>
+          )}
+          <label
+            className={styles.small}
+            title="Finds sections that mean the same as your question even when they use different words. Runs on your device; your question is never sent anywhere.">
+            <input
+              type="checkbox"
+              checked={semantic}
+              onChange={(e) => {
+                setSemantic(e.target.checked);
+                safeSet(SEMANTIC_STORE, e.target.checked ? '1' : '');
+              }}
+            />{' '}
+            🧠 Search by meaning{' '}
+            {semStatus === 'loading' && <em>(downloading a 23 MB model from Hugging Face, once…)</em>}
+            {semStatus === 'unavailable' && <em>(not available on this build)</em>}
+            {semStatus === 'error' && <em>(couldn't load; keyword search still works)</em>}
           </label>
-        )}
+        </div>
         <div className={styles.inputRow}>
           <textarea
             ref={inputRef}

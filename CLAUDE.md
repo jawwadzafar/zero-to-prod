@@ -60,6 +60,7 @@ chapter.** The owner should never have to repeat what is written here.
 │   ├── data/curriculum.json  ← SINGLE SOURCE OF TRUTH: tracks, parts, chapters, order, minutes
 │   ├── lib/progress.ts       ← localStorage progress store (done chapters, quiz scores, track, review cards)
 │   ├── lib/review.ts         ← spaced-repetition schedule (Leitner boxes) and question keys
+│   ├── lib/semantic.ts       ← Ask's search by meaning (in-browser embeddings, fused with keyword search)
 │   ├── lib/curriculum.ts     ← helpers over curriculum.json
 │   ├── components/
 │   │   ├── Roadmap/          ← roadmap graph + track picker + progress summary
@@ -73,6 +74,7 @@ chapter.** The owner should never have to repeat what is written here.
 ├── plugins/curriculum.js     ← exposes which chapters exist (for "coming soon")
 ├── scripts/
 │   ├── build-ask-index.mjs   ← builds static/ask-index.json (runs before start/build)
+│   ├── build-ask-vectors.mjs ← embeds Ask passages (static/ask-vectors.bin); deploy-only, skips elsewhere
 │   ├── build-quiz-bank.mjs   ← builds static/quiz-bank.json from every <Quiz> (for /review)
 │   ├── status.mjs            ← prints written/total chapters per part
 │   └── make-social-card.py   ← regenerates static/img/social-card.png
@@ -144,9 +146,8 @@ that introduces it.
 
 ## 8. Backlog (ideas to build when chapters are in good shape)
 
-- Semantic retrieval for Ask (embeddings built at deploy time, queried in the
-  browser with transformers.js) and an optional fully in-browser model
-  (WebLLM) so AI answers work with no key at all.
+- An optional fully in-browser model (WebLLM) so Ask's AI answers work with no
+  key at all (search by meaning already runs in the browser: src/lib/semantic.ts).
 - In-browser terminal/Linux sandbox for Part 2 labs (e.g. WebVM/v86).
 - Interactive diagrams (step-through request lifecycle), Go playground embeds.
 - Printable/PDF edition; i18n (translations) via Docusaurus i18n.

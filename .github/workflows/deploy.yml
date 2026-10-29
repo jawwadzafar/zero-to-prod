@@ -32,6 +32,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run check:sql
+      # Only the deploy embeds passages for Ask's "search by meaning"
+      # (scripts/build-ask-vectors.mjs); the library's native runtime is too big
+      # to make every install download it.
+      - run: npm i --no-save --no-audit --no-fund @huggingface/transformers@4.3.1
       - run: npm run build
       # Requires the one-time repo setting: Settings → Pages → Source: GitHub Actions.
       - uses: actions/configure-pages@v6
