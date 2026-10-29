@@ -266,8 +266,8 @@ Free, on your own computer with Docker. Steps 1–3 need only the two files from
 
 1. **Run the alert tests.** Make a folder, save `slo.yml` and `slo_test.yml` from "Alerts are code, so test them" into it, and run promtool from the Prometheus image (or from a [Prometheus download](https://prometheus.io/download/), which includes it):
    ```bash
-   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.5 check rules slo.yml        # SUCCESS: 3 rules found
-   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.5 test rules slo_test.yml    # SUCCESS
+   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.15.1 check rules slo.yml        # SUCCESS: 3 rules found
+   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.15.1 test rules slo_test.yml    # SUCCESS
    ```
 
 2. **Break the alert, and watch the test catch it.** In `slo.yml`, change both thresholds from `14.4 * 0.005` (7.2%) to `50 * 0.005` (25%). A 20% outage no longer crosses it. Re-run the test: it reports `FAILED`, with the alert it expected (`exp`) and the nothing it got (`got:[]`). That's what CI would tell you before a too-lax alert reached production. Restore it, then try the opposite: delete the 1-hour condition and the `and`, leaving only the 5-minute window. Now the *blip* test fails: `exp:[]`, but `got` a page. That's the naive alert, paging someone at 3 a.m. for two bad minutes. Restore the file.
@@ -280,8 +280,8 @@ Free, on your own computer with Docker. Steps 1–3 need only the two files from
 4. **Run snip's tests.**
    ```bash
    cd ~/code/zero-to-prod/snip/deploy/prometheus/rules
-   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.5 check rules snip-slo.yml   # SUCCESS: 11 rules found
-   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.5.5 test rules snip-slo_test.yml
+   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.15.1 check rules snip-slo.yml   # SUCCESS: 12 rules found
+   docker run --rm -v "$PWD:/rules" -w /rules --entrypoint promtool prom/prometheus:v3.15.1 test rules snip-slo_test.yml
    ```
 
 5. **See the rules live.** With snip's Compose stack and the observability profile running ([chapter 13.2](./metrics.mdx)), open [localhost:9090/rules](http://localhost:9090/rules) (the `snip-slo` group with its recordings and alerts) and [localhost:9090/alerts](http://localhost:9090/alerts). Stop the worker (`docker compose stop worker`) and watch `SnipNoWorkerRunning` go from inactive to **pending**, and to **firing** after 5 minutes. Notice that `SnipTargetDown` doesn't fire: Docker's DNS stops returning the stopped worker, so Prometheus has no target to report as down. Start the worker again (`docker compose start worker`).
