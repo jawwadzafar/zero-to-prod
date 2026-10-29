@@ -133,7 +133,7 @@ def run(version: str, llm: LLM, cases: list[Case]) -> Result:
     r = Result(version)
     for case in cases:
         system, prompt = render(case.page(), version)
-        c = llm.complete(prompt, system=system, max_tokens=100)
+        c = llm.complete(prompt, system=system, max_tokens=300)
         answer = c.text.strip()
         r.answers[case.id] = answer
         r.input_tokens += c.input_tokens

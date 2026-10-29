@@ -116,7 +116,7 @@ def ask_model(llm: LLM, passage: str, titles: dict[str, str]) -> str:
         "additionalProperties": False,
     }
     c = llm.complete(
-        PROMPT.format(parts=parts, passage=passage[:800]), max_tokens=20, schema=schema
+        PROMPT.format(parts=parts, passage=passage[:800]), max_tokens=200, schema=schema
     )
     try:
         return str(json.loads(c.text)["part"])
