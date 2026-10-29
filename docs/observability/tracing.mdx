@@ -6,7 +6,7 @@ description: "Seeing where the time goes inside a request: traces, spans and con
 
 # 13.3 Tracing with OpenTelemetry
 
-Metrics told you snip's p99 latency went up ([chapter 13.2](./metrics.mdx)). Logs told you which requests were slow ([chapter 13.1](./logs.mdx)). Neither tells you **where the time went** inside a request: waiting for Redis? For Postgres? For another service three hops away? A **trace** answers that. It records a request's whole journey as a tree of timed steps, across every service it touches, so you can see at a glance that 380 of the 400 milliseconds were one database query. This chapter explains traces and spans, how a trace follows a request across services, the **OpenTelemetry** standard that makes it portable, and the trade-offs of sampling. snip is instrumented with OpenTelemetry: each redirect produces a trace showing the cache lookup, the database query on a miss, and the click being recorded. You'll run it with **Jaeger** and compare a cache miss with a cache hit.
+You click "Pay" and the page spins for four seconds. Behind that button, the shop's server called a payment service, which called a fraud check, which queried a database, and somewhere in that chain three of the four seconds disappeared. Metrics can tell the shop's engineers that checkout got slower ([chapter 13.2](./metrics.mdx)); logs can tell them which requests were slow ([chapter 13.1](./logs.mdx)). Neither tells you **where the time went** inside a request: waiting for Redis? For Postgres? For another service three hops away? A **trace** answers that. It records a request's whole journey as a tree of timed steps, across every service it touches, so you can see at a glance that 380 of the 400 milliseconds were one database query. This chapter explains traces and spans, how a trace follows a request across services, the **OpenTelemetry** standard that makes it portable, and the trade-offs of sampling. Then you'll see it in a real service: snip, the URL shortener this handbook builds, is instrumented with OpenTelemetry, and you'll run it with **Jaeger** (an open-source trace viewer) to compare a request that missed the cache with one that hit it.
 
 ## What you'll learn
 
@@ -22,7 +22,20 @@ Metrics told you snip's p99 latency went up ([chapter 13.2](./metrics.mdx)). Log
 
 A **trace** is the record of one request (or one job) through a system. It's made of **spans**: each span is one timed operation (handling the HTTP request, one cache lookup, one database query) with a name, a start time, a duration, a status and **attributes** (key/value details). Spans nest: a span's **parent** is the operation that caused it. Together they form a tree, drawn as a **waterfall**.
 
-A real trace of snip serving a redirect whose link wasn't in the cache yet, as exported to Jaeger (durations in microseconds):
+Picture the slow checkout as a trace (an illustration, with round numbers):
+
+```text
+POST /checkout                       4,020 ms   ─ the shop's server (root span)
+├─ cart.Load                            15 ms
+└─ payments: POST /charge            3,980 ms   ─ a call to another service
+   ├─ fraud: POST /score             3,900 ms   ─ and another
+   │  └─ db: SELECT … FROM orders    3,870 ms   ← here
+   └─ bank: POST /authorise             60 ms
+```
+
+Four services, one tree, and the answer jumps out: a single database query inside the fraud service took almost all of the time. Without the trace, each team would see only its own slice and say "we're waiting on someone else".
+
+Here is a real one, much smaller and faster: snip, the URL shortener this handbook builds, serving a redirect whose link wasn't in its cache yet, as exported to Jaeger (durations in microseconds):
 
 ```text
 GET /{slug}                  758 µs   ─ the whole request (server span)
@@ -156,16 +169,36 @@ Most teams adopt tracing through OpenTelemetry's automatic instrumentation first
 
 ## Lab
 
-Free, on your computer with Docker. The trace check runs in snip's CI on every push.
+Free, on your computer with Docker. Step 1 needs only Jaeger and `curl`; steps 2–6 use snip, and its trace check runs in snip's CI on every push.
 
-1. **Start the stack with tracing on.** The `observability` profile includes Jaeger. Setting the endpoint turns snip's tracing on:
+1. **Send a trace by hand.** A span is only data. Start Jaeger on its own, then post a two-span trace to it in OpenTelemetry's wire format (OTLP, as JSON over HTTP):
+   ```bash
+   docker run -d --rm --name jaeger -p 16686:16686 -p 4318:4318 jaegertracing/jaeger:2.21.0
+   NOW=$(date +%s)                                   # spans need real timestamps, in nanoseconds
+   curl -s -X POST localhost:4318/v1/traces -H 'Content-Type: application/json' -d '{
+     "resourceSpans": [{
+       "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "checkout"}}]},
+       "scopeSpans": [{"spans": [
+         {"traceId": "5b8efff798038103d269b633813fc60c", "spanId": "eee19b7ec3c1b174",
+          "name": "POST /checkout", "kind": 2,
+          "startTimeUnixNano": "'$NOW'000000000", "endTimeUnixNano": "'$NOW'400000000"},
+         {"traceId": "5b8efff798038103d269b633813fc60c", "spanId": "eee19b7ec3c1b175",
+          "parentSpanId": "eee19b7ec3c1b174", "name": "db: SELECT orders", "kind": 3,
+          "startTimeUnixNano": "'$NOW'050000000", "endTimeUnixNano": "'$NOW'380000000"}
+       ]}]
+     }]
+   }'                                                # {"partialSuccess":{}} means accepted
+   ```
+   Open [localhost:16686](http://localhost:16686), search for trace `5b8efff798038103d269b633813fc60c`, and you'll see a 400 ms request with a 330 ms database query inside it. Notice what made it a tree: the second span's `parentSpanId` is the first span's `spanId`, and both share the `traceId`. That's all instrumentation libraries do, millions of times a second. Stop it with `docker stop jaeger` before step 2, which starts its own.
+
+2. **Start snip's stack with tracing on.** The `observability` profile includes Jaeger. Setting the endpoint turns snip's tracing on:
    ```bash
    cd ~/code/zero-to-prod/snip
    OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d --build --wait
    docker compose logs api | grep -m1 "tracing enabled"
    ```
 
-2. **Make a cache miss, then a hit.**
+3. **Make a cache miss, then a hit.**
    ```bash
    KEY=$(docker compose exec -T api snip keys create tracing | grep -o 'snip_[A-Za-z0-9]*')
    curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"traced"}'
@@ -173,14 +206,14 @@ Free, on your computer with Docker. The trace check runs in snip's CI on every p
    curl -s -o /dev/null localhost:8080/traced      # hit: Redis only
    ```
 
-3. **Look at the traces.** Open Jaeger at [localhost:16686](http://localhost:16686), choose the service **snip-api**, and **Find Traces**. Open the two `GET /{slug}` traces and compare them: which spans appear only on the miss? Click `cache.GetURL` to see its `cache.hit` attribute.
+4. **Look at the traces.** Open Jaeger at [localhost:16686](http://localhost:16686), choose the service **snip-api**, and **Find Traces**. Open the two `GET /{slug}` traces and compare them: which spans appear only on the miss? Click `cache.GetURL` to see its `cache.hit` attribute.
 
-4. **Jump from a log to a trace.** Find a request log line with a trace ID, and paste the ID into Jaeger's search box:
+5. **Jump from a log to a trace.** Find a request log line with a trace ID, and paste the ID into Jaeger's search box:
    ```bash
    docker compose logs api | grep '"route":"GET /{slug}"' | grep -o '"trace_id":"[0-9a-f]*"' | tail -1
    ```
 
-5. **Propagate a trace in.** Send a request that claims to be part of an existing trace:
+6. **Propagate a trace in.** Send a request that claims to be part of an existing trace:
    ```bash
    curl -s -o /dev/null -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" localhost:8080/traced
    ```
