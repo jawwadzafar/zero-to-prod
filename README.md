@@ -22,11 +22,11 @@ A handbook that takes you from **basic tech literacy** — you use computers, ma
 |---|---|---|
 | 0 · Anchor | What is it like? | An apartment number for programs |
 | 1 · Mechanism | What actually happens? | A program claims a number; the OS routes traffic to it |
-| 2 · Hands on | Where do I see it? | Your snip server claims `:8080` — watch it with `lsof` |
+| 2 · Hands on | Where do I see it? | A one-line web server claims `:8000` — watch it with `lsof`, then find snip's `:8080` |
 | 3 · What breaks | How does it go wrong? | "address already in use", and how to fix it |
 | 4 · Judgment | Why this way? | Why real systems hide ports behind a proxy |
 
-You build **snip**, a link shortener, and grow it into a production-shaped system: Postgres, Redis, a queue and worker, Docker, Kubernetes, CI/CD, AWS with Terraform, metrics and tracing — and AI features in the AI track.
+Each chapter teaches its topic on its own first, with a small example you can run, so you can open any chapter straight from a search. Then you apply it to **snip**, a link shortener you build alongside, growing it into a production-shaped system: Postgres, Redis, a queue and worker, Docker, Kubernetes, CI/CD, AWS with Terraform, metrics and tracing — and AI features in the AI track.
 
 ## Tracks
 

@@ -74,9 +74,11 @@ who finishes rung 4 can make decisions. Both are wins.
 - *Rung 1:* One machine runs many programs. A **port** is a number (1–65535)
   a program claims so the OS knows which program incoming traffic is for.
   Only one program may hold a port at a time.
-- *Rung 2:* `snip` claims `8080` (`SNIP_HTTP_ADDR` in
-  `snip/internal/config/config.go`); Postgres claims `5432`, Redis `6379`.
-  Run `lsof -i -P | grep LISTEN` and see who holds what on your laptop.
+- *Rung 2:* Start a one-line web server (`python3 -m http.server 8000`) and
+  run `lsof -i -P | grep LISTEN` to see it holding `8000`, next to whatever
+  else holds a port on your laptop. Then apply it: `snip` claims `8080`
+  (`SNIP_HTTP_ADDR` in `snip/internal/config/config.go`), Postgres `5432`,
+  Redis `6379`.
 - *Rung 3:* "address already in use" = someone else is in that apartment.
   Find them with `lsof -i :8080`.
 - *Rung 4:* Why services use fixed well-known ports inside the cluster but
