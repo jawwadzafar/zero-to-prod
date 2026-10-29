@@ -805,6 +805,8 @@ jobs:
       - if: failure()
         run: |
           kubectl -n argocd get application snip -o yaml | grep -A40 '^status:' || true
+          kubectl -n argocd get pods -o wide || true
+          kubectl -n argocd get events --sort-by=.lastTimestamp | tail -40 || true
           kubectl -n snip get pods,events || true
 
   terraform:
