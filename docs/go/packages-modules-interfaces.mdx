@@ -1,26 +1,260 @@
 ---
 title: "4.3 Packages, modules & interfaces"
 sidebar_label: "4.3 Packages, modules & interfaces"
-description: How Go programs are organised — packages, exported names, the internal folder, modules and dependencies — and interfaces, the idea that lets snip swap an in-memory store for Postgres without changing its business logic.
+description: How Go programs are organised — packages, exported names, the internal folder, modules and dependencies — and interfaces plus dependency injection, the idea that lets code swap email for SMS, or memory for a database, without changing its logic.
 ---
 
 # 4.3 Packages, modules & interfaces
 
-A single file is fine for a hello-world. snip has around twenty files, and a real company codebase can have thousands. Without structure, that becomes a tangle where every change breaks something far away. This chapter covers how Go organises code — **packages** and **modules** — and then the idea that makes snip's design work: **interfaces**. An interface is how snip's business logic can use *"something that stores links"* without caring whether that's a Go map in memory or a Postgres database across the network. It's the single most important design tool in this part of the handbook.
+A single file is fine for a hello-world. A real company codebase has hundreds or thousands of files, written by people who have never met. Without structure, that becomes a tangle where every change breaks something far away. This chapter covers how Go organises code — **packages** and **modules** — and then the design idea that keeps large programs flexible: **interfaces**. An interface lets code use *"something that can send a notification"* without caring whether that's an email, a text message, or a fake that a test inspects afterwards. It's the most important design tool in this part of the handbook, and at the end you'll see it hold together a real service.
 
 ## What you'll learn
 
 - **Packages**: one folder = one package; how to import one, and how **capitalised names** decide what's visible outside it.
-- The special **`internal/`** folder, and how snip's code is laid out.
+- The special **`internal/`** folder, which the compiler keeps private to your project.
 - **Modules** (`go.mod`, `go.sum`): your project's identity and its **dependencies** — adding, updating and pinning them.
 - **Interfaces**: describing what something *can do*, not what it *is* — and how Go types satisfy them without saying so.
-- **Dependency injection**: how snip's `main` wires real components together, and why that makes code testable and swappable.
+- **Dependency injection**: handing a component its dependencies from outside, which makes code swappable and testable.
 
 ---
 
 ## Packages: one folder, one job
 
-A **package** is a folder of `.go` files that work together on one job. Every file in the folder starts with the same `package` line. snip is made of packages, each with a clear responsibility:
+A **package** is a folder of `.go` files that work together on one job. Every file in the folder starts with the same `package` line. You've used packages since your first program: `fmt` (formatting and printing), `strings`, `strconv`. Your own code splits into packages the same way.
+
+Here's the smallest real example: the `hello` module from [chapter 4.1](./why-go-first-program.mdx), with one extra package for greetings.
+
+```text
+hello/
+├── go.mod          module hello
+├── main.go         package main  — the program
+└── greet/
+    └── greet.go    package greet — everything about greeting people
+```
+
+```go
+// greet/greet.go
+package greet
+
+import "strings"
+
+// DefaultName is used when nobody gives a name.
+const DefaultName = "world"
+
+// Hello returns a friendly greeting. Capital H: other packages can call it.
+func Hello(name string) string {
+	name = tidy(name)
+	if name == "" {
+		name = DefaultName
+	}
+	return "Hello, " + name + "!"
+}
+
+// tidy trims spaces. Lowercase t: only code inside package greet can call it.
+func tidy(s string) string {
+	return strings.TrimSpace(s)
+}
+```
+
+You use another package by **importing** it by its path — the module name plus the folder — then referring to things by the package's name:
+
+```go
+// main.go
+package main
+
+import (
+	"fmt"         // standard library
+	"hello/greet" // our own package: module "hello", folder "greet"
+)
+
+func main() {
+	fmt.Println(greet.Hello("  Ada ")) // package name, dot, function → Hello, Ada!
+}
+```
+
+### Capital letters decide visibility
+
+Go has no `public` or `private` keywords. Instead:
+
+- A name starting with a **Capital letter** is **exported** — visible to other packages: `greet.Hello`, `greet.DefaultName`.
+- A name starting with a **lowercase letter** is **unexported** — private to its own package: `tidy`. Writing `greet.tidy(…)` in `main.go` is a compile error.
+
+That's the whole rule. When you read Go code, one glance tells you what a package offers to the outside world and what's an internal detail it's free to change.
+
+### The `internal/` folder
+
+Code under a folder named **`internal/`** can only be imported by code in the folder *above* it. Put `greet` at `hello/internal/greet/` and other projects can't import it and come to depend on it. It's a promise, enforced by the compiler: *these are this project's private parts, and we may change them freely.* Most Go services keep nearly all their code under `internal/`.
+
+:::note[Everyday anchor]
+Packages are departments in a company. Each has a job and a front desk — its capitalised, exported names — where other departments can make requests. What happens behind the front desk (the lowercase names) is the department's own business, and it can reorganise without telling anyone. `internal/` is a building whose doors only open for staff of the parent company.
+:::
+
+---
+
+## Modules: your project and its dependencies
+
+A **module** is a whole project: a tree of packages with one **`go.mod`** file at its root. After adding one outside library to `hello`, its `go.mod` looks like this:
+
+```text
+module hello
+
+go 1.25.0
+
+require github.com/google/uuid v1.6.0
+```
+
+- **`module`** — the module's name, which is also the start of every import path inside it (that's why the import was `hello/greet`). Published modules use their repository address as the name: `github.com/google/uuid`.
+- **`go`** — the Go version it needs.
+- **`require`** — its **dependencies**: other people's modules it uses, each pinned to an exact **version**.
+
+Everything else most backends need — the web server, JSON, cryptography, time — comes from Go's **standard library**, which is unusually complete. Many Go services have only a handful of dependencies.
+
+### Adding and updating dependencies
+
+```bash
+go get github.com/google/uuid@latest   # add (or update) a dependency
+go mod tidy                            # add anything missing, remove anything unused
+go list -m all                         # every module in use, with versions
+```
+
+Next to `go.mod` sits **`go.sum`**: a list of cryptographic checksums ([chapter 7.1](../security/security-literacy.mdx)) of every dependency's exact contents. Anyone who builds your project gets **exactly** the same code you tested with, and if a downloaded dependency was ever tampered with, the checksum won't match and the build refuses. Commit both files.
+
+### Versions
+
+Versions follow **semantic versioning**: `v1.6.0` is `MAJOR.MINOR.PATCH`.
+
+| Change | Means | Example |
+|---|---|---|
+| **Patch** (1.6.0 → 1.6.1) | bug fixes only | safe to take |
+| **Minor** (1.6 → 1.7) | new features, nothing removed | should be safe |
+| **Major** (v1 → v2) | breaking changes | expect to change your code |
+
+In Go, a new major version from v2 onwards gets a new import path (`…/pgx/v5` vs `…/pgx/v6`), so two major versions can even coexist.
+
+:::warning[What can go wrong]
+- **Dependency bloat.** Every dependency is code you didn't write, didn't review, and now ship. It can have bugs, security holes, or be abandoned. Before adding one, ask: would the standard library do?
+- **Supply-chain attacks.** Attackers have published malicious packages with names one typo away from popular ones, and have hijacked real packages. Pin versions (Go does), review what you add, and let tools scan dependencies for known vulnerabilities (`govulncheck`, [chapter 11.2](../shipping/ci-with-github-actions.mdx)).
+- **Import cycles.** Package A imports B and B imports A: Go refuses to compile. It's a sign the responsibilities are tangled — usually fixed by moving the shared part into a third package, or by an interface (below).
+:::
+
+---
+
+## Interfaces: what it can do, not what it is
+
+Here's a design problem every backend meets. An online shop must tell customers "your order has shipped". In production, that's an email through an email provider. On your laptop, you'd rather print it to the terminal than email real people. In tests, you want something that *records* what would have been sent, so the test can check it. Nobody wants three copies of the order logic, one for each.
+
+Go's answer is an **interface**: a named list of methods. It describes **what something can do**, without saying what it is:
+
+```go
+// Notifier is anything that can send a message to a customer.
+type Notifier interface {
+	Notify(to, msg string) error
+}
+```
+
+The order logic only ever talks to a `Notifier`:
+
+```go
+type OrderService struct {
+	notify Notifier // some Notifier — the service doesn't know or care which
+}
+
+func (s *OrderService) Ship(orderID, customer string) error {
+	// … mark the order as shipped …
+	return s.notify.Notify(customer, "order "+orderID+" has shipped")
+}
+```
+
+Any number of completely different types can **be** a Notifier, as long as they have that one method:
+
+```go
+type EmailNotifier struct{ apiKey string } // talks to an email provider over the network
+
+func (e EmailNotifier) Notify(to, msg string) error {
+	// … an HTTP call to the email provider …
+	return nil
+}
+
+type ConsoleNotifier struct{} // prints instead of sending
+
+func (ConsoleNotifier) Notify(to, msg string) error {
+	fmt.Println("to", to+":", msg)
+	return nil
+}
+```
+
+```mermaid
+flowchart TB
+    S["OrderService<br/>(business logic)"] -->|"only knows"| I["Notifier interface<br/>Notify(to, msg)"]
+    E["EmailNotifier<br/>(real emails)"] -.->|"has Notify"| I
+    C["ConsoleNotifier<br/>(prints to the terminal)"] -.->|"has Notify"| I
+    F["fake in a test<br/>(records messages)"] -.->|"has Notify"| I
+```
+
+The service depends only on the box in the middle. The three boxes at the bottom are interchangeable: swap one for another and the service never notices.
+
+### Satisfied without saying so
+
+Notice what's *missing*: neither `EmailNotifier` nor `ConsoleNotifier` declares "I implement `Notifier`". In Go, a type satisfies an interface **automatically**, just by having the right methods. This is sometimes called **structural typing** — "if it has the methods, it fits".
+
+That makes interfaces cheap to introduce: you can define one next to the code that *uses* it, and existing types fit without being changed.
+
+:::note[Everyday anchor]
+An interface is a job description: *"must be able to drive a van and lift 20 kg"*. Anyone who can do those things can take the job, whatever else they are. The dispatcher only cares that the driver can drive and lift — not their name, training or background. You can replace one driver with another who meets the same description, and deliveries carry on.
+:::
+
+### Small interfaces are the best interfaces
+
+Go's standard library is full of tiny interfaces. The most famous has one method:
+
+```go
+type Reader interface {
+	Read(p []byte) (n int, err error)
+}
+```
+
+Files, network connections, HTTP request bodies, compressed streams and strings are all `io.Reader`s, so one function that accepts an `io.Reader` works with every one of them. A one- or two-method interface is easy to implement, easy to fake, and fits many types.
+
+:::info[If you've written code]
+Interfaces in Java or C# must be declared (`implements Notifier`). TypeScript interfaces are also structural, like Go's, but vanish at runtime. Go's rule of thumb — *accept interfaces, return concrete types* — keeps dependencies pointing the right way: packages describe what they *need* as small interfaces, and don't care who provides it.
+:::
+
+---
+
+## Dependency injection: wiring it all together in main
+
+Something has to decide *which* Notifier the service gets. That's the job of `main` — and only `main`:
+
+```go
+func main() {
+	var n Notifier
+	if key := os.Getenv("EMAIL_API_KEY"); key != "" {
+		n = EmailNotifier{apiKey: key} // production: real emails
+	} else {
+		n = ConsoleNotifier{} // laptop: print instead
+	}
+	orders := &OrderService{notify: n} // hand the chosen part to the service
+	_ = orders.Ship("A-1001", "ada@example.com")
+}
+```
+
+This pattern is called **dependency injection**: instead of the service *creating* its own email client, it's **handed** its dependencies from outside. The payoffs are large:
+
+- **Swappable.** The same service code runs with email or the console, chosen by one environment variable ([chapter 2.2](../linux/users-permissions-processes.mdx)). Tomorrow's SMS notifier needs a new type with one method — and zero changes to the order logic.
+- **Testable.** Tests hand the service a fake that records what it was asked to send, then check it ([chapter 4.4](./testing.mdx)). No emails, no network, microseconds per test.
+- **Clear.** One place, `main`, shows how the whole program is assembled.
+
+:::warning[What can go wrong]
+- **Interfaces for everything.** An interface with one implementation and no test double is indirection that makes code harder to follow. Introduce one when you have (or clearly need) a second implementation or a fake.
+- **Huge interfaces.** An interface with twenty methods is hard to implement, hard to fake and a sign the type does too much. Prefer several small ones.
+- **A nil interface that isn't nil.** An interface holding a nil pointer is *not* equal to `nil`. A classic Go surprise: return `nil` directly, not a typed nil pointer, when you mean "no value".
+:::
+
+---
+
+## Apply it to snip
+
+**snip**, the link shortener you build in this handbook, uses every idea in this chapter. Its packages, each with one job, live under `internal/`:
 
 ```text
 snip/
@@ -38,97 +272,15 @@ snip/
     ├── auth/                     package auth     — API keys
     ├── httpapi/                  package httpapi  — HTTP routes and handlers
     ├── config/                   package config   — SNIP_* settings
-    └── metrics/                  package metrics  — Prometheus numbers
+    ├── metrics/                  package metrics  — Prometheus numbers
+    └── tracing/                  package tracing  — OpenTelemetry traces
 ```
 
-You use another package by **importing** it by its path, then referring to things by the package's name:
+Its module, `github.com/jawwadzafar/zero-to-prod/snip`, has a short `require` list: **pgx** (to talk to Postgres), **go-redis** (to talk to Redis), the **Prometheus client** (metrics, [chapter 13.2](../observability/metrics.mdx)) and **OpenTelemetry** (tracing, [chapter 13.3](../observability/tracing.mdx)). Everything else is the standard library.
 
-```go
-import (
-	"fmt"                                                   // standard library
-	"github.com/jawwadzafar/zero-to-prod/snip/internal/links" // one of snip's own packages
-)
+### The Store interface
 
-l, err := links.NormalizeURL("https://go.dev")   // package name, dot, function
-```
-
-### Capital letters decide visibility
-
-Go has no `public` or `private` keywords. Instead:
-
-- A name starting with a **Capital letter** is **exported** — visible to other packages: `links.Link`, `links.NormalizeURL`, `links.ErrNotFound`.
-- A name starting with a **lowercase letter** is **unexported** — private to its own package: `slugPattern`, `alphabet`, `maxURLLength`.
-
-That's all. When you read Go code, one glance tells you what a package offers to the outside world and what's an internal detail it's free to change.
-
-### The `internal/` folder
-
-Code under a folder named **`internal/`** can only be imported by code in the folder *above* it. snip's packages all live under `snip/internal/`, so other projects can't import and come to depend on them. It's a promise, enforced by the compiler: *these are snip's private parts, and we may change them freely.*
-
-:::note[Everyday anchor]
-Packages are departments in a company. Each has a job and a front desk — its capitalised, exported names — where other departments can make requests. What happens behind the front desk (the lowercase names) is the department's own business, and it can reorganise without telling anyone. `internal/` is a building whose doors only open for staff of the parent company.
-:::
-
----
-
-## Modules: your project and its dependencies
-
-A **module** is a whole project: a tree of packages with one **`go.mod`** file at its root. snip's begins:
-
-```text
-module github.com/jawwadzafar/zero-to-prod/snip
-
-go 1.25.0
-
-require (
-	github.com/jackc/pgx/v5 v5.11.0
-	github.com/prometheus/client_golang v1.24.1
-	github.com/redis/go-redis/v9 v9.22.0
-	…
-)
-```
-
-- **`module`** — the module's name, which is also the start of every import path inside it.
-- **`go`** — the Go version it needs.
-- **`require`** — its **dependencies**: other people's modules it uses, each pinned to an exact **version**.
-
-snip depends on three outside libraries: **pgx** (to talk to Postgres), **go-redis** (to talk to Redis) and **client_golang** (to expose Prometheus metrics). Everything else — the web server, JSON, cryptography, time — comes from Go's **standard library**, which is unusually complete.
-
-### Adding and updating dependencies
-
-```bash
-go get github.com/redis/go-redis/v9@latest   # add (or update) a dependency
-go mod tidy                                  # add anything missing, remove anything unused
-go list -m all                               # every module in use, with versions
-```
-
-Next to `go.mod` sits **`go.sum`**: a list of cryptographic checksums ([chapter 7.1](../security/security-literacy.mdx)) of every dependency's exact contents. Anyone who builds snip gets **exactly** the same code you tested with, and if a downloaded dependency was ever tampered with, the checksum won't match and the build refuses. Commit both files.
-
-### Versions
-
-Versions follow **semantic versioning**: `v5.11.0` is `MAJOR.MINOR.PATCH`.
-
-| Change | Means | Example |
-|---|---|---|
-| **Patch** (5.11.0 → 5.11.1) | bug fixes only | safe to take |
-| **Minor** (5.11 → 5.12) | new features, nothing removed | should be safe |
-| **Major** (v5 → v6) | breaking changes | expect to change your code |
-
-In Go, a new major version gets a new import path (`…/pgx/v5` vs `…/pgx/v6`), so two major versions can even coexist.
-
-:::warning[What can go wrong]
-- **Dependency bloat.** Every dependency is code you didn't write, didn't review, and now ship. It can have bugs, security holes, or be abandoned. Before adding one, ask: would the standard library do? snip deliberately has only three direct dependencies.
-- **Supply-chain attacks.** Attackers have published malicious packages with names one typo away from popular ones, and have hijacked real packages. Pin versions (Go does), review what you add, and let tools scan dependencies for known vulnerabilities (`govulncheck`, [chapter 11.2](../shipping/ci-with-github-actions.mdx)).
-- **Import cycles.** Package A imports B and B imports A: Go refuses to compile. It's a sign the responsibilities are tangled — usually fixed by moving the shared part into a third package, or by an interface (below).
-:::
-
----
-
-## Interfaces: what it can do, not what it is
-
-Here's the design problem. snip's business logic — "shorten this URL, retrying if the random slug is taken" — needs to **store** links. In early chapters (and in tests), a Go map in memory is perfect. In production, it must be Postgres. We don't want two copies of the business logic, one for each.
-
-Go's answer is an **interface**: a named list of methods. It describes **what something can do**, without saying what it is. Here's snip's, from `internal/links/link.go`:
+snip's business logic — "shorten this URL, retrying if the random slug is taken" — must **store** links. In early chapters and in tests, a Go map in memory is perfect; in production, it must be Postgres. It's the shop's notification problem again, with the same answer. From `internal/links/link.go`:
 
 ```go
 // Store is anything that can keep links: memory for tests and early chapters,
@@ -149,13 +301,13 @@ The business logic, in `internal/links/service.go`, only ever talks to a `Store`
 ```go
 type Service struct {
 	store  Store          // some Store — the Service doesn't know or care which
-	cache  Cache
-	clicks ClickRecorder
+	cache  Cache          // may be nil
+	clicks ClickRecorder  // may be nil
 	now    func() time.Time
 }
 ```
 
-And two completely different types both **are** Stores, because they have all five methods: `memory.Store` (a map) and `postgres.Store` (SQL over the network).
+Two completely different types both **are** Stores, because they have all five methods: `memory.Store` (a map) and `postgres.Store` (SQL over the network).
 
 ```mermaid
 flowchart TB
@@ -164,64 +316,29 @@ flowchart TB
     P["postgres.Store<br/>(SQL to PostgreSQL)"] -.->|"has all five methods"| I
 ```
 
-### Satisfied without saying so
+snip's other interfaces are small, in the spirit of `io.Reader`: `links.Cache` (3 methods), `links.ClickRecorder` (1 method), `httpapi.Pinger` (1 method).
 
-Notice what's *missing*: neither `memory.Store` nor `postgres.Store` declares "I implement `links.Store`". In Go, a type satisfies an interface **automatically**, just by having the right methods. This is sometimes called **structural typing** — "if it has the methods, it fits".
+### Wiring in main
 
-That makes interfaces cheap to introduce: you can define one next to the code that *uses* it, and existing types fit without being changed.
-
-:::note[Everyday anchor]
-An interface is a job description: *"must be able to drive a van and lift 20 kg"*. Anyone who can do those things can take the job, whatever else they are. The dispatcher (the Service) only cares that the driver can drive and lift — not their name, training or background. You can replace one driver with another who meets the same description, and deliveries carry on.
-:::
-
-### Small interfaces are the best interfaces
-
-Go's standard library is full of tiny interfaces. The most famous has one method:
+`cmd/snip/main.go` picks the Store from one environment variable and injects it (simplified — the real file also wires Redis, metrics and tracing):
 
 ```go
-type Reader interface {
-	Read(p []byte) (n int, err error)
-}
-```
-
-Files, network connections, HTTP request bodies, compressed streams and strings are all `io.Reader`s, so one function that accepts an `io.Reader` works with every one of them. snip follows the same idea with small interfaces: `links.Cache` (3 methods), `links.ClickRecorder` (1 method), `httpapi.Pinger` (1 method).
-
-:::info[If you've written code]
-Interfaces in Java or C# must be declared (`implements Store`). TypeScript interfaces are also structural, like Go's, but vanish at runtime. Go's rule of thumb — *accept interfaces, return concrete types* — keeps dependencies pointing the right way: packages describe what they *need* as small interfaces, and don't care who provides it.
-:::
-
----
-
-## Dependency injection: wiring it all together in main
-
-Something has to decide *which* Store the Service gets. In snip, that's the job of `main` — and only `main`. From `cmd/snip/main.go` (simplified):
-
-```go
-var st store                       // store = links.Store + auth.KeyStore
+var st store // store = links.Store + auth.KeyStore
 if cfg.DatabaseURL != "" {
-	pg, err := postgres.Open(ctx, cfg.DatabaseURL)
+	pg, err = postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
-	st = pg                        // production: Postgres
+	st = pg // production: Postgres
 } else {
-	st = memory.New()              // no database configured: in-memory
+	st = memory.New() // no database configured: in-memory
 }
 
-svc := links.NewService(st, linkCache, recorder)   // hand the chosen parts to the Service
+// … later, the chosen parts are handed to the Service:
+links.NewService(st, linkCache, recorder)
 ```
 
-This pattern is called **dependency injection**: instead of the Service *creating* its own database connection, it's **handed** its dependencies from outside. The payoffs are enormous:
-
-- **Swappable.** The same Service code runs on memory or Postgres, chosen by one environment variable ([chapter 2.2](../linux/users-permissions-processes.mdx)). Tomorrow's store (a different database) needs a new type with five methods — and zero changes to the business logic.
-- **Testable.** Tests hand the Service a fast, simple memory store, or a fake that counts calls (snip's `service_test.go` does exactly this with a fake cache — [chapter 4.4](./testing.mdx)).
-- **Clear.** One place, `main`, shows how the whole program is assembled.
-
-:::warning[What can go wrong]
-- **Interfaces for everything.** An interface with one implementation and no test double is just indirection that makes code harder to follow. Introduce one when you have (or clearly need) a second implementation or a fake.
-- **Huge interfaces.** An interface with twenty methods is hard to implement, hard to fake and a sign the type does too much. Prefer several small ones.
-- **A nil interface that isn't nil.** An interface holding a nil pointer is *not* equal to `nil`. A classic Go surprise: return `nil` directly, not a typed nil pointer, when you mean "no value".
-:::
+Same Service code, memory or Postgres. And snip's tests hand the Service the in-memory store plus a fake cache that counts its calls (`internal/links/service_test.go`, [chapter 4.4](./testing.mdx)).
 
 ---
 
@@ -229,24 +346,9 @@ This pattern is called **dependency injection**: instead of the Service *creatin
 
 Free, on your own computer.
 
-1. **Explore snip's structure.**
-   ```bash
-   cd ~/code/zero-to-prod/snip
-   go list ./...                          # every package in the module
-   go list -m all | head                  # the module and its dependencies
-   go doc ./internal/links                # the exported API of the links package
-   go doc ./internal/links Store          # one interface, with its comments
-   ```
-   Notice `go doc` only shows capitalised, exported names. That list *is* the package's front desk.
+1. **Make your own package.** In `~/code/hello` (from [chapter 4.1](./why-go-first-program.mdx)), create `greet/greet.go` and replace `main.go`, exactly as in [Packages: one folder, one job](#packages-one-folder-one-job). Run `go run .` — you should see `Hello, Ada!`. Then, in `main.go`, try calling `greet.tidy("x")` and read the compile error: `name tidy not exported by package greet` — lowercase names don't leave their package. Put it back.
 
-2. **Swap the store with one environment variable.** If you ran Postgres and Redis for snip in [chapter 1.6](../foundations/what-a-server-is.mdx)'s optional path, or once you reach [chapter 6.6](../data/postgres-from-go.mdx), compare:
-   ```bash
-   go run ./cmd/snip                                                        # in-memory store
-   SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable" go run ./cmd/snip   # Postgres store
-   ```
-   Same program, same business logic; only the injected Store changed. (Without Postgres running, the second fails with a wrapped `connection refused` — [chapter 4.2](./types-structs-errors.mdx)'s breadcrumbs.)
-
-3. **Write your own interface.** In `~/code/hello`, replace `main.go` with:
+2. **Write your own interface.** Make a second folder, `~/code/notify` (`go mod init notify`), with this `main.go`:
    ```go
    package main
 
@@ -272,16 +374,33 @@ Free, on your own computer.
    }
 
    // announce works with ANY Notifier.
-   func announce(n Notifier, slug string) {
-   	_ = n.Notify("new link created: " + slug)
+   func announce(n Notifier, order string) {
+   	_ = n.Notify("order shipped: " + order)
    }
 
    func main() {
-   	announce(ConsoleNotifier{}, "godoc")
-   	announce(ShoutNotifier{}, "godoc")
+   	announce(ConsoleNotifier{}, "A-1001")
+   	announce(ShoutNotifier{}, "A-1001")
    }
    ```
    Run it. Neither type says "I implement Notifier", yet both work. Now delete the `Notify` method from `ShoutNotifier` and read the compile error: Go tells you exactly which method is missing.
+
+3. **Apply it: explore snip's structure.**
+   ```bash
+   cd ~/code/zero-to-prod/snip
+   go list ./...                          # every package in the module
+   go list -m all | head                  # the module and its dependencies
+   go doc ./internal/links                # the exported API of the links package
+   go doc ./internal/links Store          # one interface, with its comments
+   ```
+   Notice `go doc` only shows capitalised, exported names. That list *is* the package's front desk.
+
+4. **Apply it: swap snip's store with one environment variable.** If you ran Postgres for snip in [chapter 1.6](../foundations/what-a-server-is.mdx)'s optional path, or once you reach [chapter 6.6](../data/postgres-from-go.mdx), compare:
+   ```bash
+   go run ./cmd/snip                                                        # in-memory store
+   SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable" go run ./cmd/snip   # Postgres store
+   ```
+   Same program, same business logic; only the injected Store changed. (Without Postgres running, the second fails with a wrapped `connection refused` — [chapter 4.2](./types-structs-errors.mdx)'s breadcrumbs.)
 
 ## Self-check
 
@@ -289,15 +408,15 @@ Free, on your own computer.
   id="go-packages-modules-interfaces"
   questions={[
     {
-      q: 'In package links, which of these can other packages use: NormalizeURL, slugPattern, ErrNotFound, alphabet?',
+      q: 'In package greet, which of these can other packages use: Hello, tidy, DefaultName, maxLength?',
       options: [
         'All of them, because they live in the same module',
-        'NormalizeURL and ErrNotFound: capitalised names are exported',
-        'slugPattern and alphabet, because lowercase names are public',
+        'Hello and DefaultName: capitalised names are exported',
+        'tidy and maxLength, because lowercase names are public',
         'None, unless they are listed in the package’s export file',
       ],
       answer: 1,
-      explain: 'Go uses capitalisation for visibility. Capitalised names are exported; lowercase names are private to their package.',
+      explain: 'Go uses capitalisation for visibility. Capitalised names are exported; lowercase names are private to their package, even for other packages in the same module.',
     },
     {
       q: 'What is go.sum for?',
@@ -308,43 +427,43 @@ Free, on your own computer.
         'It is a backup of go.mod, used if the main file gets corrupted',
       ],
       answer: 1,
-      explain: 'It records checksums of every dependency so builds get exactly the tested code and tampering is detected. go.sum pins the exact contents of every dependency. If downloaded code does not match, the build fails. Commit it alongside go.mod.',
+      explain: 'go.sum pins the exact contents of every dependency with checksums, so every build gets exactly the tested code and tampering is detected. It is not a size count or a backup. Commit it alongside go.mod.',
     },
     {
-      q: 'How does postgres.Store come to satisfy the links.Store interface?',
+      q: 'How does ConsoleNotifier come to satisfy the Notifier interface?',
       options: [
-        'It declares "implements links.Store" above its type definition',
+        'It declares "implements Notifier" above its type definition',
         'It has every method the interface lists, and Go checks this for you',
-        'It inherits from memory.Store, which already implements the interface',
-        'main registers it with the links package when the program starts',
+        'It inherits from EmailNotifier, which already implements the interface',
+        'main registers it as a Notifier when the program starts',
       ],
       answer: 1,
-      explain: 'It has all the methods the interface lists, with matching signatures — Go checks this automatically. Go interfaces are satisfied implicitly. Any type with the right methods fits, which is why snip can offer both a memory and a Postgres store.',
+      explain: 'Go interfaces are satisfied implicitly: any type with the right methods, with matching signatures, fits. There is no implements keyword and no inheritance. That is why a test can invent a fake Notifier in three lines.',
     },
     {
-      q: 'Why does snip create the Store in main and pass it into links.NewService, instead of the Service opening its own database connection?',
+      q: 'Why does main create the Notifier and pass it into OrderService, instead of OrderService creating its own email client?',
       options: [
-        'Because main runs first, so the connection is ready before any request',
-        'So the Service can be given memory, Postgres or a test fake: swappable and testable',
+        'Because main runs first, so the client is ready before any order',
+        'So the service can be given email, the console or a test fake: swappable and testable',
         'Because Go only lets the main package open network connections',
-        'To keep all database code in one file, so the project stays smaller',
+        'To keep all network code in one file, so the project stays smaller',
       ],
       answer: 1,
-      explain: 'So the same Service can be given a memory store, a Postgres store, or a test fake — it becomes swappable and testable. That is dependency injection. The Service depends only on the Store interface; main decides which real implementation to plug in, and tests plug in fakes.',
+      explain: 'That is dependency injection. The service depends only on the Notifier interface; main decides which real implementation to plug in, and tests plug in fakes. Go has no rule about which package may open connections.',
     },
   ]}
 />
 
 <details>
-<summary>Explain, with the job-description analogy, why interfaces make snip easier to test.</summary>
+<summary>Explain, with the job-description analogy, why interfaces make code easier to test.</summary>
 
-The Service's "job description" for storage is the `Store` interface: *must be able to Create, Get, ListByOwner, Delete and AddClicks*. Production hires Postgres for the job — accurate but slow to set up and requiring a running database. A test can hire a **stand-in** that meets the same description: the in-memory store (instant, no setup) or a hand-written fake that records what it was asked to do. The Service can't tell the difference, so tests exercise the real business logic quickly and reliably, without a database.
+The service's "job description" for sending messages is the `Notifier` interface: *must be able to Notify*. Production hires an email client for the job — real, but slow, needing an account and a network, and it emails real people. A test can hire a **stand-in** that meets the same description: a fake that appends each message to a list. The service can't tell the difference, so the test exercises the real order logic quickly and reliably, then checks the list: "exactly one message, to this customer, saying this". snip does the same with its `Store`: tests use the in-memory store instead of Postgres.
 
 </details>
 
 <details>
 <summary>What is the <code>internal/</code> folder protecting, and from whom?</summary>
 
-It protects **snip's implementation details** from being imported by **other modules**. Go refuses to compile an import of `…/snip/internal/…` from outside the `snip/` tree. That means nobody can build their project on top of snip's internals, so snip's authors can rename, restructure or delete those packages without breaking anyone. It turns "please don't use this" into a rule the compiler enforces.
+It protects **a project's implementation details** from being imported by **other modules**. Go refuses to compile an import of `…/internal/…` from outside the tree above that folder. So nobody can build their project on top of your internals, and you can rename, restructure or delete those packages without breaking anyone. It turns "please don't use this" into a rule the compiler enforces.
 
 </details>

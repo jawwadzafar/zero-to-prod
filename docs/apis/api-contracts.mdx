@@ -6,12 +6,12 @@ description: Writing your API down as a machine-readable contract with OpenAPI, 
 
 # 5.5 API contracts: OpenAPI, gRPC & versioning
 
-In [chapter 5.2](./designing-rest-apis.mdx) you designed snip's API, and in [chapter 5.3](./validation-errors-status-codes.mdx) you made its errors consistent. But where is that design actually *written down*? Right now, the only complete description of snip's API is… snip's Go code. A developer at another company who wants to use snip would have to read Go, or guess. This chapter turns the API into a **contract**: a precise, machine-readable document that humans can read, tools can check, and code can be generated from. Then it looks at **gRPC**, the contract-first alternative popular between internal services, and at the hardest question in API work: **how do you change an API without breaking everyone?**
+You want to use a company's API — a payment provider, a map service, a weather feed. Where do you find out which URLs exist, what to send, and what comes back when things fail? If the only complete answer is the company's source code, you're stuck guessing. Good APIs come with a written description, and the best ones make it machine-readable. This chapter turns the API into a **contract**: a precise, machine-readable document that humans can read, tools can check, and code can be generated from. Then it looks at **gRPC**, the contract-first alternative popular between internal services, and at the hardest question in API work: **how do you change an API without breaking everyone?**
 
 ## What you'll learn
 
 - Why a written **API contract** matters, and the difference between **contract-first** and **code-first**.
-- **OpenAPI**: the standard format for describing HTTP APIs — reading snip's real `openapi.yaml`.
+- **OpenAPI**: the standard format for describing HTTP APIs — reading and linting a real one.
 - What contracts unlock: **documentation**, **generated clients**, **linting** and **contract tests** that keep code honest.
 - **gRPC and Protocol Buffers**: what they are, how they differ from REST+JSON, and when to choose them.
 - **Versioning and compatibility**: which changes are safe, which break clients, and how to deprecate responsibly.
@@ -38,7 +38,7 @@ There are two ways to arrive at a contract:
 - **Contract-first**: write the contract, review it like any design, then implement it (possibly generating code from it). Best when several teams or outside users depend on the API.
 - **Code-first**: write the code, then produce the contract — by hand or generated from annotations. Faster to start; the contract risks becoming an afterthought.
 
-Either way, the rule is the same: **the contract and the code must not drift apart.** snip keeps them honest with automated checks (below).
+Either way, the rule is the same: **the contract and the code must not drift apart.** Automated checks keep them honest (below).
 
 :::note[Everyday anchor]
 A contract is an architect's blueprint. Builders, electricians, plumbers and the council inspector all work from the same drawing. Without it, each works from memory and conversation — and the plumber's pipes end up exactly where the electrician put the wires.
@@ -48,52 +48,70 @@ A contract is an architect's blueprint. Builders, electricians, plumbers and the
 
 ## OpenAPI: describing an HTTP API
 
-**OpenAPI** (formerly called Swagger) is the standard format for describing HTTP APIs, written in YAML ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)) or JSON. snip's is at `snip/api/openapi.yaml`. Here's its shape, trimmed:
+**OpenAPI** (formerly called Swagger) is the standard format for describing HTTP APIs, written in YAML ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)) or JSON. Here's a contract for a small to-do API — the runnable example in `snip/examples/tasks`, whose full contract is `snip/examples/tasks/openapi.yaml` (trimmed):
 
 ```yaml
 openapi: 3.1.0
 info:
-  title: snip API
+  title: Tasks API
   version: 1.0.0
 servers:
-  - url: http://localhost:8080
-security:
-  - apiKey: []                 # every endpoint needs a key unless it says otherwise
+  - url: http://localhost:8081
+security: []                       # no authentication: a public demo (a real API names its scheme)
 
 paths:
-  /api/links:
+  /tasks:
     post:
-      operationId: createLink
-      summary: Create a short link
+      operationId: createTask
+      summary: Create a task
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateLinkRequest'
+              $ref: '#/components/schemas/CreateTaskRequest'
       responses:
         '201':
-          description: Created
+          description: Created. The Location header points at the new task.
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Link'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '409':
-          description: The custom slug is already taken (code `slug_taken`).
-        # … 401, 413, 429, 500
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        # … '500' and '503', the same way
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        '200': …
+        '400': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        # … '500' and '503'
 
 components:
   schemas:
-    CreateLinkRequest:
+    CreateTaskRequest:
       type: object
-      additionalProperties: false   # unknown fields are refused (chapter 5.3)
-      required: [url]
+      additionalProperties: false  # unknown fields are refused (chapter 5.3)
+      required: [title]
       properties:
-        url:  {type: string, format: uri, maxLength: 2048}
-        slug: {$ref: '#/components/schemas/Slug'}
-    Slug:
-      type: string
-      pattern: '^[A-Za-z0-9_-]{3,32}$'
+        title: {type: string, minLength: 1, maxLength: 200}
+    Task:
+      type: object
+      required: [id, title, done, created_at]
+      properties:
+        id:         {type: integer}
+        title:      {type: string}
+        done:       {type: boolean}
+        created_at: {type: string, format: date-time}
     Error:
       type: object
       properties:
@@ -101,18 +119,17 @@ components:
           properties:
             code:
               type: string
-              enum: [invalid_json, invalid_url, invalid_slug, slug_taken, body_too_large,
-                     unauthorized, not_found, rate_limited, internal]
+              enum: [invalid_json, body_too_large, invalid_title, invalid_id, not_found, timeout, internal]
             message: {type: string}
 ```
 
 Reading it top to bottom:
 
-- **`paths`** lists every URL, and under each, every **method** — with its request body and every possible **response**, including errors.
-- **`components/schemas`** defines the data shapes once, and **`$ref`** reuses them. `Link`, `Error` and `Slug` appear in many places but are defined once.
-- **Schemas** describe types, required fields and rules: `maxLength: 2048`, the slug `pattern`, `additionalProperties: false`. These are exactly snip's validation rules from [chapter 5.3](./validation-errors-status-codes.mdx) — now visible to every client without reading Go.
-- **`enum`** lists every error `code` snip can return. A client can handle each one confidently.
-- **`security`** says the API needs a bearer token; the redirect and health endpoints override it with `security: []` (public).
+- **`paths`** lists every URL, and under each, every **method** — with its parameters, request body and every possible **response**, including errors.
+- **`components/schemas`** defines the data shapes once, and **`$ref`** reuses them. `Task` and `Error` appear in many places but are defined once.
+- **Schemas** describe types, required fields and rules: `minLength: 1`, `maxLength: 200`, `minimum: 1`, `additionalProperties: false`. These are exactly the validation rules the server enforces ([chapter 5.3](./validation-errors-status-codes.mdx)) — now visible to every client without reading its code.
+- **`enum`** lists every error `code` the API can return, so a client can handle each one confidently.
+- **`security`** says how callers authenticate. `[]` means "no authentication" — fine for a laptop demo, and something the linter makes you state on purpose.
 
 :::info[In the real world]
 Many teams publish their OpenAPI files, and tools turn them into polished interactive docs (Swagger UI, Redoc, Scalar) where developers can read and even try each endpoint. Stripe, GitHub and Twilio all publish OpenAPI descriptions of their APIs. AI agents and "tool use" features ([chapter 14.6](../ai/structured-output-and-tools.mdx)) also consume OpenAPI to learn how to call APIs.
@@ -122,32 +139,31 @@ Many teams publish their OpenAPI files, and tools turn them into polished intera
 
 ## Keeping contract and code in sync
 
-A contract that's wrong is worse than none: people trust it. snip uses two automatic checks, both run by CI on every push (`.github/workflows/ci.yml`).
+A contract that's wrong is worse than none: people trust it. Two kinds of automatic check, run by CI ([chapter 11.2](../shipping/ci-with-github-actions.mdx)) on every push, keep it honest.
 
-**1. Linting the contract.** A linter checks the OpenAPI file is valid and consistent:
+**1. Linting the contract.** A **linter** checks the OpenAPI file is valid and follows good-practice rules:
 
 ```bash
-npx @redocly/cli lint --config snip/api/redocly.yaml snip/api/openapi.yaml
+npx @redocly/cli lint snip/examples/tasks/openapi.yaml
 ```
 
-The config file, `snip/api/redocly.yaml`, turns off three rules on purpose — each with a comment saying why (for example, `GET /{slug}` succeeds with a `302`, so a rule demanding a 2xx response doesn't fit). Switching a rule off with a written reason is fine; switching it off silently is how standards rot.
-
-**2. A contract test.** `internal/httpapi/contract_test.go` reads every `writeError(…)` call in snip's HTTP code and fails if any error code isn't listed in the contract's `enum`:
-
-```go
-// TestErrorCodesAreInContract fails if a handler can send an error code that
-// the OpenAPI contract (api/openapi.yaml) doesn't list — so clients reading
-// the contract are never surprised (chapter 5.5).
-func TestErrorCodesAreInContract(t *testing.T) {
-	// … read openapi.yaml, collect the documented codes …
-	// … scan the package's .go files for writeError(w, status, "code", …) …
-	if code := string(m[1]); !documented[code] {
-		t.Errorf("%s sends error code %q, which api/openapi.yaml does not document", f, code)
-	}
-}
+```text
+[1] … at #/servers/0/url
+Server `url` should not point to example.com or localhost.
+[2] … at #/paths/~1tasks/get/responses
+Operation must have at least one `4XX` response.
+Woohoo! Your API description is valid. 🎉
 ```
 
-Add a new error code to the Go code and forget the contract, and CI goes red. That's the whole trick: **make drift fail loudly.** Larger teams go further — generating server stubs or request validation from the contract, or running the contract's examples against the live API.
+Valid, with two warnings — and each is a real design question. *Should the published contract name a localhost server?* (For a demo, yes.) *Can `GET /tasks` really never fail because of the client?* (It can't: a junk `limit` falls back to the default.) When a rule doesn't fit, teams switch it off in a config file **with a comment saying why**. Switching a rule off with a written reason is fine; switching it off silently is how standards rot.
+
+**2. Contract tests.** A linter checks the contract against itself; a **contract test** checks the code against the contract. The forms vary:
+
+- send the contract's example requests to the running service and validate each response against its schema;
+- generate the server's request validation from the contract, so the two can't disagree;
+- scan the code for every error code it can send and fail if the contract's `enum` doesn't list one.
+
+Whatever the form, the trick is the same: **make drift fail loudly**, on the push that introduced it, instead of in a client's production app months later.
 
 ---
 
@@ -159,26 +175,29 @@ REST with JSON is the default for public APIs. Between a company's own services,
 2. A tool **generates** client and server code from it, in any major language.
 3. Messages travel in a compact **binary** format over **HTTP/2** ([chapter 1.5](../foundations/http-from-zero.mdx)).
 
-If snip offered gRPC, its contract might look like this (illustrative — snip itself doesn't ship a gRPC API):
+The to-do API's contract, as gRPC, might look like this:
 
 ```protobuf
 syntax = "proto3";
-package snip.v1;
+package tasks.v1;
 
-service LinkService {
-  rpc CreateLink(CreateLinkRequest) returns (Link);
-  rpc GetLink(GetLinkRequest) returns (Link);
+service TaskService {
+  rpc CreateTask(CreateTaskRequest) returns (Task);
+  rpc GetTask(GetTaskRequest) returns (Task);
 }
 
-message CreateLinkRequest {
-  string url  = 1;   // the numbers are field IDs used in the binary format — never reuse them
-  string slug = 2;
+message CreateTaskRequest {
+  string title = 1;   // the numbers are field IDs used in the binary format — never reuse them
 }
 
-message Link {
-  string slug   = 1;
-  string url    = 2;
-  int64  clicks = 3;
+message GetTaskRequest {
+  int64 id = 1;
+}
+
+message Task {
+  int64  id    = 1;
+  string title = 2;
+  bool   done  = 3;
 }
 ```
 
@@ -224,10 +243,8 @@ Clients should **ignore fields they don't recognise** and handle unknown enum va
 When a breaking change is truly necessary, give it a new **version** and keep the old one running for a while:
 
 - **In the URL**: `/api/v1/links` → `/api/v2/links`. The most common approach — visible and simple.
-- **In a header**: `Accept: application/vnd.snip.v2+json`, or a date-based version like `Stripe-Version: 2024-06-20`. Keeps URLs stable.
-- **In the package name** for gRPC: `package snip.v1;` → `snip.v2`.
-
-snip's API is small and unversioned today; if it ever needed a breaking change, `/api/v2/…` routes could live alongside the current ones.
+- **In a header**: `Accept: application/vnd.example.v2+json`, or a date-based version like `Stripe-Version: 2024-06-20`. Keeps URLs stable.
+- **In the package name** for gRPC: `package tasks.v1;` → `tasks.v2`.
 
 ### Deprecation: breaking things politely
 
@@ -238,39 +255,120 @@ snip's API is small and unversioned today; if it ever needed a breaking change, 
 
 :::warning[What can go wrong]
 - **The contract drifts from reality.** Docs say `409`, the code returns `400`. Clients built from the docs break. Automate the checks.
-- **"Harmless" renames.** Changing `short_url` to `shortUrl` for consistency breaks every client. Consistency is worth deciding early, not fixing late.
+- **"Harmless" renames.** Changing `created_at` to `createdAt` for consistency breaks every client. Consistency is worth deciding early, not fixing late.
 - **Reusing protobuf field numbers.** Giving a deleted field's number to a new field makes old and new programs misread each other's data. Retire numbers forever (`reserved 4;`).
 - **Versioning everything.** A new version for every small change multiplies the code you maintain. Prefer additive, compatible changes; version only when you must.
 :::
 
 ---
 
+## Apply it to snip
+
+**snip**, the link shortener you build in this handbook, publishes its contract at `snip/api/openapi.yaml`. It's the to-do contract's bigger sibling (trimmed):
+
+```yaml
+openapi: 3.1.0
+info:
+  title: snip API
+  version: 1.0.0
+security:
+  - apiKey: []                 # every endpoint needs a key unless it says otherwise
+
+paths:
+  /api/links:
+    post:
+      operationId: createLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLinkRequest'
+      responses:
+        '201': …
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '409':
+          description: The custom slug is already taken (code `slug_taken`).
+        # … 401, 413, 429, 500
+
+components:
+  schemas:
+    CreateLinkRequest:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url:  {type: string, format: uri, maxLength: 2048}
+        slug: {$ref: '#/components/schemas/Slug'}
+    Slug:
+      type: string
+      pattern: '^[A-Za-z0-9_-]{3,32}$'
+    Error:
+      # … code enum: invalid_json, invalid_url, invalid_slug, slug_taken, body_too_large,
+      #              unauthorized, not_found, rate_limited, internal
+```
+
+Unlike the demo, snip has a real `security` scheme (an API key, [chapter 7.2](../security/authentication.mdx)); the redirect and health endpoints override it with `security: []` because they're public.
+
+snip keeps the contract honest with both kinds of check, run by CI (`.github/workflows/ci.yml`):
+
+**Linting**, with a config file, `snip/api/redocly.yaml`, that turns off three rules — each with a comment saying why. For example, `GET /{slug}` succeeds with a `302` redirect, so a rule demanding a 2xx response doesn't fit:
+
+```bash
+npx @redocly/cli lint --config snip/api/redocly.yaml snip/api/openapi.yaml
+```
+
+**A contract test.** `internal/httpapi/contract_test.go` reads every `writeError(…)` call in snip's HTTP code and fails if any error code isn't listed in the contract's `enum`:
+
+```go
+// TestErrorCodesAreInContract fails if a handler can send an error code that
+// the OpenAPI contract (api/openapi.yaml) doesn't list — so clients reading
+// the contract are never surprised (chapter 5.5).
+func TestErrorCodesAreInContract(t *testing.T) {
+	// … read openapi.yaml, collect the documented codes …
+	// … scan the package's .go files for writeError(w, status, "code", …) …
+	if code := string(m[1]); !documented[code] {
+		t.Errorf("%s sends error code %q, which api/openapi.yaml does not document", f, code)
+	}
+}
+```
+
+Add a new error code to the Go code and forget the contract, and CI goes red.
+
+snip's API is small and unversioned today. If it ever needed a breaking change, `/api/v2/…` routes could live alongside the current ones while clients move over.
+
+---
+
 ## Lab
 
-Free, on your own computer (needs Node.js for the linter — install it with `brew install node` or `sudo apt install -y nodejs npm`, or skip step 2).
+Free, on your own computer (needs Node.js for the linter — install it with `brew install node` or `sudo apt install -y nodejs npm`).
 
-1. **Read the contract.** Open `~/code/zero-to-prod/snip/api/openapi.yaml`. Find:
-   - the endpoint that has `security: []`, and why;
+1. **Read and lint a small contract.** Open `~/code/zero-to-prod/snip/examples/tasks/openapi.yaml` next to `examples/tasks/handler.go`. Check that every status code a handler can write appears under that path's `responses`, and every `writeError` code appears in the `enum`. Then:
+   ```bash
+   cd ~/code/zero-to-prod
+   npx @redocly/cli lint snip/examples/tasks/openapi.yaml     # valid, with 2 warnings
+   ```
+   Read each warning and decide whether you agree with it. Then delete the `security: []` line and lint again: the linter now *fails*, insisting you say on purpose that an API has no authentication.
+
+2. **View it as documentation.**
+   ```bash
+   npx @redocly/cli build-docs snip/examples/tasks/openapi.yaml -o /tmp/tasks-api.html   # a self-contained HTML page
+   ```
+   Open `/tmp/tasks-api.html` in your browser: a complete, readable reference, generated from the contract.
+
+3. **Apply it: read snip's contract.** Open `snip/api/openapi.yaml`. Find:
+   - the endpoints that have `security: []`, and why;
    - every possible response from `POST /api/links`;
    - the pattern a custom slug must match;
    - the full list of error codes.
 
-   Compare it with the error table you walked in [chapter 5.3](./validation-errors-status-codes.mdx)'s lab. Everything you discovered by experiment is written down here.
-
-2. **Lint it.**
+   Compare it with the error table you walked in [chapter 5.3](./validation-errors-status-codes.mdx)'s lab. Everything you discovered by experiment is written down here. Lint it with and without its config:
    ```bash
-   cd ~/code/zero-to-prod
-   npx @redocly/cli lint --config snip/api/redocly.yaml snip/api/openapi.yaml    # "Your API description is valid"
-   npx @redocly/cli lint snip/api/openapi.yaml                                   # without the config: 4 warnings — read why each is off
+   npx @redocly/cli lint --config snip/api/redocly.yaml snip/api/openapi.yaml    # valid, no warnings
+   npx @redocly/cli lint snip/api/openapi.yaml                                   # 4 warnings — read why each is switched off in redocly.yaml
    ```
 
-3. **View it as documentation.**
-   ```bash
-   npx @redocly/cli build-docs snip/api/openapi.yaml -o /tmp/snip-api.html   # a self-contained HTML page
-   ```
-   Open `/tmp/snip-api.html` in your browser: a complete, readable reference, generated from the contract.
-
-4. **Break the contract, watch the test catch it.** In `snip/api/openapi.yaml`, delete `rate_limited` from the error-code `enum`, then:
+4. **Break snip's contract, watch the test catch it.** In `snip/api/openapi.yaml`, delete `rate_limited` from the error-code `enum`, then:
    ```bash
    cd snip && go test ./internal/httpapi/ -run Contract
    ```

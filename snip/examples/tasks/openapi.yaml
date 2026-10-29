@@ -1,0 +1,144 @@
+# The contract for the to-do API in this folder (chapter 5.5).
+#   npx @redocly/cli lint snip/examples/tasks/openapi.yaml
+openapi: 3.1.0
+info:
+  title: Tasks API
+  version: 1.0.0
+  description: A small to-do API, used to teach API contracts.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:8081
+# No authentication: this demo API is public on your laptop. A real API
+# declares its scheme here (chapter 7.2) — the linter insists you decide.
+security: []
+paths:
+  /tasks:
+    post:
+      operationId: createTask
+      summary: Create a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+      responses:
+        '201':
+          description: Created. The Location header points at the new task.
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    get:
+      operationId: listTasks
+      summary: List the newest tasks
+      parameters:
+        - name: limit
+          in: query
+          description: How many tasks to return (1-100, default 20).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: The newest tasks first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tasks]
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Task'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /tasks/{id}:
+    get:
+      operationId: getTask
+      summary: Get one task
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+components:
+  schemas:
+    CreateTaskRequest:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+    Task:
+      type: object
+      required: [id, title, done, created_at]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        done:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_json, body_too_large, invalid_title, invalid_id, not_found, timeout, internal]
+            message:
+              type: string
+  responses:
+    Error:
+      description: Something went wrong; the code says what.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

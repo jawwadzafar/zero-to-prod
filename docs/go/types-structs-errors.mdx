@@ -1,17 +1,17 @@
 ---
 title: "4.2 Types, structs & errors"
 sidebar_label: "4.2 Types, structs & errors"
-description: Organising data in Go — slices, maps, structs and methods, pointers explained gently — and Go's approach to errors as ordinary values you check, wrap and compare, using snip's real code.
+description: Organising data in Go — slices, maps, structs and methods, pointers explained gently — and Go's approach to errors as ordinary values you check, wrap and compare with errors.Is.
 ---
 
 # 4.2 Types, structs & errors
 
-Real programs are about data: a link has a slug, a URL, an owner and a click count; a user has many links; a request can fail in half a dozen different ways. [Chapter 4.1](./why-go-first-program.mdx) gave you single values — a number, some text. This chapter gives you the tools to **organise** data — lists, lookups, and your own types — and Go's distinctive way of handling the thing every backend deals with constantly: **things going wrong.** By the end, you'll be able to read snip's core file, `internal/links/link.go`, line by line.
+Real programs are about data: a link has a slug, a URL, an owner and a click count; a user has many links; a request can fail in half a dozen different ways. [Chapter 4.1](./why-go-first-program.mdx) gave you single values — a number, some text. This chapter gives you the tools to **organise** data — lists, lookups, and your own types — and Go's distinctive way of handling the thing every backend deals with constantly: **things going wrong.** At the end, you'll open a real production file — the core of the link shortener you build in this handbook — and recognise every line.
 
 ## What you'll learn
 
 - **Slices** (ordered lists) and **maps** (lookups by key) — the two collections you'll use every day.
-- **Structs**: your own types that group related fields, like snip's `Link`.
+- **Structs**: your own types that group related fields, like a `Link` with a slug, a URL and a click count.
 - **Methods**: functions attached to a type — and **pointers**, explained through one practical question: *does this function need to change the original?*
 - **Zero values** and **nil**: what a variable holds before you give it anything.
 - **Errors as values**: returning them, checking them, **wrapping** them with context, and testing for specific ones with `errors.Is`.
@@ -52,7 +52,7 @@ if !ok {
 }
 ```
 
-That last pattern matters. Asking a map for a missing key doesn't fail — it quietly returns the **zero value** (here, an empty string). Use `value, ok := m[key]` whenever "missing" and "empty" mean different things. snip's in-memory store (`internal/store/memory/memory.go`) is essentially a map from slug to link, guarded by a lock ([chapter 4.5](./concurrency.mdx)).
+That last pattern matters. Asking a map for a missing key doesn't fail — it quietly returns the **zero value** (here, an empty string). Use `value, ok := m[key]` whenever "missing" and "empty" mean different things.
 
 :::note[Everyday anchor]
 A **slice** is a numbered queue: first, second, third — order matters, and you find things by position. A **map** is a wall of labelled lockers: you go straight to the locker with the right label, and order doesn't mean anything.
@@ -62,30 +62,43 @@ A **slice** is a numbered queue: first, second, third — order matters, and you
 
 ## Structs: your own types
 
-A **struct** groups related values into one new type. Here is snip's real `Link` type, from `internal/links/link.go`:
+A **struct** groups related values into one new type. A short link — a short name (the **slug**) that points at a long URL, plus a count of how often it was followed — is three facts that belong together. From the handbook's example program, `snip/examples/structs/main.go`:
 
 ```go
-// Link is one shortened URL.
+// Link groups the facts about one short link into a single value.
 type Link struct {
-	Slug      string    `json:"slug"`
-	URL       string    `json:"url"`
-	OwnerID   int64     `json:"-"`
-	Clicks    int64     `json:"clicks"`
-	CreatedAt time.Time `json:"created_at"`
+	Slug   string
+	URL    string
+	Clicks int
 }
 ```
 
 - `type Link struct { … }` defines a new type called `Link`.
-- Each line is a **field**: a name and a type. `time.Time` is a type from Go's standard `time` package.
-- The text in backticks is a **struct tag**: extra instructions for other code. Here it tells Go's JSON package what to call each field in JSON ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)), and `json:"-"` means *never include `OwnerID` in JSON* — the API shouldn't reveal internal owner numbers.
+- Each line is a **field**: a name and a type.
 
 Creating and using one:
 
 ```go
-l := links.Link{Slug: "godoc", URL: "https://go.dev/doc/"}   // fields you don't set get zero values
+l := Link{Slug: "godoc", URL: "https://go.dev/doc/"}   // fields you don't set get zero values
 fmt.Println(l.Slug)       // read a field → godoc
 l.Clicks = 42             // change a field
 ```
+
+### Struct tags: notes for other code
+
+A field can carry a **struct tag** — text in backticks after its type — with instructions for other packages. The most common is for JSON ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)):
+
+```go
+type User struct {
+	Name         string `json:"name"`          // call this field "name" in JSON
+	PasswordHash string `json:"-"`             // never put this field in JSON at all
+}
+
+b, _ := json.Marshal(User{Name: "Ada", PasswordHash: "$2a$10$…"})
+fmt.Println(string(b))   // {"name":"Ada"}
+```
+
+Go's `encoding/json` package reads the tags: `json:"name"` sets the JSON name, and `json:"-"` leaves the field out. One type can then serve your database code *and* your public API, showing each only what it should see.
 
 ### Methods: functions that belong to a type
 
@@ -140,7 +153,7 @@ Every Go variable has a value from the moment it's declared. If you don't provid
 | struct | every field at its zero value |
 | pointer, slice, map, error, interface | `nil` |
 
-**`nil`** means "points at nothing". Reading a nil slice is fine (it's just empty); but **writing into a nil map**, or reading a field through a **nil pointer**, makes the program panic. Most `panic: runtime error: invalid memory address or nil pointer dereference` messages you'll ever see come from using something that was never set up. This is why constructors like `memory.New()` exist: they return a value that's ready to use.
+**`nil`** means "points at nothing". Reading a nil slice is fine (it's just empty); but **writing into a nil map**, or reading a field through a **nil pointer**, makes the program panic. Most `panic: runtime error: invalid memory address or nil pointer dereference` messages you'll ever see come from using something that was never set up. This is why packages offer constructors like the example's `NewStore()`: they return a value that's ready to use, map and all.
 
 ---
 
@@ -174,7 +187,78 @@ return fmt.Errorf("slug %q is too long", slug)    // an error with details forma
 
 ### Sentinel errors: errors you can check for
 
-Callers often need to react differently to different failures. A missing link should become an HTTP 404; a database outage should become a 500 ([chapter 5.3](../apis/validation-errors-status-codes.mdx)). snip defines named errors for its domain, in `internal/links/link.go`:
+Callers often need to react differently to different failures. A missing link should become an HTTP 404; a database outage should become a 500 ([chapter 5.3](../apis/validation-errors-status-codes.mdx)). So a package declares **named errors** for the failures callers care about, as package-level variables. From `examples/structs/main.go`:
+
+```go
+// ErrNotFound is a sentinel error: a named error callers can check for.
+var ErrNotFound = errors.New("link not found")
+```
+
+These are called **sentinel errors**. Any code can check whether an error is one of them with `errors.Is`:
+
+```go
+_, err := store.Get("nope")
+if errors.Is(err, ErrNotFound) {
+	// show a 404
+}
+```
+
+The standard library does the same: `io.EOF` means "the input ended", and `fs.ErrNotExist` means "no such file".
+
+### Wrapping: adding context without losing the original
+
+Deep inside a program, a raw error like `no such file or directory` is useless on its own. *Which file? While doing what?* So each layer adds context as the error travels up, using `fmt.Errorf` with the special **`%w`** ("wrap") verb:
+
+```go
+func loadSettings(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("load settings: %w", err)   // add context, keep the original inside
+	}
+	return data, nil
+}
+
+func main() {
+	_, err := loadSettings("settings.json")
+	fmt.Println(err)                              // load settings: open settings.json: no such file or directory
+	fmt.Println(errors.Is(err, fs.ErrNotExist))   // true — the original is still findable
+}
+```
+
+The final message reads like a trail of breadcrumbs, outermost first: *while loading settings, opening `settings.json` failed, because there's no such file.* And because `%w` keeps the original error inside, `errors.Is` can still find `fs.ErrNotExist` however many layers wrapped it.
+
+```mermaid
+flowchart LR
+    A["no such file or directory<br/>(from the operating system)"] -->|"wrapped by os"| B["open settings.json: …"] -->|"wrapped by you"| C["load settings: open settings.json: …<br/>(printed at the top)"]
+```
+
+:::warning[What can go wrong]
+- **Ignoring an error.** `result, _ := doSomething()` throws the error away with `_`. The program carries on with a meaningless `result`. Only do this when failure genuinely doesn't matter, and say why in a comment.
+- **Returning bare errors from deep code.** `return err` five layers down produces `connection refused` in the logs with no clue where. Wrap with context: `fmt.Errorf("load link %q: %w", slug, err)`.
+- **Comparing errors with `==` after wrapping.** A wrapped error is a new value, so `err == ErrNotFound` is false. Use `errors.Is(err, ErrNotFound)`.
+- **Panicking for ordinary failures.** `panic` is for "this should be impossible" bugs, not for bad input or a down database. Ordinary failures are errors.
+:::
+
+---
+
+## Apply it to snip
+
+The link shortener you build in this handbook, **snip**, keeps its core idea in one file, `snip/internal/links/link.go`. You can now read it. Its `Link` is the example's `Link` grown up, with struct tags:
+
+```go
+// Link is one shortened URL.
+type Link struct {
+	Slug      string    `json:"slug"`
+	URL       string    `json:"url"`
+	OwnerID   int64     `json:"-"`
+	Clicks    int64     `json:"clicks"`
+	CreatedAt time.Time `json:"created_at"`
+}
+```
+
+`time.Time` is a type from Go's standard `time` package, and `json:"-"` means *never include `OwnerID` in JSON* — the API shouldn't reveal internal owner numbers.
+
+Its sentinel errors name every failure a caller might need to react to:
 
 ```go
 var (
@@ -185,18 +269,7 @@ var (
 )
 ```
 
-These are called **sentinel errors**. Any code can check whether an error is one of them with `errors.Is`:
-
-```go
-_, err := store.Get(ctx, "nope")
-if errors.Is(err, links.ErrNotFound) {
-	// show a 404
-}
-```
-
-### Wrapping: adding context without losing the original
-
-Deep inside a program, a raw error like `connection refused` is useless on its own. *Connecting to what? While doing what?* So each layer adds context as the error travels up, using `fmt.Errorf` with the special **`%w`** ("wrap") verb. From snip's `internal/store/postgres/postgres.go`:
+Its Postgres code wraps errors on the way up (`internal/store/postgres/postgres.go`):
 
 ```go
 if err := pool.Ping(ctx); err != nil {
@@ -205,16 +278,11 @@ if err := pool.Ping(ctx); err != nil {
 }
 ```
 
-The final message reads like a trail of breadcrumbs — `postgres: ping: dial tcp 127.0.0.1:5432: connect: connection refused` — and, because `%w` keeps the original error inside, `errors.Is` can still find it.
-
-```mermaid
-flowchart LR
-    A["connection refused<br/>(from the network)"] -->|"wrapped"| B["postgres: ping: …"] -->|"wrapped"| C["snip: postgres: ping: …<br/>(printed at the top)"]
-```
+so a startup failure reads `snip: postgres: ping: dial tcp 127.0.0.1:5432: connect: connection refused` — every layer's piece of the story. (`ctx` is a *context*, [chapter 4.5](./concurrency.mdx): "the piece of work this call belongs to".)
 
 ### Validation returns errors too
 
-Here is snip's URL validation, from `internal/links/link.go` — now you can read all of it:
+Here is snip's URL validation, also from `internal/links/link.go` — every construct in it is one you've now met:
 
 ```go
 // NormalizeURL checks that raw is an absolute http(s) URL and returns it
@@ -237,13 +305,6 @@ func NormalizeURL(raw string) (string, error) {
 
 It returns two things — the cleaned URL and an error — and every way it can fail returns the same named error, so the HTTP layer can turn it into a clear `400 Bad Request` ([chapter 5.3](../apis/validation-errors-status-codes.mdx)).
 
-:::warning[What can go wrong]
-- **Ignoring an error.** `result, _ := doSomething()` throws the error away with `_`. The program carries on with a meaningless `result`. Only do this when failure genuinely doesn't matter, and say why in a comment.
-- **Returning bare errors from deep code.** `return err` five layers down produces `connection refused` in the logs with no clue where. Wrap with context: `fmt.Errorf("load link %q: %w", slug, err)`.
-- **Comparing errors with `==` after wrapping.** A wrapped error is a new value, so `err == ErrNotFound` is false. Use `errors.Is(err, ErrNotFound)`.
-- **Panicking for ordinary failures.** `panic` is for "this should be impossible" bugs, not for bad input or a down database. Ordinary failures are errors.
-:::
-
 ---
 
 ## Lab
@@ -261,7 +322,7 @@ Free, on your own computer.
 
 3. **See wrapping in action.** Temporarily change `%w` to `%v` in the `Get` method, and run again. The message looks identical, but `is it ErrNotFound?` becomes `false`: `%v` formats the error as text, losing the original inside. Put `%w` back.
 
-4. **Read snip's real code.** Open `internal/links/link.go` and `internal/links/service.go`. You now know every construct in them except interfaces ([chapter 4.3](./packages-modules-interfaces.mdx)) and `context` ([chapter 4.5](./concurrency.mdx)). Find:
+4. **Apply it: read snip's real code.** Open `internal/links/link.go` and `internal/links/service.go`. You now know every construct in them except interfaces ([chapter 4.3](./packages-modules-interfaces.mdx)) and `context` ([chapter 4.5](./concurrency.mdx)). Find:
    - the four sentinel errors,
    - a function returning two values,
    - a loop that retries on `ErrSlugTaken` (in `Shorten`),
@@ -284,7 +345,7 @@ Free, on your own computer.
       explain: 'The empty string "" — the zero value for string. Reading a missing key returns the value type’s zero value. Use v, ok := owners["missing"] when you need to know whether the key existed.',
     },
     {
-      q: 'Why does snip’s store use func (s *Store) Save(…) with a * receiver?',
+      q: 'Why does the example’s Store use func (s *Store) Save(…) with a * receiver?',
       options: [
         'Pointers are faster to copy, so every method should take one',
         'Save must change the original, and a plain receiver gets a copy',
