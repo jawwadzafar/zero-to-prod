@@ -32,14 +32,15 @@ The cost of a model call is **input tokens × input price + output tokens × out
 
 **monthly cost ≈ calls per month × (average input tokens × input price + average output tokens × output price)**
 
-A worked example. snip's link-description feature ([chapter 14.4](./calling-models-from-code.mdx)) sends about 1,100 tokens of prompt and page text and gets back about 25 tokens: that's what the local model reported for go.dev and python.org in our CI runs (Claude's tokenizer counts a little differently, so treat it as a rough size). With the prices in snipai's price table (dollars per million tokens, as published when this was written; check the current ones):
+A worked example: a feature that writes a one-line description of a web page (snip's link describer, [chapter 14.4](./calling-models-from-code.mdx), where snip is the URL shortener you build in this handbook) sends about 1,100 tokens of prompt and page text and gets back about 25 tokens. That's what the local model reported for go.dev and python.org in our CI runs (Claude's tokenizer counts a little differently, so treat it as a rough size). With the prices in snipai's price table (dollars per million tokens, as published when this was written; check the current ones):
 
-| Model | Per link | 100,000 links a month |
+| Model | Per page | 100,000 pages a month |
 |---|---|---|
-| Claude Haiku 4.5 ($1 in, $5 out) | 1,100 × $1/M + 25 × $5/M ≈ $0.0012 | ≈ **$120** |
-| Claude Sonnet 5 ($2 in, $10 out) | 1,100 × $2/M + 25 × $10/M ≈ $0.0025 | ≈ **$245** |
+| Claude Haiku 5.5 ($0.10 in, $0.50 out) | 1,100 × $0.10/M + 25 × $0.50/M ≈ $0.00012 | ≈ **$12** |
+| Claude Sonnet 5.5 ($2 in, $10 out) | 1,100 × $2/M + 25 × $10/M ≈ $0.0025 | ≈ **$245** |
+| Claude Opus 5.5 ($4 in, $20 out) | 1,100 × $4/M + 25 × $20/M ≈ $0.0049 | ≈ **$490** |
 
-Those are estimates from a price table, not bills, but they're the right order of magnitude, and that's what you need to decide whether a feature is worth building. The same arithmetic shows where the money goes: here it's mostly **input**, the page text. An agent ([chapter 14.9](./agents.mdx)) is different: it resends the whole growing conversation on every turn, so its cost grows much faster than its number of steps.
+Those are estimates from a price table, not bills, but they're the right order of magnitude, and that's what you need to decide whether a feature is worth building. Two things the table can't show: current models **think** before answering, and thinking tokens are billed as output (measure them from `usage` on real calls; a lower `effort` setting reduces them), and the 40-fold spread between the smallest and largest model is exactly why "use the smallest model that passes your evals" is the biggest lever below. The same arithmetic shows where the money goes: here it's mostly **input**, the page text. An agent ([chapter 14.9](./agents.mdx)) is different: it resends the whole growing conversation on every turn, so its cost grows much faster than its number of steps.
 
 The levers, roughly from cheapest to hardest:
 
@@ -222,7 +223,7 @@ Free, offline.
 2. **Estimate a feature's cost.** In `uv run python`:
    ```python
    from snipai.llm import estimate_cost
-   per_call = estimate_cost("claude-haiku-4-5", 1100, 25)
+   per_call = estimate_cost("claude-haiku-5-5", 1100, 25)
    print(per_call, per_call * 100_000)
    ```
    Then estimate an agent: 8 turns, where turn *n* sends about 1,000 + 500 × *n* input tokens and gets 150 output tokens back. How does its cost compare with one describe call?
