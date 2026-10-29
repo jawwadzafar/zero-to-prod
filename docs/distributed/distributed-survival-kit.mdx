@@ -297,7 +297,7 @@ backoff = min(backoff*2, 30*time.Second) // exponential backoff (chapter 8.1)
 
 For a long time it had only the backoff; the jitter was added after a review. With several workers and a Postgres restart, they would all fail at the same moment and retry at the same moments: exactly the waves described above.
 
-**At-least-once clicks.** snip's click counting is at-least-once ([chapter 8.2](./queues-and-background-work.mdx)): the worker acknowledges click events only after adding them to Postgres. If it crashes in between, those events are delivered again and counted twice. For click counts, a rare small overcount is an accepted trade-off, and the code says so in a comment. For payments it wouldn't be, and the processing would need idempotency.
+**At-least-once clicks.** snip's click counting is at-least-once ([chapter 8.2](./queues-and-background-work.mdx)): the worker acknowledges click events only after adding them to Postgres. If it crashes in between, the events stay pending, another worker claims them after a while, and they are counted twice. For click counts, a rare small overcount is an accepted trade-off, and the code says so in a comment. For payments it wouldn't be, and the processing would need idempotency.
 
 **Sync where it matters, async where it doesn't.** Looking up where a link points is synchronous: the visitor needs the answer now. Counting the click is asynchronous: snip adds an event to a Redis stream and redirects at once, and the worker adds the clicks to Postgres later, in batches. If recording the click fails, snip logs a warning and redirects anyway (`internal/httpapi/server.go`): graceful degradation in one `if`.
 

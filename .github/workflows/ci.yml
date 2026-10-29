@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
 
   site:
@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: promtool check and test
         run: |
           docker run --rm -v "$PWD/snip/deploy/prometheus/rules:/rules:ro" -w /rules \
@@ -80,8 +80,8 @@ jobs:
       SNIP_TEST_DATABASE_URL: postgres://snip:snip@localhost:5432/snip?sslmode=disable
       SNIP_TEST_REDIS_ADDR: localhost:6379
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: snip/go.mod
           cache-dependency-path: snip/go.sum
@@ -123,11 +123,11 @@ jobs:
       run:
         working-directory: ai
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.17"
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: snip/go.mod
           cache-dependency-path: snip/go.sum
@@ -185,7 +185,7 @@ jobs:
       run:
         working-directory: ai
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.17"
@@ -209,7 +209,7 @@ jobs:
           uv run python -m snipai.describe https://go.dev/ https://www.python.org/ | tee /tmp/describe.txt
           grep -q "description: " /tmp/describe.txt
           uv run python -m snipai.describe --stream https://go.dev/
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version-file: snip/go.mod
           cache-dependency-path: snip/go.sum
@@ -309,8 +309,8 @@ jobs:
       run:
         working-directory: snip
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: snip/go.mod
           cache-dependency-path: snip/go.sum
@@ -357,7 +357,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: docker build -t snip:ci snip
       - name: Image starts and answers /healthz
         run: |
@@ -377,8 +377,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: '1.26.x'           # the latest 1.26 patch: what golang:1.26-alpine ships
           cache-dependency-path: snip/go.sum
@@ -403,8 +403,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: npx -y @redocly/cli@latest lint --config snip/api/redocly.yaml snip/api/openapi.yaml
@@ -417,7 +417,7 @@ jobs:
       run:
         working-directory: snip
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Start postgres, redis, 2 × api, worker, nginx
         run: docker compose up -d --build --wait
       - name: Smoke test through nginx
@@ -529,7 +529,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: helm/kind-action@v1
         with:
           version: v0.33.0
@@ -764,7 +764,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: helm/kind-action@v1
         with:
           version: v0.33.0
@@ -815,7 +815,7 @@ jobs:
       run:
         working-directory: snip/infra/local
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.16.4

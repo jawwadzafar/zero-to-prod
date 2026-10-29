@@ -258,8 +258,8 @@ snip:
     SNIP_TEST_DATABASE_URL: postgres://snip:snip@localhost:5432/snip?sslmode=disable
     SNIP_TEST_REDIS_ADDR: localhost:6379
   steps:
-    - uses: actions/checkout@v5
-    - uses: actions/setup-go@v6
+    - uses: actions/checkout@v7
+    - uses: actions/setup-go@v7
       with:
         go-version-file: snip/go.mod   # the Go version snip declares
         cache-dependency-path: snip/go.sum
@@ -268,7 +268,7 @@ snip:
     - run: go build ./...
 ```
 
-(The real job goes on with steps that run later chapters' labs. Its `@v5`/`@v6` tags are a major version behind the newest `@v7`: exactly the kind of drift Dependabot exists to flag.) snip's integration tests ([chapter 6.6](../data/postgres-from-go.mdx)) connect to the service containers through the `SNIP_TEST_*` variables, and `go-version-file` keeps CI on the same Go version as `go.mod`.
+(The real job goes on with steps that run later chapters' labs.) snip's integration tests ([chapter 6.6](../data/postgres-from-go.mdx)) connect to the service containers through the `SNIP_TEST_*` variables, and `go-version-file` keeps CI on the same Go version as `go.mod`.
 
 **Whole-system jobs.** Other jobs go further. `snip-stack` runs `docker compose up --wait` and then scripts [chapter 9.3](../containers/docker-compose.mdx)'s lab. `snip-k8s` creates a Kubernetes cluster on the runner with the `helm/kind-action` action, loads a freshly built image, applies the manifests, and runs every [Part 10](../kubernetes/why-orchestration.mdx) lab: the smoke test, deleting a Pod, a rolling update under traffic, NetworkPolicies, the Gateway, breaking things on purpose, and the Helm chart. It's the same idea as a unit test, scaled up: **if the handbook tells readers something works, a machine checks it on every change.**
 

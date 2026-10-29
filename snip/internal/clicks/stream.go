@@ -83,7 +83,8 @@ func (c *Consumer) EnsureGroup(ctx context.Context) error {
 // It returns how many events it handled.
 //
 // Delivery is at-least-once: if the worker crashes after AddClicks but before
-// XAck, those events are delivered again and counted twice. For click counts
+// XAck, those events stay pending, another worker claims them (step 2 below)
+// and they are counted twice. For click counts
 // that small over-count is an accepted trade-off (chapter 8.2 discusses how to
 // make it exactly-once when it matters).
 func (c *Consumer) ProcessOnce(ctx context.Context, dst Adder) (int, error) {
