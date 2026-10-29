@@ -1,31 +1,31 @@
 ---
 title: "5.3 Validation, errors & status codes"
 sidebar_label: "5.3 Validation & errors"
-description: Never trust input — validate it in layers (size, syntax, meaning, business rules), turn every failure into the right status code and a consistent error body, and keep internal details in your logs, not your responses. Built from snip's real handlers.
+description: Never trust input — validate it in layers (size, syntax, meaning, business rules), turn every failure into the right status code and a consistent error body, and keep internal details in your logs, not your responses.
 ---
 
 # 5.3 Validation, errors & status codes
 
-Every request that reaches your server was written by someone you don't know. Most are honest. Some are buggy: a missing field, a typo, a number where text should be. And some are hostile: a 10 GB body, a `javascript:` URL designed to attack whoever clicks it, a crafted string meant to break your database query. A backend's first duty is to **refuse bad input clearly and safely** — and its second is to fail *well* when its own things break: tell the client what it needs to know, and nothing more. This chapter shows how snip does both, line by line.
+Every request that reaches your server was written by someone you don't know. Most are honest. Some are buggy: a missing field, a typo, a number where text should be. And some are hostile: a 10 GB body, a `javascript:` link designed to attack whoever clicks it, a crafted string meant to break your database query. A backend's first duty is to **refuse bad input clearly and safely** — and its second is to fail *well* when its own things break: tell the client what it needs to know, and nothing more. This chapter builds both into a small to-do API, then shows the same moves in a real service.
 
 ## What you'll learn
 
 - The golden rule — **never trust input** — and why checking in the browser isn't enough.
 - **Layers of validation**: size, syntax, meaning and business rules, and where each belongs in the code.
-- How snip decodes JSON **strictly** and limits request size.
-- How snip turns domain errors into the **right status codes** and **one consistent error body**.
+- How to decode JSON **strictly** and limit request size in Go.
+- How to turn errors into the **right status codes** and **one consistent error body**, in one place.
 - Why **500 errors must say nothing** to the client, while your **logs** say everything — linked by a request ID.
 
 ---
 
 ## Never trust input
 
-It's tempting to think: *"our app only ever sends valid URLs — the form checks them."* But the API doesn't only talk to your app. Anyone can open a terminal and send snip anything with curl, exactly as you've been doing. Checks in a browser or mobile app are for **convenience** (fast feedback for the user). Checks on the server are for **correctness and security**, and they're the only ones that count.
+It's tempting to think: *"our app only ever sends valid data — the form checks it."* But the API doesn't only talk to your app. Anyone can open a terminal and send your server anything with curl. Checks in a browser or mobile app are for **convenience** (fast feedback for the user). Checks on the server are for **correctness and security**, and they're the only ones that count.
 
 ```mermaid
 flowchart LR
     B["Browser form<br/>(checks for convenience —<br/>can be bypassed)"] --> S
-    C["curl, scripts,<br/>attackers"] --> S["snip server<br/>(checks for real —<br/>the only line of defence)"]
+    C["curl, scripts,<br/>attackers"] --> S["your server<br/>(checks for real —<br/>the only line of defence)"]
 ```
 
 :::note[Everyday anchor]
@@ -36,26 +36,207 @@ A bank teller checks your ID even though the form you filled in at the entrance 
 
 ## Validation in layers
 
-snip checks every request in four layers, from cheapest to most expensive, and stops at the first failure:
+Good services check every request in four layers, from cheapest to most expensive, and stop at the first failure. Here they are for creating a task in a to-do API (`POST /tasks` with `{"title": "buy milk"}`):
 
 ```mermaid
 flowchart TB
-    R["Incoming request"] --> L1["1. Size<br/>body ≤ 16 KiB"]
+    R["Incoming request"] --> L1["1. Size<br/>body ≤ 4 KiB"]
     L1 --> L2["2. Syntax<br/>valid JSON, only known fields"]
-    L2 --> L3["3. Meaning<br/>is url a real http(s) URL? is slug well-formed?"]
-    L3 --> L4["4. Business rules<br/>is the slug free? under the rate limit?"]
+    L2 --> L3["3. Meaning<br/>is the title 1–200 characters?"]
+    L3 --> L4["4. Business rules<br/>under the user's quota? not a duplicate?"]
     L4 --> OK["Do the work"]
     L1 -->|"too big"| E1["413"]
     L2 -->|"broken"| E2["400 invalid_json"]
-    L3 -->|"invalid"| E3["400 invalid_url / invalid_slug"]
+    L3 -->|"invalid"| E3["400 invalid_title"]
     L4 -->|"conflict / too fast"| E4["409 / 429"]
 ```
 
-Each layer lives where it naturally belongs: the first two in the **HTTP layer** (they're about the request's format), the last two in the **domain** (they're about links, whatever interface is used — HTTP today, maybe something else tomorrow).
+Each layer lives where it naturally belongs: the first two in the **HTTP handler** (they're about the request's format), the last two in the **service** that holds the business rules (they're about tasks, whatever interface is used — HTTP today, maybe a command-line tool tomorrow). [Chapter 5.4](./structuring-a-real-service.mdx) explains that layering; this chapter uses it.
+
+The code below is from the handbook's runnable example, `snip/examples/tasks`.
 
 ### Layers 1 and 2: size and syntax, in the handler
 
-From snip's `internal/httpapi/server.go`:
+From `examples/tasks/handler.go`:
+
+```go
+type createTaskRequest struct {
+	Title string `json:"title"`
+}
+
+func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)) // at most 4 KiB
+	dec.DisallowUnknownFields()                                  // {"titel": …} is an error, not silently ignored
+	var req createTaskRequest
+	if err := dec.Decode(&req); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeError(w, http.StatusRequestEntityTooLarge, "body_too_large", "request body must be at most 4 KiB")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid_json", `body must be JSON like {"title": "buy milk"}`)
+		return
+	}
+	t, err := h.svc.Create(r.Context(), req.Title) // layers 3 and 4 happen in the service
+	// …
+}
+```
+
+- **`http.MaxBytesReader`** stops reading after 4 KiB and returns an error — so a giant upload can't exhaust memory. The client gets **413 Content Too Large** (older documents call it "Payload Too Large").
+- **`json.NewDecoder(…).Decode(&req)`** turns the JSON into a Go struct. Malformed JSON — a missing brace, a string where an object should be — fails here.
+- **`DisallowUnknownFields()`** rejects fields the server doesn't know. If a client sends `{"titel": "buy milk"}` (a typo), a lenient decoder would silently ignore it and then complain the title is empty — confusing. Strict decoding points at the real mistake.
+- **`errors.As`** ([chapter 4.2](../go/types-structs-errors.mdx)'s cousin of `errors.Is`) checks whether the error is a specific *type* — here, "the body was too big" — so it gets its own status code.
+
+Path and query parameters need the same care. `GET /tasks/abc` has a well-formed path, but `abc` isn't an ID, so the handler checks before going further:
+
+```go
+id, err := strconv.ParseInt(r.PathValue("id"), 10, 64) // the {id} part of the path
+if err != nil || id < 1 {
+	writeError(w, http.StatusBadRequest, "invalid_id", "id must be a positive whole number")
+	return
+}
+```
+
+### Layer 3: meaning, in the service
+
+A syntactically valid request can still be nonsense: `{"title": ""}` is perfect JSON. Whether a title is *acceptable* is a rule about **tasks**, so it lives in the service (`examples/tasks/service.go`), not in the HTTP code:
+
+```go
+var ErrInvalidTitle = errors.New("title must be 1-200 characters")
+
+func (s *Service) Create(ctx context.Context, title string) (Task, error) {
+	title = strings.TrimSpace(title)
+	if title == "" || utf8.RuneCountInString(title) > 200 {
+		return Task{}, ErrInvalidTitle
+	}
+	return s.repo.Create(ctx, Task{Title: title, CreatedAt: s.now().UTC()})
+}
+```
+
+Notice two habits. The rule counts **characters** (`utf8.RuneCountInString`), not bytes, so "café" is four characters, not five ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)). And it **normalises** before checking — trimming spaces — so `"   "` counts as empty.
+
+When the input has a shape, describe the shape that's **allowed** and reject everything else. A username rule might be:
+
+```go
+var usernamePattern = regexp.MustCompile(`^[a-z0-9_]{3,20}$`) // 3–20 lowercase letters, digits or _
+```
+
+This is **allow-listing**. It's far safer than **deny-listing** (trying to list everything *bad*: no spaces, no `<`, no quotes…), because attackers are endlessly creative about what "bad" looks like ([chapter 7.5](../security/web-attacks.mdx)).
+
+### Layer 4: business rules, against the system's state
+
+Some rules can only be checked against what's already stored:
+
+- **Is this name free?** Only the database knows for sure. Don't check-then-insert: two requests could both see "free" and both insert — a race ([chapter 1.2](../foundations/programs-processes-threads.mdx)). Let the database's **unique constraint** decide, and translate its "duplicate key" error into your own `ErrTaken` ([chapter 6.3](../data/designing-schemas.mdx)), which becomes `409 Conflict`.
+- **Is this user under their limit?** Checked against shared counters before doing any work, answered with `429 Too Many Requests` ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)).
+
+:::info[In the real world]
+Teams disagree on one status code. Some answer *"valid JSON, but the values break the rules"* with **422 Unprocessable Content** and keep **400** for broken syntax. Others use 400 for both, as this handbook's examples do. Either is defensible; the error `code` in the body is what clients should switch on. And when a request has many fields, return **every** problem at once — `{"error": {"code": "invalid_fields", "fields": {"title": "required", "due": "must be a date"}}}` — so a form can highlight them all, instead of making the user fix one field per round trip.
+:::
+
+---
+
+## One error format, the right status code
+
+Every failure — from any layer — should reach the client in the **same shape**:
+
+```json
+{"error": {"code": "invalid_title", "message": "title must be 1-200 characters"}}
+```
+
+- **`code`** is stable and machine-readable. Client programs switch on it (`if code == "invalid_title"`). Never change a code once it's published.
+- **`message`** is for humans: a developer debugging, or an app showing it to a user. It can be improved any time.
+
+The translation from the service's errors to HTTP happens in **one place**. From `examples/tasks/handler.go`:
+
+```go
+// writeDomainError is the ONE place that turns errors into HTTP answers.
+func (h *Handler) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, ErrInvalidTitle):
+		writeError(w, http.StatusBadRequest, "invalid_title", err.Error())
+	case errors.Is(err, ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "no such task")
+	case errors.Is(err, context.DeadlineExceeded):
+		writeError(w, http.StatusServiceUnavailable, "timeout", "the request took too long; try again")
+	case errors.Is(err, context.Canceled):
+		h.log.InfoContext(r.Context(), "client went away", "request_id", RequestID(r.Context()))
+	default: // anything unexpected: details to the log, nothing internal to the client
+		h.log.ErrorContext(r.Context(), "internal error", "err", err, "request_id", RequestID(r.Context()))
+		writeError(w, http.StatusInternalServerError, "internal", "something went wrong on our side")
+	}
+}
+```
+
+This is the payoff of [chapter 4.2](../go/types-structs-errors.mdx)'s **sentinel errors**. The service says *what* went wrong in its own words (`ErrInvalidTitle`); the HTTP layer decides *how to say it* over HTTP (`400`, `invalid_title`). Every handler calls this one function, so the same error always gets the same answer.
+
+A quick map of the status codes you'll use most:
+
+| Code | Means | Whose fault |
+|---|---|---|
+| `400` Bad Request | malformed or invalid input | client — say exactly what to fix |
+| `401` Unauthorized | no or bad credentials | client — log in / send a key |
+| `403` Forbidden | known caller, not allowed | client — but consider `404` to avoid confirming existence |
+| `404` Not Found | no such thing (for you) | client |
+| `409` Conflict | clashes with current state | client — e.g. the name is taken |
+| `413` Content Too Large | body over the limit | client |
+| `429` Too Many Requests | rate limit hit | client — wait for `Retry-After` |
+| `500` Internal Server Error | a bug or unexpected failure | server — say nothing internal |
+| `503` Service Unavailable | temporarily can't serve (overloaded, a dependency down, a deadline passed) | server — retrying later may work |
+
+:::info[In the real world]
+There's also an official standard error format for HTTP APIs: **"Problem Details"**, RFC 9457, with `Content-Type: application/problem+json` and fields like `type`, `title`, `status` and `detail`. Some teams adopt it so generic tools understand their errors. The simpler `{"error": {"code", "message"}}` shape is equally common. What matters most is picking **one** format and using it everywhere.
+:::
+
+---
+
+## 500s must say nothing; logs must say everything
+
+Look again at the `default` branch — anything *unexpected*: the database is down, a bug, a full disk. Two things happen:
+
+1. **The client gets a generic message**: `500`, `"internal"`, "something went wrong on our side".
+2. **The log gets everything**: the real error, with its full chain of wrapped context ([chapter 4.2](../go/types-structs-errors.mdx)), and the request ID.
+
+Why not send the real error to the client? Because internal error messages leak information attackers love: database names and versions, table structures, file paths, fragments of SQL, sometimes even credentials. A message like `pq: relation "api_keys" does not exist` tells an attacker what your database looks like.
+
+So how does a developer connect a user's report to the log? Through the **request ID**. Middleware ([chapter 5.4](./structuring-a-real-service.mdx)) gives every request an ID, returns it in an `X-Request-ID` response header, and includes it in every log line for that request:
+
+```text
+Client sees:  HTTP/1.1 500 …   X-Request-Id: 3f9a2c71d0b4
+              {"error":{"code":"internal","message":"something went wrong on our side"}}
+
+Logs show:    level=ERROR msg="internal error" request_id=3f9a2c71d0b4
+              err="list tasks: postgres: query: connection refused"
+```
+
+The user (or support) quotes the ID; the engineer searches the logs for it ([chapter 2.3](../linux/pipes-and-text-tools.mdx)'s `grep` or [chapter 13.1](../observability/logs.mdx)'s log tools) and sees exactly what happened.
+
+:::tip
+A **4xx** means the client should change something, so its message should say **what** — precisely. A **5xx** means *you* should change something, so its message to the client should say **nothing internal** — and your logs and alerts should say everything.
+:::
+
+---
+
+## Panics: the errors nobody planned
+
+Sometimes code doesn't return an error — it **panics**: a nil pointer, an index out of range ([chapter 4.2](../go/types-structs-errors.mdx)). By default, Go's HTTP server catches a panicking request and closes that connection (so one bug doesn't kill the whole server), but the client just sees the connection drop. A **recovery middleware** catches the panic itself, logs it with the request ID, and returns a proper `500` with the standard error body — `WithRecover` in `examples/tasks/middleware.go`. Every response, even from a bug, keeps the promised shape.
+
+:::warning[What can go wrong]
+- **Validating only on the client.** Anyone can bypass your app and call the API directly. The server must check everything.
+- **Leaking internals in errors.** Stack traces, SQL, file paths and library errors in responses help attackers. Log them; don't send them.
+- **Vague 4xx messages.** "Bad request" with no detail makes client developers guess. Say which field is wrong and what's expected.
+- **Check-then-act races.** "Is the name free? Yes → insert" can let two requests both succeed. Let the database's constraints be the final judge.
+- **Deny-lists.** Blocking `javascript:` but forgetting `data:` or `JaVaScRiPt:`. Allow-list what's valid instead.
+- **`200 OK` with an error inside.** Monitoring, caches and retry logic all believe it worked. Use the real status code.
+:::
+
+---
+
+## Apply it to snip
+
+**snip**, the link shortener you build in this handbook, uses the same four layers for `POST /api/links` with `{"url": "…", "slug": "…"}`.
+
+**Layers 1 and 2 — size and syntax**, in `internal/httpapi/server.go`. The same moves as the to-do API, with a 16 KiB limit:
 
 ```go
 const maxBodyBytes = 1 << 14 // 16 KiB is plenty for {"url": …}
@@ -78,21 +259,9 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- **`http.MaxBytesReader`** stops reading after 16 KiB and returns an error — so a giant upload can't exhaust memory. It's snip v0's `LimitReader`, made stricter: v0 silently truncated; this *rejects* with **413 Payload Too Large**.
-- **`json.NewDecoder(…).Decode(&req)`** turns the JSON into a Go struct:
-  ```go
-  type createRequest struct {
-  	URL  string `json:"url"`
-  	Slug string `json:"slug,omitempty"`
-  }
-  ```
-  Malformed JSON — a missing brace, a string where an object should be — fails here.
-- **`DisallowUnknownFields()`** rejects fields snip doesn't know. If a client sends `{"link": "https://…"}` (a typo for `url`), a lenient decoder would silently ignore it and then complain the URL is empty — confusing. Strict decoding says exactly what's wrong.
-- **`errors.As`** ([chapter 4.2](../go/types-structs-errors.mdx)'s cousin of `errors.Is`) checks whether the error is a specific *type* — here, "the body was too big" — so it gets its own status code.
+snip v0 ([chapter 5.1](./first-http-server.mdx)) used `io.LimitReader`, which silently truncated a big body; `MaxBytesReader` *rejects* it.
 
-### Layer 3: meaning, in the domain
-
-A syntactically valid request can still be nonsense: `{"url": "javascript:alert(1)"}` is perfect JSON. Whether a URL is *acceptable* is a rule about **links**, so it lives in `internal/links`, not in the HTTP code. You read `NormalizeURL` in [chapter 4.2](../go/types-structs-errors.mdx); its partner checks custom slugs:
+**Layer 3 — meaning**, in the domain package `internal/links`. You read `NormalizeURL` (only absolute `http`/`https` URLs, no credentials inside) in [chapter 4.2](../go/types-structs-errors.mdx); its partner allow-lists custom slugs:
 
 ```go
 var slugPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
@@ -109,31 +278,11 @@ func ValidateSlug(s string) error {
 }
 ```
 
-The regular expression ([chapter 2.3](../linux/pipes-and-text-tools.mdx)) allows 3–32 letters, digits, dashes and underscores. The **reserved** list stops someone registering the slug `healthz` or `api` — which would collide with snip's own routes and could hijack its health checks.
+The **reserved** list stops someone registering the slug `healthz` or `api` — which would collide with snip's own routes and could hijack its health checks.
 
-This is **allow-listing**: describing exactly what's *allowed* and rejecting everything else. It's far safer than **deny-listing** (trying to list everything *bad*), because attackers are endlessly creative about what "bad" looks like ([chapter 7.5](../security/web-attacks.mdx)).
+**Layer 4 — business rules.** A taken custom slug is caught by Postgres's unique constraint and translated to `links.ErrSlugTaken`; a key creating links too fast is stopped by a Redis rate limiter before any work is done, with a `Retry-After` header.
 
-### Layer 4: business rules, in the domain and the store
-
-Some rules can only be checked against the system's state:
-
-- **Is the custom slug free?** Only the database knows for sure. snip doesn't check-then-insert (two requests could both see "free" and both insert — a race, [chapter 1.2](../foundations/programs-processes-threads.mdx)). It lets the database's **unique constraint** enforce it and translates the database's "duplicate key" error into `links.ErrSlugTaken` ([chapter 6.3](../data/designing-schemas.mdx)).
-- **Is this key under its rate limit?** Checked against shared counters in Redis before doing any work ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)).
-
----
-
-## One error format, the right status code
-
-Every failure — from any layer — reaches the client in the **same shape**:
-
-```json
-{"error": {"code": "invalid_url", "message": "url must be an absolute http(s) URL of at most 2048 characters"}}
-```
-
-- **`code`** is stable and machine-readable. Client programs switch on it (`if code == "slug_taken"`). Never change a code once it's published.
-- **`message`** is for humans: a developer debugging, or an app showing it to a user. It can be improved any time.
-
-The translation from domain errors to HTTP happens in **one place**, `writeDomainError` in `internal/httpapi/errors.go`:
+**One translation function**, `writeDomainError` in `internal/httpapi/errors.go`:
 
 ```go
 func (s *Server) writeDomainError(w http.ResponseWriter, r *http.Request, err error) {
@@ -155,79 +304,44 @@ func (s *Server) writeDomainError(w http.ResponseWriter, r *http.Request, err er
 }
 ```
 
-This is the payoff of [chapter 4.2](../go/types-structs-errors.mdx)'s **sentinel errors**. The domain code says *what* went wrong in its own words (`ErrSlugTaken`); the HTTP layer decides *how to say it* over HTTP (`409`, `slug_taken`). If snip one day adds another interface — a command-line tool, a gRPC API ([chapter 5.5](./api-contracts.mdx)) — the domain doesn't change; that interface gets its own translation.
-
-:::info[In the real world]
-There's also an official standard error format for HTTP APIs: **"Problem Details"**, RFC 9457, with `Content-Type: application/problem+json` and fields like `type`, `title`, `status` and `detail`. Some teams adopt it so generic tools understand their errors. snip's simpler shape is equally common. What matters most is picking **one** format and using it everywhere.
-:::
-
----
-
-## 500s must say nothing; logs must say everything
-
-Look again at the `default` branch — anything *unexpected*: the database is down, a bug, a timeout. Two things happen:
-
-1. **The client gets a generic message**: `500`, `"internal"`, "something went wrong on our side".
-2. **The log gets everything**: the real error, with its full chain of wrapped context ([chapter 4.2](../go/types-structs-errors.mdx)), the path, and the request ID.
-
-Why not just send the real error to the client? Because internal error messages leak information attackers love: database names and versions, table structures, file paths, fragments of SQL, sometimes even credentials. A message like `pq: relation "api_keys" does not exist` tells an attacker what your database looks like.
-
-So how does a developer connect a user's report to the log? Through the **request ID**. snip's middleware gives every request an ID, returns it in the `X-Request-Id` response header, and includes it in every log line for that request ([chapter 5.4](./structuring-a-real-service.mdx)):
-
-```text
-Client sees:  HTTP/1.1 500 …   X-Request-Id: 3f9a2c71d0b4e815
-              {"error":{"code":"internal","message":"something went wrong on our side"}}
-
-Logs show:    level=ERROR msg="internal error" request_id=3f9a2c71d0b4e815
-              err="list links: postgres: query: connection refused" path=/api/links
-```
-
-The user (or support) quotes the ID; the engineer searches the logs for it ([chapter 2.3](../linux/pipes-and-text-tools.mdx)'s `grep` or [chapter 13.1](../observability/logs.mdx)'s log tools) and sees exactly what happened.
-
-:::tip
-A **4xx** means the client should change something, so its message should say **what** — precisely. A **5xx** means *you* should change something, so its message to the client should say **nothing internal** — and your logs and alerts should say everything.
-:::
-
----
-
-## Panics: the errors nobody planned
-
-Sometimes code doesn't return an error — it **panics**: a nil pointer, an index out of range ([chapter 4.2](../go/types-structs-errors.mdx)). By default, Go's HTTP server catches a panicking request and closes that connection (so one bug doesn't kill the whole server), but the client just sees the connection drop. snip's middleware recovers the panic itself, logs it with the request ID, and returns a proper `500` with the standard error body (`internal/httpapi/middleware.go`). Every response, even from a bug, keeps the promised shape.
-
-:::warning[What can go wrong]
-- **Validating only on the client.** Anyone can bypass your app and call the API directly. The server must check everything.
-- **Leaking internals in errors.** Stack traces, SQL, file paths and library errors in responses help attackers. Log them; don't send them.
-- **Vague 4xx messages.** "Bad request" with no detail makes client developers guess. Say which field is wrong and what's expected.
-- **Check-then-act races.** "Is the slug free? Yes → insert" can let two requests both succeed. Let the database's constraints be the final judge.
-- **Deny-lists.** Blocking `javascript:` but forgetting `data:` or `JaVaScRiPt:`. Allow-list what's valid instead.
-:::
+If snip one day adds another interface — a command-line tool, a gRPC API ([chapter 5.5](./api-contracts.mdx)) — the `links` package doesn't change; that interface gets its own small translation. And snip's `observe` middleware (`internal/httpapi/middleware.go`) adds the request ID and recovers panics, as described above.
 
 ---
 
 ## Lab
 
-Free, on your own computer. Start the reference snip in memory mode (`SNIP_LOG_FORMAT=text go run ./cmd/snip` in `~/code/zero-to-prod/snip`) and set `KEY` from its log, as in [chapter 5.2](./designing-rest-apis.mdx).
+Free, on your own computer, in `~/code/zero-to-prod/snip`.
 
-1. **Attack every layer.** Predict each status code and error `code` first:
+1. **Attack every layer of a small API.** Start the to-do API (`go run ./examples/tasks`, port 8081). In a second terminal, predict each status code and error `code` *before* running it:
    ```bash
-   H="Authorization: Bearer $KEY"
-   (printf '{"url":"https://go.dev/'; head -c 20000 /dev/zero | tr '\0' 'a'; printf '"}') \
-     | curl -s -X POST localhost:8080/api/links -H "$H" --data-binary @- | jq .   # layer 1: a 20 KB (valid-looking) body
-   curl -s -X POST localhost:8080/api/links -H "$H" -d '{"url": "https://go.dev"' | jq .                           # layer 2: broken JSON
-   curl -s -X POST localhost:8080/api/links -H "$H" -d '{"link": "https://go.dev"}' | jq .                         # layer 2: unknown field
-   curl -s -X POST localhost:8080/api/links -H "$H" -d '{"url": "javascript:alert(1)"}' | jq .                     # layer 3: bad scheme
-   curl -s -X POST localhost:8080/api/links -H "$H" -d '{"url": "https://go.dev", "slug": "healthz"}' | jq .       # layer 3: reserved
-   curl -s -X POST localhost:8080/api/links -H "$H" -d '{"url": "https://go.dev", "slug": "a b"}' | jq .           # layer 3: bad slug
+   head -c 5000 /dev/zero | tr '\0' 'a' | sed 's/.*/{"title":"&"}/' \
+     | curl -s -X POST localhost:8081/tasks --data-binary @- | jq .     # layer 1: a 5 KB body
+   curl -s -X POST localhost:8081/tasks -d '{"title": "buy milk"' | jq .   # layer 2: broken JSON
+   curl -s -X POST localhost:8081/tasks -d '{"titel": "buy milk"}' | jq .  # layer 2: unknown field
+   curl -s -X POST localhost:8081/tasks -d '{"title": "   "}' | jq .        # layer 3: empty after trimming
+   curl -s localhost:8081/tasks/abc | jq .                                 # a path parameter that isn't an ID
+   curl -s localhost:8081/tasks/999 | jq .                                 # valid ID, no such task
    ```
    Notice every response has the same shape, and each 4xx message tells you exactly what to fix.
 
+2. **Follow a request ID.** Run any failing request with `-i` and note the `X-Request-Id` header. Find the same ID in the server's log in the first terminal. That's the thread connecting a user's report to your logs.
+
+3. **Read the tests that lock this in.** Open `examples/tasks/tasks_test.go`. `TestAPI` is a table of every case you just tried, plus one you can't easily try by hand: a fake repository that always fails, checking that the client gets `500 internal` and never sees the internal message. Run it with `go test -v ./examples/tasks/`.
+
+4. **Apply it to snip.** Stop the to-do API. Start snip in memory mode (`SNIP_LOG_FORMAT=text go run ./cmd/snip`) and set `KEY` from its log, as in [chapter 5.2](./designing-rest-apis.mdx)'s lab:
+   ```bash
+   H="Authorization: Bearer $KEY"
+   (printf '{"url":"https://go.dev/'; head -c 20000 /dev/zero | tr '\0' 'a'; printf '"}') \
+     | curl -s -X POST localhost:8080/api/links -H "$H" --data-binary @- | jq .   # layer 1: a 20 KB body
+   curl -s -X POST localhost:8080/api/links -H "$H" -d '{"link": "https://go.dev"}' | jq .                         # layer 2: unknown field
+   curl -s -X POST localhost:8080/api/links -H "$H" -d '{"url": "javascript:alert(1)"}' | jq .                     # layer 3: bad scheme
+   curl -s -X POST localhost:8080/api/links -H "$H" -d '{"url": "https://go.dev", "slug": "healthz"}' | jq .       # layer 3: reserved
+   ```
    Curious twist: send 20 KB of plain `aaaa…` (not JSON) and you get `invalid_json`, not `body_too_large`. The decoder reads the body as a stream and gives up at the very first invalid byte — long before reaching the size limit. Layers stop at the *first* failure, and reading a stream lazily means garbage is rejected cheaply.
 
-2. **Find the request ID.** Run any failing request with `-i` and note the `X-Request-Id` header. Then find the same ID in snip's log output in the other terminal. That's the thread connecting a user's report to your logs.
+   The same cases are checked automatically by `TestErrors` in `internal/httpapi/server_test.go` ([chapter 4.4](../go/testing.mdx)).
 
-3. **Read the tests that lock this in.** Open `internal/httpapi/server_test.go` and find `TestErrors` ([chapter 4.4](../go/testing.mdx)). Every case you just tried by hand is checked there automatically, on every push.
-
-4. **Extend the rules (optional).** Suppose snip should refuse to shorten its own short links (a link to `https://snip.example/abc` would just redirect to itself). Where would that rule live — the HTTP layer or the domain? Write the new table case you'd add to `TestNormalizeURL` or a new test first, then try implementing it.
+5. **Extend the rules (optional).** Suppose snip should refuse to shorten its own short links (a link to `https://snip.example/abc` would just redirect to itself). Where would that rule live — the HTTP layer or the domain? Write the new table case for `TestNormalizeURL` first, watch it fail, then implement it.
 
 ## Self-check
 
