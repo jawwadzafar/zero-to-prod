@@ -6,15 +6,16 @@ description: "The building blocks of all security work — encoding vs hashing v
 
 # 7.1 Security literacy: hashing, encryption, TLS
 
-Security can feel like a field for specialists, full of intimidating maths. But almost everything a backend engineer does securely rests on four or five ideas that fit on a single page: **hashing**, **encryption**, **signatures**, **randomness** and **certificates**. You've already used them without noticing — Git commit IDs are hashes ([chapter 3.1](../git/git-mental-model.mdx)), SSH keys are public-key cryptography ([chapter 2.6](../linux/ssh-and-remote-machines.mdx)), and every `https://` request uses TLS ([chapter 1.5](../foundations/http-from-zero.mdx)). This chapter explains each idea in plain words, shows where snip uses it, and — just as importantly — teaches you to spot the common, costly confusions: "Base64 is encryption", "we hash passwords with SHA-256", "we'll write our own crypto".
+Security can feel like a field for specialists, full of intimidating maths. But almost everything a backend engineer does securely rests on four or five ideas that fit on a single page: **hashing**, **encryption**, **signatures**, **randomness** and **certificates**. You've already used them without noticing — Git commit IDs are hashes ([chapter 3.1](../git/git-mental-model.mdx)), SSH keys are public-key cryptography ([chapter 2.6](../linux/ssh-and-remote-machines.mdx)), and every `https://` request uses TLS ([chapter 1.5](../foundations/http-from-zero.mdx)). This chapter explains each idea in plain words, lets you try each one with a command on your own laptop, and — just as importantly — teaches you to spot the common, costly confusions: "Base64 is encryption", "we hash passwords with SHA-256", "we'll write our own crypto".
 
 ## What you'll learn
 
 - The difference between **encoding**, **hashing** and **encryption** — and why confusing them causes real breaches.
-- **Hash functions**, their properties, and why passwords need **slow, salted** hashing (bcrypt, Argon2) — while snip's API keys don't.
+- **Hash functions**, their properties, and why passwords need **slow, salted** hashing (bcrypt, Argon2) — while long random API keys don't.
 - **Symmetric encryption** (one shared key) and **public-key encryption** (a key pair), and **digital signatures**.
 - **Secure randomness**: why `crypto/rand` and never `math/rand` for anything secret.
 - How **TLS** and **certificates** make HTTPS private and trustworthy — and how to inspect them yourself.
+- How a real service (snip, the URL shortener this handbook builds) generates and stores its API keys.
 
 ---
 
@@ -43,8 +44,8 @@ The classic mistakes:
 A **cryptographic hash function** takes any input — a word, a file, a whole database — and produces a fixed-size output, the **hash** (or digest). SHA-256 always produces 256 bits, usually written as 64 hex characters ([chapter 1.3](../foundations/bits-bytes-text-formats.mdx)):
 
 ```text
-SHA-256("snip")  = b0e6a23a…  (64 hex characters in full)
-SHA-256("Snip")  = 1a030e90…  (one capital letter: completely different)
+SHA-256("hello")  = 2cf24dba…  (64 hex characters in full)
+SHA-256("Hello")  = 185f8db3…  (one capital letter: completely different)
 ```
 
 The properties that make it useful:
@@ -91,50 +92,44 @@ $2a$12$R9h/cIPz0gi.URNNX3kh2OPST9/PgBkqquzi.Ss7KIUgO2t0jWMUW
 
 The algorithm, cost and salt are stored inside the string itself, so verifying needs only that one value. In Go, `golang.org/x/crypto/bcrypt` gives you `GenerateFromPassword` and `CompareHashAndPassword` — you never handle salts by hand.
 
-### Why snip hashes API keys with plain SHA-256
+### Why API keys can use a fast hash
 
-snip doesn't have passwords; it has **API keys**. And it hashes them with fast SHA-256 — on purpose. From `internal/auth/keys.go`:
+An **API key** is a long random string a program sends to prove who it is (GitHub's `ghp_…` tokens, Stripe's `sk_live_…` keys). A careful service stores only a hash of each key, exactly as it does for passwords. But many hash them with fast SHA-256, on purpose.
 
-```go
-// HashKey returns the SHA-256 of key, hex-encoded. A fast hash is fine here
-// (unlike for passwords) because keys are long and random: there is nothing
-// to brute-force. If the database leaks, the hashes are useless on their own.
-func HashKey(key string) string {
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:])
-}
-```
-
-Slow hashing exists to protect **weak, human-chosen** secrets. snip's keys are **32 random characters** from a 62-character alphabet — about 190 bits of randomness. Guessing one by brute force would take longer than the age of the universe, even at billions of guesses per second. So a fast hash is perfectly safe for them — and it matters, because snip checks a key on **every** API request, where a 100 ms bcrypt would be a serious cost. Knowing *why* a rule exists lets you know when it applies.
+Slow hashing exists to protect **weak, human-chosen** secrets. A key of **32 random characters** from a 62-character alphabet carries about 190 bits of randomness (32 × log₂ 62). Guessing one by brute force would take longer than the age of the universe, even at billions of guesses per second, so there's no list of likely values for an attacker to try. A fast hash is perfectly safe for it — and speed matters, because an API checks the key on **every** request, where a 100 ms bcrypt would be a serious cost. Knowing *why* a rule exists lets you know when it applies.
 
 ---
 
 ## Secure randomness
 
-Keys, salts, session tokens and snip's slugs all need **unpredictable** random values. Computers are deterministic, so "random" numbers come from generators:
+Keys, salts, session tokens and password-reset links all need **unpredictable** random values. Computers are deterministic, so "random" numbers come from generators:
 
 - **`math/rand`** (and `Math.random()` in JavaScript, `random` in Python) is fast and fine for simulations or shuffling a playlist — but its output can be **predicted** by anyone who sees enough of it.
 - **`crypto/rand`** reads from the operating system's cryptographically secure generator, fed by unpredictable hardware events. Its output can't be predicted.
 
-**Anything security-related uses `crypto/rand`.** snip's key generator does (`internal/auth/keys.go`):
+**Anything security-related uses the secure generator.** From a terminal, ask the operating system for one:
+
+```bash
+openssl rand -hex 32                       # 32 random bytes as 64 hex characters: a good secret
+head -c 32 /dev/urandom | base64           # the same idea, straight from the OS (macOS / Linux)
+```
+
+In code, every language has the secure version next to the fast one: Go's `crypto/rand` (Go 1.24 added `rand.Text()`, which returns a ready-made random string), Python's `secrets` module, and `crypto.getRandomValues()` in JavaScript.
 
 ```go
-func GenerateKey() string {
-	var b strings.Builder
-	b.WriteString(keyPrefix)                         // "snip_" — makes leaked keys easy to recognise
-	max := big.NewInt(int64(len(keyChars)))
-	for i := 0; i < 32; i++ {
-		n, err := rand.Int(rand.Reader, max)         // crypto/rand, not math/rand
-		if err != nil {
-			panic("crypto/rand unavailable: " + err.Error())
-		}
-		b.WriteByte(keyChars[n.Int64()])
-	}
-	return b.String()
+package main
+
+import (
+	"crypto/rand"
+	"fmt"
+)
+
+func main() {
+	fmt.Println(rand.Text()) // 26 characters, ~128 bits from the OS's secure generator
 }
 ```
 
-The `snip_` prefix is a small, real-world touch: secret scanners (GitHub's, for example) look for recognisable prefixes to catch keys accidentally committed to public repositories. Many providers do the same (`ghp_` for GitHub tokens, `sk_` for Stripe secret keys).
+A tip from real systems: give generated keys a **recognisable prefix** (`ghp_` for GitHub tokens, `sk_` for Stripe secret keys). Secret scanners look for those prefixes to catch keys accidentally committed to public repositories ([chapter 7.6](./secrets-management.mdx)).
 
 ---
 
@@ -177,7 +172,7 @@ You use signatures constantly: SSH proves your identity with one ([chapter 2.6](
 ```mermaid
 sequenceDiagram
     participant B as Browser
-    participant S as snip.example
+    participant S as example.com
     B->>S: Hello — here are the ciphers I support
     S->>B: Hello — here's my certificate (my public key, signed by a CA)
     B->>B: Check the certificate: valid dates? right name? signed by a CA I trust?
@@ -188,8 +183,8 @@ sequenceDiagram
     S->>B: 200 OK …        (encrypted)
 ```
 
-1. The server presents a **certificate**: its **public key** plus its **name** (`snip.example`), **signed** by a **Certificate Authority** (CA).
-2. The browser checks the signature against the CAs it already trusts (built into your OS and browser), the name, and the dates. That proves it's talking to the real `snip.example`, not an impostor.
+1. The server presents a **certificate**: its **public key** plus its **name** (`example.com`), **signed** by a **Certificate Authority** (CA).
+2. The browser checks the signature against the CAs it already trusts (built into your OS and browser), the name, and the dates. That proves it's talking to the real `example.com`, not an impostor.
 3. The two sides use public-key maths to agree on a fresh **session key** that an eavesdropper can't work out — even one recording everything.
 4. Everything after that is encrypted with fast **symmetric** encryption and protected against tampering.
 
@@ -197,9 +192,11 @@ The result is [chapter 1.5](../foundations/http-from-zero.mdx)'s three guarantee
 
 ### Certificates and CAs
 
-A **Certificate Authority** is an organisation trusted to check that whoever requests a certificate for `snip.example` really controls `snip.example`. **Let's Encrypt** issues free certificates automatically, and today most of the web uses it or a similar service. Certificates expire — Let's Encrypt's have lasted 90 days, and the industry is moving to even shorter lifetimes — so renewal must be **automated** — tools like `certbot`, or Kubernetes' **cert-manager** ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)), handle it.
+A **Certificate Authority** is an organisation trusted to check that whoever requests a certificate for `example.com` really controls `example.com`. **Let's Encrypt** issues free certificates automatically, and today most of the web uses it or a similar service.
 
-In snip's architecture, TLS is **terminated** at the front door — the reverse proxy ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)) or Ingress holds the certificate, decrypts traffic, and forwards it to snip over the private network. snip itself speaks plain HTTP behind it.
+Certificates expire, on purpose: a stolen key is only useful until its certificate runs out. Lifetimes are shrinking fast. In 2025 the CA/Browser Forum (the body of certificate authorities and browser makers that sets the rules) voted to cut the maximum from 398 days to 200 days from March 2026, 100 days from March 2027, and 47 days from March 2029 ([ballot SC-081](https://cabforum.org/2025/04/11/ballot-sc081v3-introduce-schedule-of-reducing-validity-and-data-reuse-periods/)). Let's Encrypt's certificates already last 90 days or less. Renewal must be **automated**: tools like `certbot`, or Kubernetes' **cert-manager** ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)), handle it.
+
+Most services don't handle TLS in their own code. It's **terminated** at the front door: a reverse proxy ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)), a program like nginx that sits in front of the service, holds the certificate, decrypts traffic, and forwards it over the private network. The service behind it speaks plain HTTP.
 
 :::info[In the real world]
 Expired certificates are one of the most common causes of sudden, total outages — for small sites and for very large companies alike — because a certificate that worked yesterday stops working at a precise moment, for everyone. Automate renewal, and monitor expiry dates with alerts well in advance ([chapter 13.4](../observability/slos-alerting-on-call.mdx)).
@@ -214,6 +211,46 @@ Every tool in this chapter has subtle traps: nonces that must never repeat, comp
 - **Use well-known, maintained libraries** (Go's `crypto/*`, `golang.org/x/crypto`) and **high-level functions** (`bcrypt.GenerateFromPassword`, not "SHA-256 plus my own salt scheme").
 - **Use standard protocols** — TLS, not a custom encrypted channel; signed tokens from a standard library, not hand-made ones.
 - **Follow current guidance**, such as the OWASP cheat sheets, which are updated as algorithms age.
+
+---
+
+## Apply it to snip: API keys from random bytes to a stored hash
+
+snip, the URL shortener this handbook builds, has no passwords; its users authenticate with **API keys** ([chapter 7.2](./authentication.mdx)). Two of this chapter's ideas meet in `snip/internal/auth/keys.go`.
+
+**Secure randomness, with a scannable prefix.** Each key is `snip_` plus 32 characters drawn with `crypto/rand`:
+
+```go
+func GenerateKey() string {
+	var b strings.Builder
+	b.WriteString(keyPrefix)                         // "snip_" — makes leaked keys easy to recognise
+	max := big.NewInt(int64(len(keyChars)))
+	for i := 0; i < 32; i++ {
+		n, err := rand.Int(rand.Reader, max)         // crypto/rand, not math/rand
+		if err != nil {
+			panic("crypto/rand unavailable: " + err.Error())
+		}
+		b.WriteByte(keyChars[n.Int64()])
+	}
+	return b.String()
+}
+```
+
+**A fast hash, with the reason written down.** The database stores only the SHA-256 of each key:
+
+```go
+// HashKey returns the SHA-256 of key, hex-encoded. A fast hash is fine here
+// (unlike for passwords) because keys are long and random: there is nothing
+// to brute-force. If the database leaks, the hashes are useless on their own.
+func HashKey(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
+}
+```
+
+That's the "why API keys can use a fast hash" argument, in eight lines: ~190 bits of randomness, nothing to guess, and a hash cheap enough to check on every request.
+
+**TLS at the front door.** snip itself speaks plain HTTP. In its deployments, nginx or a Kubernetes Ingress holds the certificate and terminates TLS before traffic reaches it ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)).
 
 :::warning[What can go wrong]
 - **Encoding mistaken for encryption.** Base64 "protected" secrets are public secrets.
@@ -232,9 +269,9 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
 
 1. **Watch the avalanche effect.**
    ```bash
-   printf 'snip' | shasum -a 256        # macOS; on Linux you can also use: sha256sum
-   printf 'Snip' | shasum -a 256        # one capital letter: a completely different hash
-   printf 'snip' | shasum -a 256        # same input, same hash, every time
+   printf 'hello' | shasum -a 256        # macOS; on Linux you can also use: sha256sum
+   printf 'Hello' | shasum -a 256        # one capital letter: a completely different hash
+   printf 'hello' | shasum -a 256        # same input, same hash, every time
    ```
 
 2. **Encoding vs encryption.**
@@ -266,7 +303,7 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
    ```
    You'll see who the certificate is for (`subject`), which CA signed it (`issuer`), and when it expires (`notAfter`). That's everything your browser checks behind the padlock.
 
-5. **Read snip's key code.** Open `snip/internal/auth/keys.go`. Find where `crypto/rand` is used, where the key is hashed, and the comment explaining why SHA-256 is acceptable here but wouldn't be for passwords.
+5. **Apply it to snip: read its key code.** Open `snip/internal/auth/keys.go`. Find where `crypto/rand` is used, where the key is hashed, and the comment explaining why SHA-256 is acceptable here but wouldn't be for passwords.
 
 ## Self-check
 
@@ -296,7 +333,7 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
       explain: 'Fast hashes let attackers test billions of guesses per second; slow, salted hashes make stolen hashes very expensive to crack. Human passwords are guessable. Salts defeat precomputed tables and duplicate-password detection; deliberate slowness defeats mass guessing.',
     },
     {
-      q: 'snip hashes API keys with fast SHA-256. Why is that acceptable?',
+      q: 'An API (snip, for example) hashes its API keys with fast SHA-256. Why is that acceptable?',
       options: [
         'API keys aren’t secret, since clients send them with every request',
         'Keys are ~190 random bits, so nothing is guessable, and speed matters per request',
@@ -315,7 +352,7 @@ Free, on your own computer. `openssl` and `shasum`/`sha256sum` are preinstalled 
         'That the user is who they claim, because the browser signed it',
       ],
       answer: 1,
-      explain: 'That the public key really belongs to the named site, because a trusted Certificate Authority signed it. The CA’s signature binds the site’s name to its public key. That is what stops an impostor from pretending to be snip.example.',
+      explain: 'That the public key really belongs to the named site, because a trusted Certificate Authority signed it. The CA’s signature binds the site’s name to its public key. That is what stops an impostor from pretending to be example.com. It says nothing about whether the site is honest: phishing sites get valid certificates too.',
     },
   ]}
 />
@@ -330,6 +367,6 @@ Public-key encryption solves the **key-sharing problem**: anyone can "post" thro
 <details>
 <summary>A teammate proposes generating password-reset tokens with <code>math/rand</code> seeded by the current time. What's wrong, and what should they use?</summary>
 
-`math/rand` is **predictable**: its output follows from its seed, and "the current time" is easy to guess to within a few seconds. An attacker who requests a reset for someone else's account could generate the likely tokens and take over the account. Reset tokens are secrets, so they must come from **`crypto/rand`** (like snip's `GenerateKey`), be long enough to be unguessable (at least 128 bits), expire quickly, and be single-use. Ideally store only a hash of the token, just like snip's API keys.
+`math/rand` is **predictable**: its output follows from its seed, and "the current time" is easy to guess to within a few seconds. An attacker who requests a reset for someone else's account could generate the likely tokens and take over the account. Reset tokens are secrets, so they must come from **`crypto/rand`** (Go 1.24+ `rand.Text()` gives you one in a line), be long enough to be unguessable (at least 128 bits), expire quickly, and be single-use. Ideally store only a hash of the token, just like snip's API keys.
 
 </details>
