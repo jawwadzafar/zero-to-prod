@@ -120,8 +120,8 @@ const config: Config = {
       copyright: `Zero to Prod — free to read, forever. Text CC BY-SA 4.0 · Code MIT.`,
     },
     prism: {
-      theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
+      theme: prismThemes.vsLight,     // both pass WCAG AA contrast; github and dracula don't
+      darkTheme: prismThemes.vsDark,
       additionalLanguages: ['bash', 'go', 'sql', 'yaml', 'json', 'docker', 'hcl', 'nginx', 'python', 'toml', 'ini', 'diff', 'protobuf'],
     },
     mermaid: {theme: {light: 'neutral', dark: 'dark'}},

@@ -58,7 +58,7 @@ export function TrackSummary() {
           {finished} of {list.length} chapters done · about {Math.round(minutesLeft / 60)} hours to go
         </span>
       </div>
-      <div className={styles.bar} aria-label={`${pct}% complete`}>
+      <div className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label="Chapters done">
         <div className={styles.barFill} style={{width: `${pct}%`}} />
       </div>
       {next && (

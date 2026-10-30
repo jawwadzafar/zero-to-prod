@@ -38,3 +38,13 @@
 .theme-doc-markdown details > summary { font-weight: 600; }
 /* Keyboard keys */
 kbd { font-size: .8em; }
+/* Accessibility (WCAG 2.2 AA, checked with axe). Links inside text are
+   underlined, so they don't rely on colour alone. */
+main :is(p, li, td) a:not(.button, .table-of-contents__link, .menu__link) { text-decoration: underline; text-underline-offset: .15em; }
+/* The search box's shortcut hint: readable, not just decorative grey. */
+.navbar kbd, [class*='searchHint'] kbd { color: var(--ifm-color-emphasis-800); }
+/* Infima's red (#fa383e) is 3.7:1 as text on white; darken it in light mode. */
+[data-theme='light'] .button--danger.button--outline:not(:hover) { color: #c81e1e; }
+/* Mermaid's dark theme puts light grey edge labels on mid grey (4.4:1). */
+[data-theme='dark'] .docusaurus-mermaid-container :is(.labelBkg, .edgeLabel, .edgeLabel p) { background-color: #3a3a3a !important; }
+[data-theme='dark'] .docusaurus-mermaid-container .edgeLabel rect { fill: #3a3a3a !important; }
