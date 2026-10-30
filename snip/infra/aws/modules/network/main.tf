@@ -82,3 +82,54 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
+
+# ---------------------------------------------------------------------------
+# Flow logs: a record of every connection in the VPC (source, destination,
+# port, accepted or rejected), kept for investigations (chapter 12.8). They
+# record who talked to whom, never what was said.
+# ---------------------------------------------------------------------------
+resource "aws_cloudwatch_log_group" "flow" {
+  name              = "/vpc/${var.name}/flow-logs"
+  retention_in_days = var.flow_log_retention_days
+}
+
+data "aws_iam_policy_document" "flow_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["vpc-flow-logs.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "flow" {
+  name               = "${var.name}-flow-logs"
+  assume_role_policy = data.aws_iam_policy_document.flow_assume.json
+}
+
+# The flow-logs service may write to this one log group, and nothing else.
+data "aws_iam_policy_document" "flow_write" {
+  statement {
+    actions = [
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "logs:DescribeLogStreams",
+    ]
+    resources = ["${aws_cloudwatch_log_group.flow.arn}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "flow" {
+  name   = "write-flow-logs"
+  role   = aws_iam_role.flow.id
+  policy = data.aws_iam_policy_document.flow_write.json
+}
+
+resource "aws_flow_log" "this" {
+  vpc_id               = aws_vpc.this.id
+  traffic_type         = "ALL" # accepted and rejected connections
+  log_destination_type = "cloud-watch-logs"
+  log_destination      = aws_cloudwatch_log_group.flow.arn
+  iam_role_arn         = aws_iam_role.flow.arn
+}

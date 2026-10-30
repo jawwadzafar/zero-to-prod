@@ -13,3 +13,9 @@ variable "az_count" {
   type        = number
   default     = 2
 }
+
+variable "flow_log_retention_days" {
+  description = "How long to keep VPC flow logs (chapter 12.8)."
+  type        = number
+  default     = 30
+}
