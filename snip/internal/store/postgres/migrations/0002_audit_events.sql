@@ -17,15 +17,12 @@ CREATE INDEX audit_events_owner_at_idx ON audit_events (owner_id, at DESC);
 
 -- Append-only, enforced by the database rather than by snip's good behaviour.
 -- A trigger stops every UPDATE, DELETE and TRUNCATE on this table, whoever
--- sends it: a bug in snip, an injected query, a hurried DELETE in psql. (A
--- privilege wouldn't do: snip's role created this table, so it owns it, and an
--- owner can grant itself any privilege back.)
--- What it can't stop: the table's owner (snip's role) or a superuser running
--- DROP TRIGGER first. That is a deliberate schema change rather than a slip,
--- and Postgres can log it (log_statement = 'ddl'). To close that too, let a
--- separate migration role own the table and give snip's role only INSERT and
--- SELECT; to resist a database superuser, ship each event off the database to
--- write-once storage as well.
+-- sends it: a bug in snip, an injected query, a hurried DELETE in psql.
+-- What it can't stop: the table's owner (the login that ran this migration) or
+-- a superuser running DROP TRIGGER first. 0003_least_privilege.sql closes the
+-- first gap for snip itself: the API and worker sign in as snip_app, which
+-- may only INSERT and SELECT here and owns nothing. To resist a database
+-- superuser, ship each event off the database to write-once storage as well.
 CREATE FUNCTION audit_events_append_only() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

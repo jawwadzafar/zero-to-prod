@@ -27,6 +27,11 @@ type Config struct {
 	DebugAddr     string        // SNIP_DEBUG_ADDR: pprof profiler, e.g. "localhost:6060"; empty = off (chapter 13.6)
 
 	WorkerMetricsAddr string // SNIP_WORKER_METRICS_ADDR: the worker's /metrics and /healthz, default ":9091"
+
+	// Least privilege in the database (chapter 7.4). Both optional: without
+	// them, SNIP_DATABASE_URL's login both migrates the schema and serves.
+	MigrateDatabaseURL  string // SNIP_MIGRATE_DATABASE_URL: the schema owner's login, used only to migrate; SNIP_DATABASE_URL is then the app's own login
+	ReadonlyDatabaseURL string // SNIP_READONLY_DATABASE_URL: a read-only login for analytics, created by "snip migrate"
 }
 
 // Load reads the environment. It returns an error for malformed values
@@ -43,6 +48,9 @@ func Load() (Config, error) {
 		DebugAddr:     os.Getenv("SNIP_DEBUG_ADDR"),
 
 		WorkerMetricsAddr: env("SNIP_WORKER_METRICS_ADDR", ":9091"),
+
+		MigrateDatabaseURL:  os.Getenv("SNIP_MIGRATE_DATABASE_URL"),
+		ReadonlyDatabaseURL: os.Getenv("SNIP_READONLY_DATABASE_URL"),
 	}
 	var err error
 	if c.CacheTTL, err = time.ParseDuration(env("SNIP_CACHE_TTL", "1h")); err != nil {

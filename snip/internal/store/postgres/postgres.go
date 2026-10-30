@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -53,12 +54,23 @@ func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
 // Migrate applies any migrations/*.sql files not yet recorded in
 // schema_migrations, in filename order, each inside its own transaction.
-// It returns the versions it applied.
+// It returns the versions it applied. When nothing is pending it changes
+// nothing, so a login that may not change the schema (snip_app, migration
+// 0003) can call it too.
 func (s *Store) Migrate(ctx context.Context) ([]int, error) {
+	names, err := fs.Glob(migrationFiles, "migrations/*.sql")
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(names)
+	if pending, err := s.pending(ctx, names); err != nil || !pending {
+		return []int{}, err // empty, not nil, so "nothing to do" logs as []
+	}
+
 	if _, err := s.pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INT PRIMARY KEY,
 		applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
-		return nil, err
+		return nil, notOwner(err)
 	}
 	// Serialise concurrent migrators (e.g. two pods starting at once).
 	conn, err := s.pool.Acquire(ctx)
@@ -71,17 +83,12 @@ func (s *Store) Migrate(ctx context.Context) ([]int, error) {
 	}
 	defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7412)`) //nolint:errcheck
 
-	names, err := fs.Glob(migrationFiles, "migrations/*.sql")
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(names)
-	applied := []int{} // empty, not nil, so "nothing to do" logs as []
+	applied := []int{}
 	for _, name := range names {
 		base := strings.TrimPrefix(name, "migrations/")
-		version, err := strconv.Atoi(strings.SplitN(base, "_", 2)[0])
+		version, err := migrationVersion(base)
 		if err != nil {
-			return applied, fmt.Errorf("migration %s: name must start with a number", base)
+			return applied, err
 		}
 		var exists bool
 		if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`, version).Scan(&exists); err != nil {
@@ -100,7 +107,7 @@ func (s *Store) Migrate(ctx context.Context) ([]int, error) {
 		}
 		if _, err := tx.Exec(ctx, string(sql)); err != nil {
 			_ = tx.Rollback(ctx)
-			return applied, fmt.Errorf("migration %s: %w", base, err)
+			return applied, fmt.Errorf("migration %s: %w", base, notOwner(err))
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
 			_ = tx.Rollback(ctx)
@@ -114,8 +121,55 @@ func (s *Store) Migrate(ctx context.Context) ([]int, error) {
 	return applied, nil
 }
 
-// uniqueViolation is Postgres's error code for a duplicate key.
-const uniqueViolation = "23505"
+// migrationVersion reads the number a migration's file name starts with.
+func migrationVersion(base string) (int, error) {
+	version, err := strconv.Atoi(strings.SplitN(base, "_", 2)[0])
+	if err != nil {
+		return 0, fmt.Errorf("migration %s: name must start with a number", base)
+	}
+	return version, nil
+}
+
+// pending reports whether any migration file isn't recorded in
+// schema_migrations yet. It only reads, so every login snip uses may ask.
+func (s *Store) pending(ctx context.Context, names []string) (bool, error) {
+	rows, _ := s.pool.Query(ctx, `SELECT version FROM schema_migrations`)
+	done, err := pgx.CollectRows(rows, pgx.RowTo[int])
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == undefinedTable {
+		return true, nil // a brand-new database
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, name := range names {
+		version, err := migrationVersion(strings.TrimPrefix(name, "migrations/"))
+		if err != nil {
+			return false, err
+		}
+		if !slices.Contains(done, version) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// notOwner explains a "permission denied" while migrating: this login may
+// not change the schema, which is right for the app's own login (0003).
+func notOwner(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == insufficientPrivilege {
+		return fmt.Errorf("%w (this login may not change the schema: run \"snip migrate\" with SNIP_MIGRATE_DATABASE_URL set to the schema owner's login)", err)
+	}
+	return err
+}
+
+// Postgres error codes snip checks for.
+const (
+	uniqueViolation       = "23505" // a duplicate key
+	undefinedTable        = "42P01"
+	insufficientPrivilege = "42501"
+)
 
 func (s *Store) Create(ctx context.Context, l links.Link) (links.Link, error) {
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {

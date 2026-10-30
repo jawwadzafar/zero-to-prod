@@ -1,7 +1,7 @@
 // Command snip is the link-shortener API server.
 //
 //	snip                    start the HTTP server (same as "snip serve")
-//	snip migrate            apply database migrations and exit
+//	snip migrate            apply database migrations (and create the app's login) and exit
 //	snip keys create NAME   create an API key and print it once
 //	snip keys revoke ID     revoke the API key of owner ID
 //	snip keys rotate ID     replace owner ID's key: the old one stops, links stay
@@ -67,6 +67,30 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	cmd := "serve"
+	if len(args) > 0 {
+		cmd = args[0]
+	}
+	if cmd == "migrate" {
+		applied, logins, err := migrate(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		log.Info("migrations applied", "versions", applied)
+		if len(logins) > 0 {
+			log.Info("database logins ready", "users", logins) // names only, never passwords
+		}
+		return nil
+	}
+	if cfg.DatabaseURL != "" && (cmd == "serve" || cmd == "keys") {
+		// The schema must be current before snip uses it. This runs before
+		// snip connects with SNIP_DATABASE_URL, because with
+		// SNIP_MIGRATE_DATABASE_URL set it is what creates that login.
+		if _, _, err := migrate(ctx, cfg); err != nil {
+			return fmt.Errorf("migrate on startup: %w", err)
+		}
+	}
+
 	var st store
 	var pg *postgres.Store
 	if cfg.DatabaseURL != "" {
@@ -81,10 +105,6 @@ func run(args []string) error {
 		st = memory.New()
 	}
 
-	cmd := "serve"
-	if len(args) > 0 {
-		cmd = args[0]
-	}
 	if cmd == "serve" && pg == nil {
 		// Keys live in memory too, so a separate "snip keys create" process
 		// can't make one for us. Print a development key instead.
@@ -98,24 +118,9 @@ func run(args []string) error {
 	switch cmd {
 	case "serve":
 		return serve(ctx, cfg, log, st, pg)
-	case "migrate":
-		if pg == nil {
-			return errors.New("migrate needs SNIP_DATABASE_URL")
-		}
-		applied, err := pg.Migrate(ctx)
-		if err != nil {
-			return err
-		}
-		log.Info("migrations applied", "versions", applied)
-		return nil
 	case "keys":
 		if len(args) != 3 || (args[1] != "create" && args[1] != "revoke" && args[1] != "rotate") {
 			return errors.New("usage: snip keys create NAME | snip keys revoke OWNER_ID | snip keys rotate OWNER_ID")
-		}
-		if pg != nil { // make sure the api_keys table exists on a fresh database
-			if _, err := pg.Migrate(ctx); err != nil {
-				return err
-			}
 		}
 		if args[1] == "revoke" || args[1] == "rotate" {
 			id, err := strconv.ParseInt(args[2], 10, 64)
@@ -166,6 +171,48 @@ func run(args []string) error {
 	}
 }
 
+// migrate brings the database schema up to date. With
+// SNIP_MIGRATE_DATABASE_URL set, it signs in as the schema's owner, applies
+// the migrations, then makes sure the logins snip hands out can sign in: the
+// app's (SNIP_DATABASE_URL) and, if set, the read-only one
+// (SNIP_READONLY_DATABASE_URL). Without it, SNIP_DATABASE_URL's login does
+// everything, as in every chapter before 7.4. It returns the versions applied
+// and the user names of the logins, never their passwords.
+func migrate(ctx context.Context, cfg config.Config) (applied []int, logins []string, err error) {
+	url := cfg.MigrateDatabaseURL
+	if url == "" {
+		if cfg.ReadonlyDatabaseURL != "" {
+			return nil, nil, errors.New("SNIP_READONLY_DATABASE_URL needs SNIP_MIGRATE_DATABASE_URL: only the schema's owner creates logins")
+		}
+		url = cfg.DatabaseURL // one login migrates and serves
+	}
+	if url == "" {
+		return nil, nil, errors.New("migrate needs SNIP_DATABASE_URL (or SNIP_MIGRATE_DATABASE_URL)")
+	}
+	db, err := postgres.Open(ctx, url)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer db.Close()
+	if applied, err = db.Migrate(ctx); err != nil || cfg.MigrateDatabaseURL == "" {
+		return applied, nil, err
+	}
+	for _, l := range []struct{ url, role string }{
+		{cfg.DatabaseURL, postgres.AppRole},
+		{cfg.ReadonlyDatabaseURL, postgres.ReadonlyRole},
+	} {
+		if l.url == "" {
+			continue
+		}
+		user, err := db.EnsureLogin(ctx, l.url, l.role)
+		if err != nil {
+			return applied, logins, err
+		}
+		logins = append(logins, user)
+	}
+	return applied, logins, nil
+}
+
 func serve(ctx context.Context, cfg config.Config, log *slog.Logger, st store, pg *postgres.Store) error {
 	// Tracing (chapter 13.3): on only when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 	shutdownTracing, tracingOn, err := tracing.Setup(ctx, "snip-api")
@@ -185,9 +232,6 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger, st store, p
 	ready := map[string]httpapi.Pinger{}
 	soft := map[string]httpapi.Pinger{} // reported by /readyz, never fail it (chapter 13.5)
 	if pg != nil {
-		if _, err := pg.Migrate(ctx); err != nil {
-			return fmt.Errorf("migrate on startup: %w", err)
-		}
 		ready["postgres"] = pg
 	}
 
