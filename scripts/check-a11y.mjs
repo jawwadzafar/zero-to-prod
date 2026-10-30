@@ -28,6 +28,7 @@ const pages = [
   'learn/go/concurrency', // code blocks
   'learn/security/oauth-and-oidc',
   'learn/shipping/gitops',
+  'learn/mobile/a-mobile-client-for-snip', // the newest part
 ];
 
 const {origin, close} = await serveBuild(root);

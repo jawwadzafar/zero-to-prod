@@ -15,8 +15,8 @@ chapter.** The owner should never have to repeat what is written here.
   paid platforms — through clarity (the ladder in `STYLE.md`), one real
   project (`snip`), and interactivity.
 - **Scope grows by tracks, all starting from the same base.** Today:
-  Foundations → Backend, DevOps/Platform, AI Engineering. The structure must
-  make it easy to add more tracks later (e.g. Frontend, Data, Security, Mobile,
+  Foundations → Backend, DevOps/Platform, AI Engineering, Security, Frontend,
+  Data, Mobile. The structure must make it easy to add more tracks later (e.g.
   ML) by editing `src/data/curriculum.json`.
 - **Pure static site, no backend.** Everything interactive runs in the
   browser: progress (localStorage), quizzes, a real Postgres (PGlite/WASM),
@@ -88,6 +88,8 @@ chapter.** The owner should never have to repeat what is written here.
 ├── sandbox/                  ← Buildroot config for the in-browser Linux (built by sandbox.yml, released as sandbox-<sha>)
 ├── ai/                       ← Python code for the AI Engineering track
 ├── data/                     ← Python + dbt for the Data Engineering track (lake, pipeline, models)
+├── web/                      ← React + TypeScript UI for snip (Frontend track), served at /app/
+├── mobile/                   ← Expo (React Native) app for the Mobile track: snip on your phone
 └── .github/workflows/        ← deploy.yml (Pages), ci.yml (site + snip)
 ```
 
@@ -135,10 +137,11 @@ implementation lives in `snip/` and is the source of every snip snippet.
 
 ## 6. Curriculum (source of truth: `src/data/curriculum.json`)
 
-18 parts, 126 chapters: 0 Start Here · 1 Computers & the Internet · 2 Command
+19 parts, 134 chapters: 0 Start Here · 1 Computers & the Internet · 2 Command
 Line & Linux · 3 Git · 4 Go · 5 APIs · 6 Data · 7 Security · 8 Distributed
 Systems · 9 Containers · 10 Kubernetes · 11 Shipping · 12 Cloud & IaC ·
-13 Observability · 14 AI Engineering · 15 Architecture & Career · 16 Frontend · 17 Data Engineering.
+13 Observability · 14 AI Engineering · 15 Architecture & Career · 16 Frontend · 17 Data Engineering ·
+18 Mobile.
 
 Order of work: write parts in order (0 → 15), so every chapter can link back
 to what came before. Build the matching `snip/` code alongside the chapter
@@ -157,4 +160,4 @@ that introduces it.
   key at all (search by meaning already runs in the browser: src/lib/semantic.ts).
 - More step-through diagrams (`<StepThrough>`, first used in 1.5) for other journeys; Go playground embeds.
 - i18n (translations) via Docusaurus i18n. (The PDF edition exists: book.yml.)
-- More tracks: Mobile (Frontend, Data Engineering and Security exist).
+- More tracks: ML, Game development (Frontend, Data Engineering, Security and Mobile exist).

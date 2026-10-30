@@ -1,4 +1,13 @@
 import {themes as prismThemes} from 'prism-react-renderer';
+
+// VS Dark, with its one low-contrast colour (constants, 3.1:1 on its background)
+// brightened to pass WCAG AA like the rest (scripts/check-a11y.mjs checks it).
+const darkCode = {
+  ...prismThemes.vsDark,
+  styles: prismThemes.vsDark.styles.map((s) =>
+    s.types.includes('constant') ? {...s, style: {...s.style, color: 'rgb(155, 157, 215)'}} : s,
+  ),
+};
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
@@ -122,7 +131,7 @@ const config: Config = {
     },
     prism: {
       theme: prismThemes.vsLight,     // both pass WCAG AA contrast; github and dracula don't
-      darkTheme: prismThemes.vsDark,
+      darkTheme: darkCode,
       additionalLanguages: ['bash', 'go', 'sql', 'yaml', 'json', 'docker', 'hcl', 'nginx', 'python', 'toml', 'ini', 'diff', 'protobuf'],
     },
     mermaid: {theme: {light: 'neutral', dark: 'dark'}},

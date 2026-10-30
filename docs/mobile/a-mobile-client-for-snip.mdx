@@ -1,0 +1,390 @@
+---
+title: "18.4 A mobile client for snip: the API, secrets and bad networks"
+sidebar_label: "18.4 A mobile client for snip"
+description: "A phone app as an API client: telling the app where the server is (no same origin, no CORS), a typed client with one error shape and a timeout, keeping an API key in the Keychain or Keystore instead of a plain file, surviving lifts, tunnels and captive Wi-Fi, why plain HTTP is blocked, and signing out on 401."
+---
+
+# 18.4 A mobile client for snip: the API, secrets and bad networks
+
+On your laptop, a web page and its API usually live at the same address, on a desk, on good Wi-Fi. A phone breaks all three of those comforts. The app doesn't know where the server is until you tell it. It has to keep a secret on a device that someone else carries around. And it spends its life in lifts, tunnels, trains and coffee shops whose Wi-Fi wants you to accept terms before anything works. This chapter builds the part of a phone app that deals with all of that, the client that talks to the API, and by the end you'll have snip's app on your own phone, creating links, and coping when you pull the network out from under it.
+
+## What you'll learn
+
+- Why a phone app needs the server's **address** (there's no "same origin"), what `localhost` means on a phone, and why **CORS** doesn't apply to an app.
+- How a **typed API client** turns every failure, from a validation error to no signal at all, into one error shape with a `code` the screens can act on.
+- Why a phone needs a **timeout**: a request in a lift can wait far longer than a person will.
+- Where an **API key** belongs on a phone (the **Keychain** or **Keystore**, through `expo-secure-store`) and why never in a plain file, or compiled into the app.
+- What bad networks look like from code: no network, a dead connection, a **captive portal** answering with HTML, and why **plain HTTP** is blocked by default.
+
+---
+
+## A phone has no same origin, so the app must be told where the server is
+
+Visiting a website is like walking into a shop: you're already inside, so "the counter" needs no address. A phone app is more like phoning the shop: you need its number before you can ask anything.
+
+[Chapter 16.6](../frontend/a-ui-for-snip.mdx) built snip's web UI and served it from the same **origin** (scheme, host and port) as the API, so its code could call `fetch('/api/links')`, a path with no host, and the browser sent it to wherever the page came from. An app isn't a page and came from no server: it was installed from a store. So every request needs the full address, the **base URL**, in front of the path: `http://192.168.1.20:8080` plus `/api/links`.
+
+During development, that address depends on where the app runs, because **`localhost` always means "this device"**:
+
+| The app runs on | `localhost` means | snip is at |
+|---|---|---|
+| The iOS simulator | your computer (the simulator shares its network) | `http://localhost:8080` |
+| The Android emulator | the emulator itself, a separate virtual machine | `http://10.0.2.2:8080` (Google reserves `10.0.2.2` inside the emulator to mean "the computer running me") |
+| Your real phone | the phone | your computer's address on the Wi-Fi, such as `http://192.168.1.20:8080` |
+| A shipped app | the phone | the server's public HTTPS address, such as `https://snip.example` |
+
+To find your computer's address on the Wi-Fi:
+
+```bash
+ipconfig getifaddr en0     # macOS (en0 is usually the Wi-Fi)
+hostname -I                # Linux: the first address listed
+ipconfig                   # Windows: "IPv4 Address" under your Wi-Fi adapter
+```
+
+Expo lets you hand the app a value when you start it: any environment variable whose name starts with **`EXPO_PUBLIC_`** is copied into the JavaScript bundle at the moment Metro builds it. That makes it perfect for an address and useless for a secret: anything in the bundle can be read by anyone who has the app.
+
+```bash
+EXPO_PUBLIC_SNIP_URL=http://192.168.1.20:8080 npx expo start   # the app reads process.env.EXPO_PUBLIC_SNIP_URL
+```
+
+### CORS doesn't apply, and that teaches you what CORS is
+
+In [chapter 16.3](../frontend/javascript-in-the-browser.mdx), the browser refused to let a page on one origin read answers from another unless the server opted in with **CORS** (Cross-Origin Resource Sharing) headers. An app on a phone talks to `http://192.168.1.20:8080` from no origin at all: React Native's `fetch` is the platform's own networking code, not a browser, and it sends no `Origin` header and checks no CORS headers. snip sends none and the app works.
+
+That's worth a moment, because it proves a point from that chapter: **CORS protects people browsing the web from other websites, not servers from clients.** Anything that isn't a browser (an app, `curl`, a script) ignores it. The server's real protection is the API key on every request.
+
+---
+
+## One client, one kind of error
+
+A screen wants to know two things about a request: what came back, or what went wrong in words a person can act on. Between the two sit a dozen kinds of failure. A **client** module hides them: every screen calls functions like `listLinks()`, and every failure arrives as one error type with a `code`.
+
+The shape comes from the API's own error format, which [chapter 5.3](../apis/validation-errors-status-codes.mdx) designed so that clients need one piece of code: `{"error": {"code": "slug_taken", "message": "that slug is already in use"}}`. A phone client adds two codes of its own for answers that aren't the API's:
+
+| `code` | Where it comes from | What the person should see |
+|---|---|---|
+| `invalid_url`, `invalid_slug`, `slug_taken`… | snip, `4xx` with its error JSON | snip's own message, next to the field it's about |
+| `unauthorized` | snip, `401`: the key is wrong or revoked | the setup screen again, saying why |
+| `rate_limited` | snip, `429`, with a `Retry-After` header in seconds | "try again in 7 seconds" |
+| `internal` | snip, `500` | "snip had a problem; try again" |
+| **`unexpected`** | something answered, but not with snip's JSON: an HTML error page from nginx, or a Wi-Fi login page | "snip had a problem; try again", or, for a login page sent as a success, "open this Wi-Fi's login page" |
+| **`network`** | nothing answered at all, or not in time | "could not reach snip at this address", or "did not answer in 10 seconds" |
+
+The last two rows are the ones a phone hits far more often than a laptop.
+
+### A phone needs a timeout, because people stop waiting
+
+Imagine stepping into a lift as the list starts loading. The request leaves the phone; the signal dies; nothing comes back, and nothing says it won't. `fetch` has no timeout option of its own, so how long it waits is up to the platform's networking code, which can be a minute or more. Meanwhile the person stares at a spinner, and leaves.
+
+So the client sets its own limit, with an **`AbortController`**: an object whose `abort()` cancels a request it was given. A timer calls `abort()` after ten seconds. Here's the idea at its smallest:
+
+```ts title="A fetch with a timeout (illustration)"
+async function getJSON(url: string): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);   // give up after 10 seconds
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    return await res.json();
+  } finally {
+    clearTimeout(timer);                                         // answered in time: stop the timer
+  }
+}
+```
+
+Ten seconds is a judgment, not a rule: long enough for a slow 3G answer, short enough that a person is still looking. Here is that lift ride, one step at a time, with the client's timer running:
+
+<StepThrough
+  title="Loading the list in a lift"
+  nodes={[
+    {id: "screen", label: "Links screen", sub: "the app"},
+    {id: "client", label: "API client", sub: "10 s timer"},
+    {id: "net", label: "Network", sub: "phone signal"},
+    {id: "snip", label: "snip", sub: "the server"},
+  ]}
+  steps={[
+    {title: "Ask for the list", text: "The links screen comes into view and calls `listLinks()`. It shows a spinner while it waits.", from: "screen", to: "client"},
+    {title: "Start the clock", text: "The client starts a 10-second timer and sends `GET /api/links` with the API key in the `Authorization` header.", from: "client", to: "net"},
+    {title: "The doors close", text: "The lift doors close and the signal drops. The request may or may not have reached snip; either way, no answer can come back. Nothing tells the app.", active: ["net"]},
+    {title: "snip answers into the void", text: "If the request got through, snip sends the list, but the phone is unreachable. The answer is lost on the way.", from: "snip", to: "net"},
+    {title: "The timer fires", text: "Ten seconds pass. The timer calls `abort()`, `fetch` gives up, and the client throws an error with code `network` and the message that snip did not answer within 10 seconds.", active: ["client"]},
+    {title: "The person decides", text: "The screen replaces the spinner with the message and a Try again button. On the next floor, with signal back, one tap reloads the list.", from: "client", to: "screen"},
+  ]}
+/>
+
+Two things to take from it. **Without the timer, step 5 never comes**: the spinner stays until the platform gives up, whenever that is. And **"no answer" doesn't mean "not done"**: in step 4, snip did the work. For a list that's harmless. For a create, it means a retry might make a second link, which is why retrying is a decision, below.
+
+---
+
+## Where the key lives: the vault, not the drawer
+
+The app has to remember your API key between launches, or you'd paste it every time. On a phone there are two kinds of place to keep it.
+
+Think of a hotel room. The desk drawer is fine for a notebook: anyone who gets into the room can open it. The safe in the wardrobe is locked with a code the hotel's system holds. Both keep things across the night; only one is for valuables.
+
+| | **AsyncStorage** (the drawer) | **expo-secure-store** (the safe) |
+|---|---|---|
+| What it is | A key-value store saved in the app's ordinary data, unencrypted | A wrapper over the platform's vault for secrets |
+| On iOS | files in the app's folder | the **Keychain**, encrypted by the system |
+| On Android | a database file in the app's folder | a value encrypted with a key held by the **Android Keystore**, which never leaves it |
+| Who can read it | the app, and anyone with a device backup or a rooted or jailbroken phone | the app; the encryption key stays in the phone's secure hardware where it has one |
+| Good for | preferences, cached data, drafts | passwords, tokens, API keys (small values only) |
+
+Secure Store is not magic: a determined attacker with full control of an unlocked phone can still get at what the app can get at. But it raises the cost from "copy a file out of a backup" to "break the operating system's protection", which is the point.
+
+The app's Expo config adds `expo-secure-store` as a **config plugin** too. Among other things, the plugin keeps Secure Store's data out of Android's automatic cloud backup, because those values can't be decrypted on another device anyway.
+
+### A key the person pastes, never a key in the app
+
+There's a second rule, and it's the one people break. The key in the safe is *the person's own key*, which they pasted in. It must never be a key **compiled into the app**: an `EXPO_PUBLIC_` variable, a constant in the code, a value in `app.json`. [Chapter 18.1](./how-mobile-apps-work.mdx) explained why: anyone can download the package, unzip it and read every string inside. A key in the app is a key published to the world.
+
+In a real product, people wouldn't paste API keys at all. They'd sign in through a login page, and the app would receive a token for that person ([chapter 7.2](../security/authentication.mdx) covers sessions and tokens). snip's app uses pasted keys because snip has API keys and no logins; the rule is the same either way: **each person's own credential, in the phone's vault**.
+
+---
+
+## Bad networks are normal on a phone
+
+On a desk, "the network is down" is rare enough to ignore. On a phone it's every day. Here's what each kind of bad network looks like from inside the code:
+
+| What's happening | What `fetch` does | The client's `code` |
+|---|---|---|
+| **Airplane mode, or no signal at all** | Rejects at once: the phone knows it has no network | `network` ("could not reach snip at …") |
+| **A lift, a tunnel, a train between stations** | Waits: the connection is open but nothing arrives | `network` after 10 seconds ("did not answer") |
+| **Wrong address**, or a phone on a different Wi-Fi than snip | Rejects (nothing at that address) or waits (packets vanish) | `network` |
+| **A captive portal**: coffee-shop or hotel Wi-Fi that answers every request with its login page | Resolves: something *did* answer, with HTML | `unexpected` either way; a `200` page gets its own message, see the warning below |
+| **snip is down behind nginx** | Resolves with nginx's HTML `502` or `504` page | `unexpected` |
+| **The key was revoked** a minute ago | Resolves with `401` and snip's JSON | `unauthorized` |
+| **Too many creates** in a minute | Resolves with `429` and `Retry-After` | `rate_limited` |
+
+A **captive portal** deserves its name: the network holds you captive until you tap "I accept" on its page. Until then, it intercepts every request and answers with that page. Your app asked for JSON and got a web page, which is exactly why the client checks the *shape* of what came back instead of trusting it.
+
+### Retrying: the person decides
+
+Should the app retry by itself? Reading is safe to retry: asking for the list twice does no harm. Creating isn't, by default: if a create timed out after snip did the work (step 4 of the lift ride), a retry without a custom slug makes a second link with a different random slug. [Chapter 5.2](../apis/designing-rest-apis.mdx) calls the safe kind **idempotent**. snip's app takes the simplest honest path: it never retries on its own, and shows **Try again** so the person decides, with the error in front of them. For `429`, it tells them how long to wait, from `Retry-After` ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx): the server's way of saying "come back in N seconds").
+
+### Plain HTTP is blocked by default
+
+Both platforms refuse unencrypted HTTP unless the app says otherwise. On iOS, **App Transport Security** (ATS) requires HTTPS for connections to the internet. On Android 9 and later, apps can't send **cleartext** (unencrypted) traffic unless their manifest sets `usesCleartextTraffic`. Both exist because an HTTP request on coffee-shop Wi-Fi can be read and changed by anyone on that network, API key included.
+
+What you'll see while developing is more relaxed, and it's worth knowing why. **Expo Go** loads your own JavaScript from Metro over plain HTTP on your Wi-Fi, so it's built to allow plain HTTP; `http://192.168.1.20:8080` works from it. A **development build** made from Expo's templates allows it too: the Android template turns cleartext on for debug builds only, and the iOS template allows local-network connections. A **release build** is where it stops: on Android, plain HTTP fails outright, and on iOS anything that isn't the local network does too. The exact iOS rules for raw IP addresses have changed between iOS versions, which is one more reason not to depend on them. **In production, snip's address is HTTPS**, and the fix for an HTTP error is a certificate (free from Let's Encrypt), never turning the protection off.
+
+### 401 means "ask again", from any screen
+
+A key can stop working at any moment: you revoke it on the server, or rotate it. Every call can come back `401`. The client doesn't decide what to do about that, because it doesn't know about screens; the screens do, and they all do the same thing: sign out, with the reason, so the setup screen can show it. With the protected routes from [chapter 18.3](./navigation-and-screens.mdx), signing out is all it takes to land there.
+
+:::warning[What can go wrong]
+- **`localhost` on a real phone.** The app tries to reach a server on the phone itself, and every request fails with `network`. Use the computer's Wi-Fi address, and check both are on the same network.
+- **A firewall or an isolating Wi-Fi.** The address is right but nothing answers. Open `http://192.168.1.20:8080/healthz` in the phone's browser: if the browser can't load it either, it's the network, not the app.
+- **A `200` page that isn't JSON.** Some captive portals answer `200 OK` with their login page. A client that trusts any successful status then fails later with a confusing error, or, for a create, believes it succeeded and closes the form with no link made. snip's client refuses a success whose body isn't JSON (below), and tells the person to open the Wi-Fi's login page. A stricter client also checks the *shape* of successful JSON, with a schema.
+- **No timeout.** A spinner that runs for minutes, and a person who gives up on the app, not the request.
+- **Retrying a create automatically.** A timed-out create may have worked; retrying makes a duplicate. Let the person retry, or make creates idempotent on the server.
+- **A key in AsyncStorage, in logs or in the bundle.** Plain files leak through backups; `console.log(session)` ends up in crash reports; `EXPO_PUBLIC_` values are public. Keys go in Secure Store and nowhere else.
+- **"Fixing" an HTTP error by allowing all plain HTTP** in a release build, which protects nobody. Use HTTPS.
+:::
+
+---
+
+## Judgment: how much client is enough
+
+- **One client module, always.** Even a three-screen app benefits from one place that knows the base URL, the key, the timeout and the error shape. Screens that call `fetch` themselves each get one of those wrong.
+- **Timeouts per kind of request.** Ten seconds suits small JSON calls. An upload, a big download, or a request known to be slow needs a longer limit (or progress), and a background sync can be patient where a person can't.
+- **Offline: show nothing, or show the last thing?** snip's app shows an error and **Try again**, which is honest and simple. Apps people use on the move often keep the last answer (in a file or database) and show it with a "last updated" note, sending changes when the network returns. That's a real feature with real costs: stale data, and conflicts when two devices changed the same thing.
+- **Pasted keys versus real sign-in.** Fine for a tool for developers; wrong for the public. Real apps sign people in through the provider's login page in a secure browser view (OAuth 2.0 with PKCE, often through `expo-auth-session`), store a token in Secure Store, and refresh it.
+- **Certificate pinning**, where the app accepts only the server's own certificate, defends against a compromised certificate authority, at the price of an app that breaks the day the certificate changes unexpectedly. Some banks do it; most apps don't.
+
+---
+
+## Apply it to snip
+
+snip's app in `mobile/` is a third client of the same API as `curl` and the web UI, and everything above is in three files.
+
+### Where snip is: `src/session.tsx`
+
+```tsx title="mobile/src/session.tsx (excerpt)"
+/**
+ * Where snip probably is while you develop. EXPO_PUBLIC_SNIP_URL wins if you
+ * set it (Expo copies EXPO_PUBLIC_ variables into the app when it bundles).
+ * Otherwise: the Android emulator is a separate virtual machine, so its
+ * "localhost" is the emulator itself; Google reserves 10.0.2.2 inside it to
+ * mean "the computer running the emulator". The iOS simulator shares your
+ * computer's network, so localhost works there. A real phone needs your
+ * computer's address on the Wi-Fi, set through EXPO_PUBLIC_SNIP_URL.
+ */
+export function defaultBaseUrl(): string {
+  if (process.env.EXPO_PUBLIC_SNIP_URL) return process.env.EXPO_PUBLIC_SNIP_URL;
+  return Platform.OS === 'android' ? 'http://10.0.2.2:8080' : 'http://localhost:8080';
+}
+```
+
+That's the table from the first section, in code. It's only a *suggestion*: it fills the setup screen's address field, which you can edit, and what you save is what the app uses from then on.
+
+The same file keeps the key in the safe. The comment at its top says why:
+
+```tsx title="mobile/src/session.tsx (excerpt)"
+// The key goes in expo-secure-store, never in AsyncStorage. AsyncStorage is a
+// plain file inside the app's folder: anyone with a backup of the phone, or a
+// rooted one, can read it. Secure Store hands the value to the operating
+// system's own vault for secrets: the Keychain on iOS, and on Android a value
+// encrypted with a key held by the Android Keystore, which never leaves it.
+
+// …
+
+export async function saveSession(session: Session): Promise<void> {
+  await SecureStore.setItemAsync(URL_ITEM, session.baseUrl);
+  await SecureStore.setItemAsync(KEY_ITEM, session.apiKey);
+}
+```
+
+### The client: `src/api.ts`
+
+`src/api.ts` mirrors the web UI's `web/src/api.ts` line for line (the same `Link` type, the same `ErrorCode` list, the same `describeError`), with the two differences a phone needs, named in its header comment:
+
+```ts title="mobile/src/api.ts (excerpt)"
+// A typed client for snip's API. It mirrors web/src/api.ts (the same types,
+// the same errors) with two differences a phone needs:
+//   - it takes snip's base URL, because an app has no "same origin" to send
+//     a bare path to; and
+//   - it gives up after 10 seconds, because a phone on a bad network can wait
+//     for an answer much longer than a person will.
+```
+
+Here is the heart of `request`, which every call goes through:
+
+```ts title="mobile/src/api.ts (excerpt from request)"
+    // One AbortController cancels the request for either of two reasons: the
+    // timer ran out, or the caller cancelled (the screen went away).
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, TIMEOUT_MS);
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel);
+
+    let res: Response;
+    try {
+      res = await fetch(`${base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (signal?.aborted) throw err; // the caller cancelled it; nobody is waiting for an answer
+      throw new ApiError(
+        0,
+        'network',
+        timedOut
+          ? `snip did not answer within ${TIMEOUT_MS / 1000} seconds. Try again.`
+          : `Could not reach snip at ${base}. Check the address, and that this phone can reach that computer.`,
+      );
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+    }
+
+    if (res.status === 204) return undefined as T; // DELETE answers with no body
+    const data: unknown = await res.json().catch(() => null);
+    if (res.ok) {
+      // A success that isn't JSON wasn't written by snip: a Wi-Fi login page
+      // answers 200 with HTML for every address, for example.
+      if (data === null) throw new ApiError(res.status, 'unexpected', 'The answer was not from snip.');
+      return data as T;
+    }
+
+    if (isErrorBody(data)) {
+      const retry = Number(res.headers.get('Retry-After')) || undefined;
+      throw new ApiError(res.status, data.error.code, data.error.message, retry);
+    }
+    throw new ApiError(res.status, 'unexpected', `snip answered ${res.status} ${res.statusText}`.trim());
+```
+
+Read it top to bottom against the tables above:
+
+- **One controller, two reasons to abort.** The timer is the lift; the caller's `signal` is the screen going out of view ([chapter 18.3](./navigation-and-screens.mdx)'s `useFocusEffect` cleanup). The `timedOut` flag tells them apart, so the message says "did not answer" only when that's true, and a cancelled request throws nothing anyone will show.
+- **Network failures name the address.** `Could not reach snip at http://192.168.1.20:8080` is the most useful sentence the app can show a developer whose phone is on the wrong Wi-Fi.
+- **The body's shape decides, not the status.** snip's JSON error becomes its own code, with `Retry-After` kept for `429`; anything else that isn't a success (nginx's HTML `502`, a portal's error page) becomes `unexpected`.
+- **A success must be JSON.** A `200` whose body isn't JSON wasn't written by snip, so it becomes `unexpected` too, and `describeError` turns a `2xx` `unexpected` into "Something other than snip answered. If this Wi-Fi has a login page, open it in a browser". The tests cover both cases (`copes with an answer that is not JSON, such as an HTML 502 from nginx` and `does not take a 200 that is not JSON (a Wi-Fi login page) for success`, in `src/api.test.ts`). What the client still trusts is the *shape* of snip's JSON; checking that with a schema is the next step for an app whose server you don't control.
+
+### 401 anywhere: `app/links.tsx`
+
+```tsx title="mobile/app/links.tsx (excerpt)"
+  // Any call can fail with 401 (the key was revoked a minute ago, say). That
+  // always means "ask for a key again": signing out flips the layout's guard,
+  // which takes this screen away and shows the setup screen with the reason.
+  const handleError = useCallback(
+    (err: unknown): string | null => {
+      if (err instanceof ApiError && err.code === 'unauthorized') {
+        void signOut(describeError(err));
+        return null;
+      }
+      return describeError(err);
+    },
+    [signOut],
+  );
+```
+
+Every other error becomes a sentence on the screen, with **Try again** under it. The setup screen shows the sign-out reason (`notice`) at the top, marked as an alert and announced, so screen readers say it at once ([chapter 18.6](./mobile-accessibility-and-performance.mdx) explains why it takes both).
+
+One thing to know before the lab: the short links snip returns start with `http://localhost:8080`, even on your phone. That's snip's `SNIP_BASE_URL` in `snip/docker-compose.yml`, which builds `short_url`. It's right for your laptop's browser and wrong for anyone you share a link with; `mobile/README.md` says to set it to the same address as the app if you want shared links to work elsewhere.
+
+---
+
+## Lab
+
+On your laptop and your phone, free: Docker, Node.js 22+, a clone of this handbook's repository, and Expo Go on a phone on the same Wi-Fi as the laptop. (An Android emulator or the iOS simulator works too: use `http://10.0.2.2:8080` or `http://localhost:8080` wherever the steps say your address.)
+
+1. **Start snip and prove the phone can reach it.**
+   ```bash
+   cd snip
+   docker compose up -d --build --wait                           # snip, Postgres, Redis and nginx on :8080
+   docker compose exec api snip keys create me --operator you    # prints a snip_… key and "owner id N"
+   ipconfig getifaddr en0                                        # macOS; on Linux: hostname -I
+   ```
+   Write down the key, the owner id and your address (below, `192.168.1.20`; use yours). Before touching the app, open `http://192.168.1.20:8080/healthz` in your **phone's browser**. Notice that it answers. If it doesn't, no app code will help: fix the network first (same Wi-Fi? a guest network that isolates devices? a firewall?).
+
+2. **Connect the app.**
+   ```bash
+   cd ../mobile
+   npm ci                                                          # exact versions from the lockfile
+   EXPO_PUBLIC_SNIP_URL=http://192.168.1.20:8080 npx expo start    # your address, baked into the bundle
+   ```
+   Scan the QR code in Expo Go. Notice the address field is already filled in from `EXPO_PUBLIC_SNIP_URL`. Paste the key and save. Tap **New**, shorten `https://go.dev/doc/` with the slug `godoc`, and see it in the list. Tap the row to copy the short link and notice it starts with `http://localhost:8080`: that's snip's `SNIP_BASE_URL`, not the app.
+
+3. **Pull the network out.** Turn on **airplane mode** (and check Wi-Fi is off too), then pull down on the list to refresh. Notice the message appears at once: `Could not reach snip at http://192.168.1.20:8080…`, with **Try again**. That's code `network`; no timer was needed because the phone knew it had no network. (Expo Go may also complain that it lost Metro; your app keeps running.) Turn airplane mode off and tap **Try again**. Then, on the laptop, run `docker compose stop api` and pull to refresh: nginx answers with an HTML error page, and the app says snip had a problem on its side, code `unexpected`. Run `docker compose start api` and try again until the list returns.
+
+4. **Revoke the key while the app is open.**
+   ```bash
+   docker compose exec api snip keys revoke 1 --operator you      # use the owner id from step 1
+   ```
+   Pull down on the list. Notice the app returns to **Connect to snip** by itself, with "snip did not accept that API key" at the top: `401`, `signOut` with the reason, and the guard from [chapter 18.3](./navigation-and-screens.mdx) did the rest. Create a new key and paste it to get back in (an empty list: a new key is a new owner). When you're done, `docker compose down -v` stops everything and deletes its data.
+
+## Self-check
+
+<Quiz id="mobile-a-mobile-client-for-snip" questions={[
+  {q: 'On your real phone, the app is set to http://localhost:8080 and every request fails with "Could not reach snip". snip is running on your laptop. Why?', options: ['snip needs CORS headers for the app', 'On the phone, localhost is the phone itself; the app must use the laptop\'s address on the Wi-Fi', 'Expo Go blocks port 8080', 'The API key is wrong'], answer: 1, explain: 'localhost always means "this device". The iOS simulator shares your computer\'s network, so localhost works there, but a real phone needs the computer\'s Wi-Fi address. CORS is a browser rule and does not apply to an app; a wrong key would produce a 401 answer, not a failure to reach snip.'},
+  {q: 'Why does snip\'s app cancel a request after 10 seconds?', options: ['snip closes connections after 10 seconds', 'A phone that loses signal mid-request can wait far longer than a person will, and fetch has no timeout option of its own', 'Expo Go requires it', 'It saves battery by sending fewer requests'], answer: 1, explain: 'In a lift or a tunnel the connection stays open with nothing arriving. Without its own timer the app waits as long as the platform does, often a minute or more, behind a spinner. The client aborts after 10 seconds and shows a message with Try again.'},
+  {q: 'Where should snip\'s app keep the API key the person pastes in?', options: ['AsyncStorage, because it survives restarts', 'An EXPO_PUBLIC_ variable', 'expo-secure-store, which uses the iOS Keychain or a value encrypted with an Android Keystore key', 'In React state only, asking again at every launch'], answer: 2, explain: 'Both AsyncStorage and Secure Store survive restarts, but AsyncStorage is unencrypted app data that backups and rooted phones expose. EXPO_PUBLIC_ values are compiled into the bundle and readable by anyone with the app. React state is safe but forgets the key at every launch, which on a phone is many times a day.'},
+  {q: 'On café Wi-Fi, the app shows "snip had a problem on its side" although snip is fine. What is the most likely cause?', options: ['snip\'s database is down', 'A captive portal is answering every request with its login page, which is not snip\'s JSON', 'The API key was revoked', 'The phone is in airplane mode'], answer: 1, explain: 'The client reports code unexpected when something answered without snip\'s error shape. Until you accept the Wi-Fi\'s terms in a browser, the portal intercepts every request; when it answers with a success status instead, the app says to open the login page. A revoked key would give unauthorized and send you to the setup screen; airplane mode gives network, because nothing answers at all.'},
+  {q: 'A create times out after 10 seconds. Should the app retry it automatically?', options: ['Yes, always: timeouts are temporary', 'No: snip may have created the link before the answer was lost, and a retry without a custom slug would make a second one', 'Yes, but only on Android', 'No: POST requests cannot be retried'], answer: 1, explain: 'No answer does not mean not done. Reading the list twice is harmless; creating twice is not, unless the request is idempotent. snip\'s app shows the error and lets the person decide. POST can be retried technically; the question is whether it is safe.'},
+]} />
+
+<details>
+<summary>A tester says: "The app works on my iPhone simulator but not on my Android phone. On the phone it says it can't reach snip." Walk through what you'd check, in order.</summary>
+
+Start with **the address the phone is using**. On the simulator, `http://localhost:8080` works because the simulator shares the laptop's network. On a real phone, `localhost` is the phone. The setup screen's address must be the laptop's Wi-Fi address, such as `http://192.168.1.20:8080`, and the error message names the address it tried, so read it.
+
+Next, **can the phone reach that address at all?** Open `http://192.168.1.20:8080/healthz` in the phone's browser. If that fails too, it's the network: is the phone on the same Wi-Fi (not mobile data, not a guest network that isolates devices), and is a firewall on the laptop blocking port `8080`?
+
+If the browser works but the app doesn't, look at **plain HTTP**: Expo Go allows it, but a release build of the app wouldn't. The rule: **test the network with the simplest client first (a browser), then the app.**
+
+</details>
+
+<details>
+<summary>Why does snip's app keep the key in Secure Store while snip's web UI keeps it only in memory? Isn't one of them wrong?</summary>
+
+They answer different threats on different platforms. In a browser, the main danger is **cross-site scripting**: a script injected into the page can read anything the page's scripts can, including `localStorage`, at any time. Browsers have no vault a page's script can use but an injected script can't, so the web UI keeps the key in memory and asks again after a reload; for real users, an HttpOnly cookie that scripts can't read at all is better still.
+
+A phone app doesn't load other people's scripts, but people expect it to remember them across launches, and its files can leak through backups or a rooted phone. The platform offers a real vault (the Keychain, the Keystore) for exactly this, so the app uses it. The rule they share: **keep the secret where the platform protects it best, for as short a time as the experience allows.**
+
+</details>
