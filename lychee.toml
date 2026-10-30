@@ -1,0 +1,26 @@
+# External-link check for the handbook (.github/workflows/links.yml, weekly).
+# Internal links are checked by the site build, which fails on any broken one.
+
+max_concurrency = 16
+timeout = 25
+max_retries = 2
+no_progress = true
+# Site pages linked as /roadmap, /review, … are checked on the published site.
+root_dir = "/input/static"
+remap = ["file:///input/static/(.*) https://jawwadzafar.github.io/zero-to-prod/$1"]
+
+# Sites sometimes answer automated clients with these instead of the page.
+accept = ["100..=103", "200..=299", "429"]
+
+exclude = [
+  # Placeholders the chapters use on purpose (CLAUDE.md: no real hosts or IPs).
+  'localhost', '127\.0\.0\.1', '0\.0\.0\.0',
+  'example\.(com|org|net)', '\.example\b', '203\.0\.113\.', '198\.51\.100\.', '192\.0\.2\.',
+  '\.local\b', '\.internal\b', '169\.254\.169\.254',
+  '\{', '\$',
+  # 7.5's look-alike-domain (homograph) example: it isn't meant to resolve.
+  'xn--example',
+  # These block automated checkers (406, 404 or a redirect loop) but load in a
+  # browser; verified by hand on 2026-10-30.
+  'uber\.com/newsroom', 'ftc\.gov', 'orca\.security',
+]

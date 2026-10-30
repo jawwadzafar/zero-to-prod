@@ -1,0 +1,27 @@
+name: External links
+
+# Every source the handbook cites should still exist. Weekly, not on every
+# push: an outside site being down for an hour shouldn't fail anyone's change.
+on:
+  schedule:
+    - cron: "17 6 * * 1"   # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lychee:
+    name: External links still work
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check every external link (lychee.toml)
+        run: |
+          set -o pipefail   # keep lychee's exit code through tee
+          docker run --rm -v "$PWD:/input:ro" -w /input lycheeverse/lychee:0.24.2 \
+            --config lychee.toml --format markdown \
+            'docs/**/*.mdx' README.md sandbox/README.md 'snip/docs/*.md' | tee -a "$GITHUB_STEP_SUMMARY"
