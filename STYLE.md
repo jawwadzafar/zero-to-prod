@@ -185,8 +185,8 @@ nothing about snip. The chapter must still teach them the topic.
 
 Every teaching chapter follows this skeleton. Chapters are **MDX** files at
 `docs/<partId>/<chapterId>.mdx` (see `CLAUDE.md` §4). Components `Quiz`,
-`SqlPlayground`, `Terminal`, `Tabs`/`TabItem` and `Roadmap` are available
-everywhere without an import.
+`SqlPlayground`, `Terminal`, `StepThrough`, `Tabs`/`TabItem` and `Roadmap` are
+available everywhere without an import.
 
 ````mdx
 ---
@@ -326,6 +326,9 @@ box means:
 - Label with **plain words plus the real name**: `A["snip API<br/>(Go)"]`.
 - Use `<br/>` for line breaks and **quote** labels containing punctuation,
   parentheses, or code.
+- For a **sequence of hops** a beginner must follow in order (a request's
+  journey, a deploy, a failover), prefer `<StepThrough>`: one hop per step, each
+  with a sentence, instead of one crowded sequence diagram. See 1.5's page load.
 - After a diagram, name the **one or two things** in it that matter —
   never leave the reader to decode it alone.
 - ASCII trees/annotations in ` ```text ` blocks are great for filesystems

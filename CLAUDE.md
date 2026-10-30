@@ -64,6 +64,7 @@ chapter.** The owner should never have to repeat what is written here.
 │   ├── lib/curriculum.ts     ← helpers over curriculum.json
 │   ├── components/
 │   │   ├── Terminal/         ← <Terminal> a real Linux in the page (v86 + the sandbox/ image)
+│   │   ├── StepThrough/      ← <StepThrough> diagrams walked one step at a time
 │   │   ├── Roadmap/          ← roadmap graph + track picker + progress summary
 │   │   ├── Quiz/             ← <Quiz> multiple choice with explanations
 │   │   ├── SqlPlayground/    ← <SqlPlayground> real Postgres in the browser (PGlite)
@@ -151,6 +152,6 @@ that introduces it.
 
 - An optional fully in-browser model (WebLLM) so Ask's AI answers work with no
   key at all (search by meaning already runs in the browser: src/lib/semantic.ts).
-- Interactive diagrams (step-through request lifecycle), Go playground embeds.
+- More step-through diagrams (`<StepThrough>`, first used in 1.5) for other journeys; Go playground embeds.
 - Printable/PDF edition; i18n (translations) via Docusaurus i18n.
-- More tracks: Frontend, Data Engineering, Security, Mobile.
+- More tracks: Mobile (Frontend, Data Engineering and Security exist).

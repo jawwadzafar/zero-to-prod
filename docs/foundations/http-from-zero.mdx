@@ -195,6 +195,35 @@ The good news: as a backend engineer you write the same handlers regardless. Pro
 
 ---
 
+## Putting it together: one page load, step by step
+
+You now have every piece: names become addresses and connections go to ports ([chapter 1.4](./networks-from-zero.mdx)), and HTTP rides on top, inside TLS. Here they are in the order they happen when you open a page. Step through it with the buttons (or click the box and use the arrow keys).
+
+<StepThrough
+  title="Opening https://example.com/about"
+  nodes={[
+    {id: "browser", label: "Your browser", sub: "on your laptop"},
+    {id: "dns", label: "DNS resolver", sub: "the phone book"},
+    {id: "server", label: "The server", sub: "203.0.113.10"},
+  ]}
+  steps={[
+    {title: "Read the address", text: "You press Enter. The browser splits the URL into its parts: scheme `https`, host `example.com`, path `/about`. HTTPS means port 443 unless the URL says otherwise.", active: ["browser"]},
+    {title: "Ask for the address", text: "Computers connect to IP addresses, not names. So the browser (through your operating system) asks a DNS resolver: what is the IP address of `example.com`?", from: "browser", to: "dns"},
+    {title: "Get the answer", text: "The resolver replies with an address, here `203.0.113.10`, and how long the answer may be remembered (its TTL). The next visit skips this step until that time runs out.", from: "dns", to: "browser"},
+    {title: "Open a connection", text: "The browser opens a TCP connection to `203.0.113.10` on port 443: a three-message handshake (SYN, SYN-ACK, ACK) that sets up a reliable, ordered stream.", from: "browser", to: "server"},
+    {title: "Seal it with TLS", text: "Before any HTTP, the two sides run the TLS handshake. The server presents its certificate for `example.com`; the browser checks that a trusted authority signed it and that it hasn't expired; together they agree on keys. From now on everything is encrypted.", from: "server", to: "browser"},
+    {title: "Send the request", text: "Inside the tunnel goes the HTTP request: `GET /about`, with headers such as `Host: example.com` and any cookies the browser holds for that site.", from: "browser", to: "server"},
+    {title: "The server does the work", text: "A program listening on port 443 reads the request and decides what to send: a file from disk, or a page it builds, perhaps after asking a database.", active: ["server"]},
+    {title: "Get the response", text: "One response comes back: a status line (`200 OK`), headers (`Content-Type: text/html`), and the HTML itself as the body.", from: "server", to: "browser"},
+    {title: "Draw the page, ask for more", text: "The browser reads the HTML and finds more to fetch: stylesheets, scripts, images. Each is another request, but over the same connection: no new lookup, handshake or TLS. Then it draws the page.", from: "browser", to: "server"},
+    {title: "Forget, but keep the line open", text: "HTTP has already forgotten you: the next request must carry everything again, cookies included. The connection itself stays open for a while, so the next click starts at step 6.", active: ["browser", "server"]},
+  ]}
+/>
+
+Two things to take from it. **Most of the work happens once per connection**: the lookup, the TCP handshake and the TLS handshake are paid on the first request, and the requests after it reuse them, which is why a page's first request is slower than the rest. And **each layer has its own way to fail**: a DNS mistake fails before anything reaches the server, a closed port fails at step 4, a bad certificate at step 5, and only from step 6 on is it an HTTP problem with a status code. (This is HTTP/1.1 and HTTP/2 over TCP. HTTP/3 merges steps 4 and 5 into one handshake over UDP, as the section above says.)
+
+---
+
 ## Apply it to snip
 
 snip, the link shortener this handbook builds, is an HTTP server, and everything above shows up in it. Creating a short link is a `POST` with a JSON body and an API key as a bearer token:
