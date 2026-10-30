@@ -492,7 +492,15 @@ jobs:
             sleep 2
           done
           [ -n "$found" ] || { echo "snip-overview dashboard never appeared"; docker compose logs grafana | tail -40; exit 1; }
-          curl -s localhost:3000/api/datasources/uid/prometheus/health | jq -e '.status == "OK"'
+          # The datasource can report unhealthy for a few seconds after the dashboard
+          # appears; retry, and show Grafana's answer if it never turns OK.
+          ok=""
+          for _ in $(seq 1 15); do
+            health=$(curl -s localhost:3000/api/datasources/uid/prometheus/health)
+            if echo "$health" | jq -e '.status == "OK"' > /dev/null 2>&1; then ok=1; break; fi
+            sleep 2
+          done
+          [ -n "$ok" ] || { echo "Prometheus datasource unhealthy: $health"; docker compose logs grafana | tail -40; exit 1; }
       - name: Chapter 13.3 lab — traces reach Jaeger, one per request, with cache spans
         env:
           OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
