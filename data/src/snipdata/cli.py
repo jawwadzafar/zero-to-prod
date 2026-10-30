@@ -5,6 +5,10 @@
     uv run snipdata build                # dbt build: models + tests, into the warehouse
     uv run snipdata dbt docs generate    # any other dbt command
     uv run snipdata query "SELECT ..."   # SQL over the lake (and the warehouse, as wh.*)
+    uv run snipdata run                  # the orchestrated daily run, for yesterday (UTC)
+    uv run snipdata backfill --start 2026-10-01 --end 2026-10-28
+    uv run snipdata runs                 # the run log: each day's latest run
+    uv run snipdata check                # the clicks contract, on every file in the lake
 
 Run it from the data/ folder. Paths come from flags or environment variables:
 SNIPDATA_LAKE (default ./lake), SNIPDATA_WAREHOUSE (default ./warehouse/snip.duckdb),
@@ -16,14 +20,17 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import duckdb
 
+from snipdata import contract as ct
 from snipdata import extract as ex
 from snipdata import generate as gen
 from snipdata import lake as lk
+from snipdata import orchestrate as orc
+from snipdata.transform import run_dbt
 
 # snip's compose Postgres, published on your laptop by snip-db-port.yml (chapter 17.2).
 DEFAULT_DSN = "postgres://snip:snip@localhost:15432/snip?sslmode=disable"
@@ -63,16 +70,73 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
 
 def cmd_dbt(args: argparse.Namespace, dbt_args: list[str]) -> int:
-    # Imported here: dbt takes a second to load, and the other commands don't need it.
-    from dbt.cli.main import dbtRunner
-
-    args.warehouse.parent.mkdir(parents=True, exist_ok=True)
-    os.environ["SNIPDATA_LAKE"] = str(args.lake.resolve())
-    os.environ["SNIPDATA_WAREHOUSE"] = str(args.warehouse.resolve())
-    project = str(args.dbt_dir)
     command = ["build", *dbt_args] if args.command == "build" else dbt_args
-    result = dbtRunner().invoke([*command, "--project-dir", project, "--profiles-dir", project])
-    return 0 if result.success else 1
+    out = run_dbt(args.lake, args.warehouse, args.dbt_dir, command)
+    return 0 if out.success else 1
+
+
+def orc_config(args: argparse.Namespace) -> orc.Config:
+    return orc.Config(
+        lake=args.lake,
+        warehouse=args.warehouse,
+        dbt_dir=args.dbt_dir,
+        dsn=args.dsn,
+        grace=timedelta(minutes=args.grace_minutes),
+        wait=timedelta(minutes=args.wait_minutes),
+        retries=args.retries,
+        quarantine=args.quarantine,
+    )
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    day = args.day or datetime.now(UTC).date() - timedelta(days=1)
+    cfg = orc_config(args)
+    with orc.exclusive(cfg):
+        return 0 if orc.run_day(cfg, day) else 1
+
+
+def cmd_backfill(args: argparse.Namespace) -> int:
+    cfg = orc_config(args)
+    with orc.exclusive(cfg):
+        failed = orc.backfill(cfg, args.start, args.end, args.missing_only)
+    total = len(orc.days(args.start, args.end))
+    print(f"backfill {args.start} to {args.end}: {total - len(failed)} of {total} days done")
+    if failed:
+        print("failed: " + " ".join(d.isoformat() for d in failed), file=sys.stderr)
+    return 1 if failed else 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    found = ct.check_lake(args.lake, args.day)
+    for x in found:
+        print(x)
+    errors = [x for x in found if x.severity == "error"]
+    checked = len(ct.files(args.lake, args.day))
+    if errors and args.quarantine:
+        for dest in ct.quarantine(args.lake, errors):
+            print(f"quarantined -> {dest}")
+        return 0
+    bad = len({x.path for x in errors})
+    print(f"{checked} file(s) checked, {bad} break the contract")
+    return 1 if errors else 0
+
+
+def cmd_runs(args: argparse.Namespace) -> int:
+    cfg = orc_config(args)
+    runs = orc.latest_runs(cfg)
+    if not runs:
+        print(f"no runs yet ({cfg.run_log} is empty)")
+        return 0
+    print(f"{'day':<11} {'run':<8} {'status':<7} {'step':<15} {'retries':>7}  message")
+    for day, entries in list(runs.items())[-args.last :]:
+        last = entries[-1]
+        ok = last["status"] == "ok" and last["step"] == orc.STEPS[-1][0]
+        retries = sum(1 for e in entries if e["status"] == "retry")
+        print(
+            f"{day.isoformat():<11} {last['run']:<8} {'ok' if ok else last['status']:<7} "
+            f"{last['step']:<15} {retries:>7}  {last['message']}"
+        )
+    return 0
 
 
 def connect(lake: Path, warehouse: Path | None) -> duckdb.DuckDBPyConnection:
@@ -138,6 +202,39 @@ def parser() -> argparse.ArgumentParser:
         b.add_argument("--warehouse", type=Path, default=default_warehouse())
         b.add_argument("--dbt-dir", type=Path, default=Path("dbt"))
 
+    r = sub.add_parser("run", help="run the pipeline for one day: sensor, extract, dbt, verify")
+    r.add_argument(
+        "--day", type=date.fromisoformat, default=None, help="YYYY-MM-DD (default: yesterday, UTC)"
+    )
+    bf = sub.add_parser("backfill", help="run the pipeline for every day in a range, oldest first")
+    bf.add_argument("--start", type=date.fromisoformat, required=True)
+    bf.add_argument("--end", type=date.fromisoformat, required=True)
+    bf.add_argument(
+        "--missing-only", action="store_true", help="skip days whose latest run succeeded"
+    )
+    rs = sub.add_parser("runs", help="show each day's latest run from the run log")
+    rs.add_argument("--last", type=int, default=31, help="how many days to show")
+    for sp in (r, bf, rs):
+        sp.add_argument("--warehouse", type=Path, default=default_warehouse())
+        sp.add_argument("--dbt-dir", type=Path, default=Path("dbt"))
+        sp.add_argument("--dsn", default=os.environ.get("SNIP_DATABASE_URL", DEFAULT_DSN))
+        sp.add_argument("--retries", type=int, default=2, help="extra attempts for retryable steps")
+        sp.add_argument(
+            "--grace-minutes", type=float, default=60, help="how late a click may arrive"
+        )
+        sp.add_argument(
+            "--wait-minutes", type=float, default=0, help="how long the sensor keeps checking"
+        )
+        sp.add_argument(
+            "--quarantine",
+            action="store_true",
+            help="move files that break the clicks contract aside instead of stopping",
+        )
+
+    c = sub.add_parser("check", help="check every clicks file in the lake against the contract")
+    c.add_argument("--day", type=date.fromisoformat, default=None, help="only this day")
+    c.add_argument("--quarantine", action="store_true", help="move bad files to lake/_quarantine/")
+
     q = sub.add_parser("query", help="run SQL over the lake; the warehouse is attached as wh")
     q.add_argument("sql")
     q.add_argument("--warehouse", type=Path, default=default_warehouse())
@@ -157,6 +254,14 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_generate(args)
         if args.command == "extract":
             return cmd_extract(args)
+        if args.command == "run":
+            return cmd_run(args)
+        if args.command == "backfill":
+            return cmd_backfill(args)
+        if args.command == "runs":
+            return cmd_runs(args)
+        if args.command == "check":
+            return cmd_check(args)
         return cmd_query(args)
     except (RuntimeError, ValueError, duckdb.Error) as err:
         print(f"snipdata: {err}", file=sys.stderr)

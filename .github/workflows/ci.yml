@@ -383,6 +383,14 @@ jobs:
           uv run snipdata query "SELECT slug, sum(clicks) AS clicks FROM wh.link_clicks_daily GROUP BY slug ORDER BY clicks DESC LIMIT 5"
           uv run snipdata dbt docs generate    # the lineage graph and column docs (chapter 17.4)
           test -s dbt/target/catalog.json
+      - name: Contract check and an orchestrated backfill on generated data (chapters 17.5, 17.7)
+        run: |
+          rm -rf lake warehouse
+          uv run snipdata generate --days 7
+          uv run snipdata check
+          # --grace-minutes 0: don't fail when CI runs in the hour just after midnight UTC
+          uv run snipdata backfill --grace-minutes 0 --start "$(date -u -d '-6 days' +%F)" --end "$(date -u -d '-1 day' +%F)"
+          uv run snipdata runs
 
   stream:
     name: data/stream (Python) — lint, types, tests against Redis (chapter 17.6)

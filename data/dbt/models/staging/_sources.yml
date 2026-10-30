@@ -14,7 +14,15 @@ sources:
           One row per click event, as delivered by the stream: at least once, so an
           event can appear twice (same event_id). The contract: event_id (the Redis
           Stream entry ID), slug, clicked_at (UTC, millisecond precision), in
-          clicks/dt=YYYY-MM-DD/ folders.
+          clicks/dt=YYYY-MM-DD/ folders. `snipdata check` enforces it file by file.
+        config:
+          # Freshness (chapter 17.7): how old the newest click may be. Clicks arrive
+          # all day, so six quiet hours is odd and thirty means the stream has stopped.
+          # Checked by `snipdata dbt source freshness`, not by `dbt build`.
+          loaded_at_field: clicked_at
+          freshness:
+            warn_after: {count: 6, period: hour}
+            error_after: {count: 30, period: hour}
       - name: links
         description: A full copy of snip's links table per day it was extracted (dt = the day).
       - name: owners

@@ -22,11 +22,20 @@ models:
 
   - name: fct_clicks
     description: The click fact table. One row per click event (no duplicates), keyed by event_id.
+    config:
+      # A model contract (chapter 17.7): dashboards and other teams build on this
+      # table, so its column names and types are a promise. dbt checks the SQL's
+      # output against this list before it builds, and refuses a mismatch.
+      contract: {enforced: true}
     columns:
       - name: event_id
+        data_type: varchar
+        constraints: [{type: not_null}]
         data_tests: [unique, not_null]
       - name: slug
         description: Which link was clicked; joins to dim_links.slug.
+        data_type: varchar
+        constraints: [{type: not_null}]
         data_tests:
           - not_null
           - relationships:
@@ -34,8 +43,11 @@ models:
                 to: ref('dim_links')
                 field: slug
       - name: clicked_at
+        data_type: timestamp with time zone
+        constraints: [{type: not_null}]
         data_tests: [not_null]
       - name: click_date
+        data_type: date
         data_tests:
           - not_null
           - accepted_range:
@@ -43,11 +55,15 @@ models:
                 min_value: "date '2020-01-01'"   # older than any snip data could be
                 max_value: "current_date + 1"    # a click from the future means a broken clock or a bad parse
       - name: click_hour_utc
+        data_type: integer
         data_tests:
           - accepted_range:
               arguments:
                 min_value: 0
                 max_value: 23
+      - name: click_iso_weekday
+        description: 1 = Monday ... 7 = Sunday.
+        data_type: integer
 
   - name: link_clicks_daily
     description: Clicks per link per UTC day; one row per (slug, click_date) with at least one click.

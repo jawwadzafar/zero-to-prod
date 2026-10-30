@@ -61,7 +61,7 @@ You've seen two people bring two different "revenue last month" numbers to the s
 - **Grain**: what exactly one row means, and how getting it wrong doubles numbers (the **fan-out** trap, tried live).
 - **Slowly changing dimensions**: what to do when a customer moves city, in brief.
 - **dbt**: models as `SELECT` statements, `ref` and `source` for dependencies, **materializations** (view, table, incremental), **tests**, docs and **lineage**.
-- How snip's project turns raw click events into `dim_links`, `fct_clicks` and a daily rollup, with 35 tests guarding them.
+- How snip's project turns raw click events into `dim_links`, `fct_clicks` and a daily rollup, with 39 tests guarding them.
 
 ---
 
@@ -360,18 +360,20 @@ That's the window function and `QUALIFY` from [chapter 17.3](./columnar-storage-
         materialized = 'incremental',
         unique_key = 'click_date',
         incremental_strategy = 'delete+insert',
-        on_schema_change = 'fail'
-    )
-}}
+        on_schema_change = 'fail',
+        pre_hook = "{% if is_incremental() and var('start_date', none) is not none %}
+            delete from {{ this }}
 ```
 
 ```sql
-{% if is_incremental() %}
+{% if var('start_date', none) is not none %}
+where click_date between date '{{ var("start_date") }}' and date '{{ var("end_date", var("start_date")) }}'
+{% elif is_incremental() %}
 where click_date >= (select coalesce(max(click_date), date '1970-01-01') - 2 from {{ this }})
 {% endif %}
 ```
 
-On every build after the first, the last three days are deleted from `fct_clicks` and rebuilt from the lake (`{{ this }}` is the table itself). That's [chapter 17.2](./batch-pipelines.mdx)'s "replace, don't append" habit at the table level: late events within three days are picked up, events removed upstream within three days disappear, and a rerun changes nothing. Anything older needs `--full-refresh`.
+On every build after the first, the last three days are deleted from `fct_clicks` and rebuilt from the lake (`{{ this }}` is the table itself). That's [chapter 17.2](./batch-pipelines.mdx)'s "replace, don't append" habit at the table level: late events within three days are picked up, events removed upstream within three days disappear, and a rerun changes nothing. Anything older needs `--full-refresh`. (The `start_date`/`end_date` branch and the `pre_hook` let an orchestrator rebuild exactly the days it names; [chapter 17.5](./orchestration.mdx) uses them for backfills.)
 
 **Tests guard the grain and the joins.** From `data/dbt/models/marts/_marts.yml`:
 
@@ -410,10 +412,10 @@ $ uv run snipdata build
 … OK created sql table model main.dim_links
 … OK created sql incremental model main.fct_clicks
 … OK created sql table model main.link_clicks_daily
-Done. PASS=42 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=42
+Done. PASS=46 WARN=0 ERROR=0 SKIP=0 NO-OP=0 REUSED=0 TOTAL=46
 ```
 
-Seven models and 35 tests. `fct_clicks` has 135,037 rows: the 135,681 raw rows minus the 644 duplicates. Now the questions from [chapter 17.1](./what-data-engineering-is.mdx) are short star-schema queries (`wh.` is the warehouse, attached by `snipdata query`):
+Seven models and 39 tests (four of them added for data quality in [chapter 17.7](./data-quality.mdx)). `fct_clicks` has 135,037 rows: the 135,681 raw rows minus the 644 duplicates. Now the questions from [chapter 17.1](./what-data-engineering-is.mdx) are short star-schema queries (`wh.` is the warehouse, attached by `snipdata query`):
 
 ```sql
 -- Clicks per owner: the fact joined to the dimension
@@ -465,7 +467,7 @@ Free, on your laptop. Step 1 runs in this page's playground; steps 2 and 3 need 
 3. **Apply it to snip.** In `data/`:
    ```bash
    uv run snipdata generate --end 2026-10-29        # the lake (skip if you have one)
-   uv run snipdata build                            # 7 models, 35 tests
+   uv run snipdata build                            # 7 models, 39 tests
    uv run snipdata query "SELECT count(*) FROM wh.fct_clicks"          # 135037: duplicates gone
    uv run snipdata query "COPY (SELECT '1793260000000-0' AS event_id, 'ghost' AS slug,
      TIMESTAMPTZ '2026-10-29 12:00:00+00' AS clicked_at) TO 'lake/clicks/dt=2026-10-29/bad.parquet'"
