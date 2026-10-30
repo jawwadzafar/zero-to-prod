@@ -37,6 +37,8 @@ Each chapter teaches its topic on its own first, with a small example you can ru
 | 🚀 DevOps / Platform Engineer — containers, Kubernetes, CI/CD, cloud, IaC, reliability | 2, 8–13, 15 |
 | 🧠 AI Engineer — LLMs, prompting, tool use, embeddings, RAG, agents, evals, LLMOps | 5–6, 14, 15 |
 | 🛡️ Security Engineer — threat modeling, identity, web attacks, secrets, supply chain, cloud security, incident response | 0–3, 7, and the security chapters of 5–6 and 8–13, 15 |
+| 🎨 Frontend Engineer — HTML, CSS, JavaScript, TypeScript, React, accessibility, performance, testing | 0–3, 16, and the web chapters of 5, 7–9, 11 and 15 |
+| 📊 Data Engineer — pipelines, columnar storage, dbt models, orchestration, streaming, data quality | 0–3, 6, 17, and the data chapters of 8–9, 11–15 |
 
 ## Interactive, with no backend
 
