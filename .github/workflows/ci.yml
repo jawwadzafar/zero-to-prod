@@ -462,7 +462,8 @@ jobs:
       - name: Chapter 9.3 lab — look inside postgres and redis; prometheus finds the api copies
         run: |
           docker compose exec -T postgres psql -U snip -c "SELECT slug, clicks FROM links ORDER BY slug" | tee /dev/stderr | grep -q counted
-          docker compose exec -T redis redis-cli XLEN snip:clicks
+          docker compose exec -T redis redis-cli XLEN snip:clicks          # redis-cli logs in with REDISCLI_AUTH from the container
+          docker compose exec -T redis env -u REDISCLI_AUTH redis-cli ping | tee /dev/stderr | grep -q NOAUTH   # no password, no access (chapter 7.6)
           docker compose --profile observability up -d prometheus
           for _ in $(seq 1 30); do
             N=$(curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.health=="up")] | length')
@@ -609,6 +610,9 @@ jobs:
       - name: Chapter 10.4 lab — Secrets are only base64; config rolls out on restart; data survives its Pod
         run: |
           kubectl -n snip get secret snip-db -o jsonpath='{.data.SNIP_DATABASE_URL}' | base64 -d | grep -q snip-dev-only
+          kubectl -n snip get secret snip-redis -o jsonpath='{.data.SNIP_REDIS_PASSWORD}' | base64 -d | grep -qx snip-dev-only
+          kubectl -n snip exec deploy/redis -- env -u REDISCLI_AUTH redis-cli ping | tee /dev/stderr | grep -q NOAUTH
+          kubectl -n snip exec deploy/redis -- redis-cli ping | grep -qx PONG   # REDISCLI_AUTH comes from the Secret
           kubectl -n snip patch configmap snip-config --type merge -p '{"data":{"SNIP_LOG_LEVEL":"debug"}}'
           kubectl -n snip rollout restart deploy/api
           timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
@@ -788,11 +792,19 @@ jobs:
             --set 'args={--kubelet-insecure-tls}' --wait --timeout 5m
           timeout 400 kubectl -n argocd wait --for=condition=Available deploy --all --timeout=380s
           timeout 200 kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s
+      - name: Build this commit's snip image and load it into the cluster
+        run: |
+          docker build -t snip:dev snip
+          kind load docker-image snip:dev --name gitops
       - name: Point Argo CD at this commit of the repository and let it sync
         env:
           SHA: ${{ github.sha }}
         run: |
-          sed "s/targetRevision: main/targetRevision: $SHA/" snip/deploy/argocd/application.yaml | kubectl apply -f -
+          # This commit's manifests with this commit's image: the image published from
+          # main may not understand settings the manifests just started using.
+          sed -e "s/targetRevision: main/targetRevision: $SHA/" \
+            -e 's|^    path: snip/deploy/k8s/base$|&\n    kustomize:\n      images: ["ghcr.io/jawwadzafar/snip=snip:dev"]|' \
+            snip/deploy/argocd/application.yaml | tee /dev/stderr | kubectl apply -f -
           for _ in $(seq 1 90); do
             S=$(kubectl -n argocd get application snip -o jsonpath='{.status.sync.status} {.status.health.status}')
             echo "$S"; [ "$S" = "Synced Healthy" ] && break; sleep 5
@@ -825,12 +837,16 @@ jobs:
     defaults:
       run:
         working-directory: snip/infra/local
+    env:
+      TF_VAR_snip_image: snip:ci   # this commit's code, built below (readers use the published image)
     steps:
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.17.1
           terraform_wrapper: false
+      - name: Build this commit's snip image
+        run: docker build -t snip:ci ../..
       - name: Format and validate (chapter 12.5 lab)
         run: |
           terraform fmt -check -recursive ..
