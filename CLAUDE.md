@@ -130,7 +130,7 @@ implementation lives in `snip/` and is the source of every snip snippet.
 
 ## 6. Curriculum (source of truth: `src/data/curriculum.json`)
 
-16 parts, 104 chapters: 0 Start Here · 1 Computers & the Internet · 2 Command
+16 parts, 108 chapters: 0 Start Here · 1 Computers & the Internet · 2 Command
 Line & Linux · 3 Git · 4 Go · 5 APIs · 6 Data · 7 Security · 8 Distributed
 Systems · 9 Containers · 10 Kubernetes · 11 Shipping · 12 Cloud & IaC ·
 13 Observability · 14 AI Engineering · 15 Architecture & Career.
