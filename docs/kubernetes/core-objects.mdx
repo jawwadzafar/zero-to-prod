@@ -214,6 +214,28 @@ terminationGracePeriodSeconds: 30   # (Pod-level; 30 is the default)
 
 The `preStop` hook runs first. Then the container gets SIGTERM, finishes its in-flight requests (if the program handles SIGTERM gracefully, [chapter 5.4](../apis/structuring-a-real-service.mdx)), and exits. If it's still running when the grace period ends, it's killed. The `sleep` action is built into Kubernetes, so it works even in images with no shell or `sleep` binary, like `http-echo`.
 
+Step through it to see the two paths run side by side, and why the sleep is there:
+
+<StepThrough
+  title="A Pod shutting down without dropping requests"
+  nodes={[
+    {id: "api", label: "API server", sub: "state"},
+    {id: "ep", label: "Endpoints", sub: "controller"},
+    {id: "proxy", label: "kube-proxy", sub: "every node"},
+    {id: "kubelet", label: "kubelet", sub: "Pod's node"},
+    {id: "pod", label: "The Pod", sub: "your program"},
+  ]}
+  steps={[
+    {title: "The Pod is marked for deletion", text: "A rollout, a scale-down or a drain deletes the Pod. The API server doesn't remove it yet: it marks it as terminating, and the 30-second grace period starts counting. Two components are watching, and both react at once.", active: ["api"]},
+    {title: "Path one: stop sending it traffic", text: "The endpoints controller sees the terminating Pod and removes its address from the Service's list of endpoints.", from: "ep", to: "api"},
+    {title: "Path two: start shutting it down", text: "At the same moment, the kubelet on the Pod's node sees it too. Its first job is the `preStop` hook: `sleep` for 5 seconds. The program hasn't been told anything, so it keeps serving.", from: "api", to: "kubelet"},
+    {title: "The news spreads, not instantly", text: "kube-proxy on every node (and any ingress controller or load balancer) learns of the new endpoint list and updates its routing. Until a node has, it can still send requests to this Pod, and the Pod still answers them.", from: "api", to: "proxy"},
+    {title: "Now tell the program", text: "The sleep ends. By now every node has stopped routing here. The kubelet asks the runtime to send the container `SIGTERM`.", from: "kubelet", to: "pod"},
+    {title: "Finish, then exit", text: "A program that handles `SIGTERM` stops accepting new connections, finishes the requests already in progress, and exits. No request was dropped.", active: ["pod"]},
+    {title: "The backstop", text: "If the program is still running when the grace period ends (30 seconds, counted from step 1, so the sleep uses part of it), the kubelet kills it with `SIGKILL`. Without the sleep, steps 5 and 6 would race step 4, and the requests that arrived after the exit would fail: the race you'll see in the lab.", from: "kubelet", to: "pod"},
+  ]}
+/>
+
 ---
 
 ## Requests and limits
