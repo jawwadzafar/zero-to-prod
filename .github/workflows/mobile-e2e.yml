@@ -199,8 +199,16 @@ jobs:
           curl -fsSL "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
+      # Maestro drives the simulator through an XCUITest driver it starts
+      # first; on a busy runner that can take longer than its default wait, so
+      # wait longer, and try once more if the driver didn't come up. A real
+      # failure in the app fails both attempts.
       - name: Drive it
-        run: maestro test -e APP_ID="$APP_ID" -e KEY="$SNIP_KEY" --format junit --output maestro-report.xml mobile/e2e/snip.yaml
+        env:
+          MAESTRO_DRIVER_STARTUP_TIMEOUT: "180000"
+        run: |
+          run() { maestro test -e APP_ID="$APP_ID" -e KEY="$SNIP_KEY" --format junit --output maestro-report.xml mobile/e2e/snip.yaml; }
+          run || { echo "::warning::First attempt failed; trying once more"; run; }
 
       - name: Keep the evidence
         if: failure()
