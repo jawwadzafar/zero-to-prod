@@ -17,7 +17,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# dbt's exit codes: 0 everything passed, 1 a model or test failed, 2 dbt itself couldn't run.
+# dbt's exit codes: 0 everything passed, 1 a model or test failed, 2 an error dbt couldn't handle.
 MODEL_OR_TEST_FAILED = 1
 
 
