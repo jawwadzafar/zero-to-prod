@@ -14,6 +14,12 @@ function clean(md) {
     .replace(/^export .*$/gm, '')
     .replace(/<Quiz[\s\S]*?\/>/g, '') // quizzes are practice, not reference
     .replace(/<SqlPlayground[\s\S]*?\/>/g, '')
+    // Step-through diagrams: keep each step's title and text, so Ask can find them.
+    .replace(/<StepThrough[\s\S]*?\n\/>/g, (block) =>
+      [...block.matchAll(/title: "((?:[^"\\]|\\.)*)", text: "((?:[^"\\]|\\.)*)"/g)]
+        .map(([, t, x]) => `${t}. ${x.replace(/\\"/g, '"').replace(/`/g, '')}`)
+        .join('\n\n'),
+    )
     .replace(/<\/?[A-Z][^>]*>/g, '')
     .replace(/^:::(\w+)(\[[^\]]*\])?\s*$/gm, (_, kind, title) => (title ? `${title.slice(1, -1)}: ` : ''))
     .replace(/^:::\s*$/gm, '')

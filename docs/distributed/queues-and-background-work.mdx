@@ -233,6 +233,30 @@ flowchart LR
     W1 & W2 -->|"batched UPDATE"| DB[("Postgres")]
 ```
 
+Walk one click through it, in the order snip's code runs (`Resolve` and `RecordClick` in `snip/internal/links/service.go`, the `redirect` handler in `snip/internal/httpapi/server.go`, `ProcessOnce` in `snip/internal/clicks/stream.go`):
+
+<StepThrough
+  title="One click on a snip link, from request to counted"
+  nodes={[
+    {id: "v", label: "Visitor", sub: "a browser"},
+    {id: "api", label: "snip API", sub: "producer"},
+    {id: "redis", label: "Redis", sub: "cache + stream"},
+    {id: "pg", label: "Postgres", sub: "the truth"},
+    {id: "w", label: "Worker", sub: "consumer"},
+  ]}
+  steps={[
+    {title: "The click", text: "The visitor's browser asks for `GET /viral`. In the Compose stack nginx passes it to one of the API's copies; the API is what matters here.", from: "v", to: "api"},
+    {title: "Try the cache first", text: "`Resolve` asks Redis for the key `snip:url:viral`. A hit returns the long URL straight away and skips the next two steps. A deleted link leaves an empty \"tombstone\" for a minute, which reads as a miss.", from: "api", to: "redis"},
+    {title: "On a miss, ask the database", text: "Postgres is the source of truth: `store.Get` reads the link. A slug that doesn't exist ends here with a `404`.", from: "api", to: "pg"},
+    {title: "Fill the cache for next time", text: "The API stores the URL in Redis with `SETNX` and a lifetime of one hour (`SNIP_CACHE_TTL`). It's best effort: if Redis failed a moment ago, the API doesn't wait on it a second time.", from: "api", to: "redis"},
+    {title: "Append the click to the queue", text: "`RecordClick` runs one `XADD` to the stream `snip:clicks` with the slug and the time in milliseconds. If Redis is down, the API logs a warning, counts `snip_click_record_errors_total`, and carries on.", from: "api", to: "redis"},
+    {title: "Redirect at once", text: "The API answers `302 Found` with `Location` set to the long URL and `Cache-Control: private, max-age=0`, so the browser asks snip again next time and that click is counted too. The visitor is done; nothing has touched the click count yet.", from: "api", to: "v"},
+    {title: "The worker reads a batch", text: "`ProcessOnce` reads with the consumer group `workers`: first its own unacknowledged events, then events another worker left idle for over a minute (`XAUTOCLAIM`), then new ones (`>`).", from: "redis", to: "w"},
+    {title: "Add the clicks in one go", text: "The worker sums the batch per slug and runs one `UPDATE links SET clicks = clicks + n` per slug: 500 clicks on one link become a single write.", from: "w", to: "pg"},
+    {title: "Acknowledge, only now", text: "With the counts safely in Postgres, the worker sends `XACK`. A crash before this line means the batch is read again: at-least-once, so a rare small over-count, never a lost batch.", from: "w", to: "redis"},
+  ]}
+/>
+
 ### Producing: one fast append
 
 The redirect handler calls `RecordClick`, which appends an event to the stream (`snip/internal/clicks/stream.go`):

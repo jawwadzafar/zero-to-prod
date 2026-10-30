@@ -65,12 +65,31 @@ sequenceDiagram
     R->>C: 200 OK
 ```
 
-Step by step:
+Here is the same flow one step at a time. Watch two things: your browser carries every message between the client and the authorization server (they never talk directly until the very end), and the tokens travel server to server, never through the address bar.
 
-1. **The client redirects you to the authorization server**, saying who it is (`client_id`), what it wants (`scope`), where to send you back (`redirect_uri`), plus two security values: **`state`** and a **`code_challenge`**.
-2. **You log in there** — on the authorization server's own page, not the client's — and approve the requested access.
-3. **The authorization server redirects you back** to the client with a one-time **authorization code**.
-4. **The client exchanges the code for tokens** by calling the authorization server directly, server-to-server — the tokens never pass through your browser's address bar.
+<StepThrough
+  title="Connecting snip to another app with OAuth (authorization code + PKCE)"
+  nodes={[
+    {id: "you", label: "You", sub: "your browser"},
+    {id: "client", label: "Client app", sub: "wants access"},
+    {id: "auth", label: "Auth server", sub: "authorization server: knows you"},
+    {id: "api", label: "API", sub: "holds your links"},
+  ]}
+  steps={[
+    {title: "Ask to connect", text: "You click \"Connect my account\" in the client app.", from: "you", to: "client"},
+    {title: "Make a secret for later", text: "The client invents a random `code_verifier` and keeps it. It hashes it into a `code_challenge`, which is safe to show anyone: the hash can't be turned back into the verifier.", active: ["client"]},
+    {title: "Send you to log in", text: "The client redirects your browser to the authorization server, with `client_id` (who is asking), `scope` (what for), `redirect_uri` (where to send you back), a random `state`, and the `code_challenge`.", from: "client", to: "you"},
+    {title: "Arrive at the real login page", text: "Your browser follows the redirect. You're now on the authorization server's own page, so the client never sees your password.", from: "you", to: "auth"},
+    {title: "Log in and approve", text: "You sign in (password plus MFA) and approve exactly what's asked: \"read your links\". The authorization server remembers the `code_challenge` with this request.", active: ["you", "auth"]},
+    {title: "Get a one-time code", text: "The authorization server redirects you back to the `redirect_uri` with a short-lived, single-use `code` and the same `state`.", from: "auth", to: "you"},
+    {title: "Bring the code back", text: "Your browser follows that redirect to the client. The client checks that `state` is the value it sent; if not, someone is trying to slip their own login into your session, and it stops.", from: "you", to: "client"},
+    {title: "Swap the code, with proof", text: "Now the client talks to the authorization server directly, server to server: it sends the `code` and reveals the `code_verifier` (plus its client secret, if it has one).", from: "client", to: "auth"},
+    {title: "Check everything", text: "The authorization server checks that the code is valid, unused, and issued to this client and `redirect_uri`, and that hashing the `code_verifier` gives the `code_challenge` from step 5. A stolen code fails here: the thief doesn't have the verifier.", active: ["auth"]},
+    {title: "Receive the tokens", text: "Back come an `access_token` (short-lived), usually a `refresh_token`, and with OpenID Connect an `id_token` saying who you are.", from: "auth", to: "client"},
+    {title: "Use the access token", text: "The client calls the API with `Authorization: Bearer` and the access token. The API checks its signature, issuer, audience, expiry and scope.", from: "client", to: "api"},
+    {title: "Get the data", text: "The API answers `200 OK` with your links: only what the scope allows, only until the token expires.", from: "api", to: "client"},
+  ]}
+/>
 
 The two security values:
 
