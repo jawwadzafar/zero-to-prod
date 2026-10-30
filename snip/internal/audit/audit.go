@@ -36,7 +36,7 @@ type Event struct {
 	Action    Action            `json:"action"`
 	Slug      string            `json:"slug,omitempty"`       // for link events
 	RequestID string            `json:"request_id,omitempty"` // matches the request's log line
-	Detail    map[string]string `json:"detail,omitempty"`     // e.g. the URL a deleted link pointed to
+	Detail    map[string]string `json:"detail,omitempty"`     // e.g. the URL a deleted link pointed to; for key events, the operator
 }
 
 // Reader lists an owner's events, newest first (`snip audit OWNER_ID`).
@@ -57,4 +57,42 @@ func WithRequestID(ctx context.Context, id string) context.Context {
 func RequestID(ctx context.Context) string {
 	id, _ := ctx.Value(ctxKey{}).(string)
 	return id
+}
+
+// UnknownOperator is what a `snip keys` command records when nobody said who
+// ran it. It is written out, rather than left empty, so a reader of the trail
+// sees the gap.
+const UnknownOperator = "unknown"
+
+type operatorKey struct{}
+
+// WithOperator returns ctx carrying the name of whoever ran a `snip keys`
+// command (its --operator flag, or SNIP_OPERATOR), so a store can put it in
+// the audit row. The name is what the operator typed: a claim, not a proven
+// identity (chapter 7.4).
+func WithOperator(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, operatorKey{}, name)
+}
+
+// Operator returns the name put there by WithOperator, or "" (for example
+// for HTTP requests, where the API key's owner is the one acting).
+func Operator(ctx context.Context) string {
+	name, _ := ctx.Value(operatorKey{}).(string)
+	return name
+}
+
+// DetailFor returns detail with ctx's operator added under "operator", for
+// a store to write. It doesn't change detail itself, and without an operator
+// it returns detail as it is (nil stays nil).
+func DetailFor(ctx context.Context, detail map[string]string) map[string]string {
+	op := Operator(ctx)
+	if op == "" {
+		return detail
+	}
+	out := make(map[string]string, len(detail)+1)
+	for k, v := range detail {
+		out[k] = v
+	}
+	out["operator"] = op
+	return out
 }

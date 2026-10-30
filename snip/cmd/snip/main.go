@@ -7,6 +7,9 @@
 //	snip keys rotate ID     replace owner ID's key: the old one stops, links stay
 //	snip audit ID           print owner ID's audit trail (newest first) as JSON lines
 //
+// Each keys command takes --operator NAME: who is running it, recorded in the
+// audit trail (or set SNIP_OPERATOR; without either, "unknown" and a warning).
+//
 // All settings come from SNIP_* environment variables (internal/config).
 package main
 
@@ -15,13 +18,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -119,9 +126,14 @@ func run(args []string) error {
 	case "serve":
 		return serve(ctx, cfg, log, st, pg)
 	case "keys":
-		if len(args) != 3 || (args[1] != "create" && args[1] != "revoke" && args[1] != "rotate") {
-			return errors.New("usage: snip keys create NAME | snip keys revoke OWNER_ID | snip keys rotate OWNER_ID")
+		args, operator, err := keyOperator(args, cfg.Operator, os.Stderr)
+		if err != nil {
+			return err
 		}
+		if len(args) != 3 || (args[1] != "create" && args[1] != "revoke" && args[1] != "rotate") {
+			return errors.New("usage: snip keys create NAME | snip keys revoke OWNER_ID | snip keys rotate OWNER_ID  [--operator NAME]")
+		}
+		ctx := audit.WithOperator(ctx, operator) // every key event records who ran the command
 		if args[1] == "revoke" || args[1] == "rotate" {
 			id, err := strconv.ParseInt(args[2], 10, 64)
 			if err != nil {
@@ -169,6 +181,46 @@ func run(args []string) error {
 	default:
 		return fmt.Errorf("unknown command %q (want serve, migrate, keys or audit)", cmd)
 	}
+}
+
+// keyOperator takes "--operator NAME" (or "--operator=NAME") out of a keys
+// command's arguments, wherever it is, and returns the other arguments and
+// who is running the command: the flag, else fromEnv (SNIP_OPERATOR), else
+// audit.UnknownOperator after a warning on stderr. Not the OS user: inside a
+// container, where these commands usually run, that is root or nobody, which
+// would look like an answer without being one. The name is the operator's
+// own claim; chapter 7.4 explains what real systems do instead.
+func keyOperator(args []string, fromEnv string, stderr io.Writer) (rest []string, operator string, err error) {
+	fromFlag, set := "", false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--operator" || a == "-operator":
+			if i+1 == len(args) {
+				return nil, "", errors.New("--operator needs a name, e.g. --operator alice")
+			}
+			i++
+			fromFlag, set = args[i], true
+		case strings.HasPrefix(a, "--operator=") || strings.HasPrefix(a, "-operator="):
+			fromFlag, set = a[strings.Index(a, "=")+1:], true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	switch {
+	case set:
+		operator = fromFlag
+	case fromEnv != "":
+		operator = fromEnv
+	default:
+		fmt.Fprintf(stderr, "snip: warning: no --operator NAME or SNIP_OPERATOR, so the audit trail records operator %q\n", audit.UnknownOperator)
+		return rest, audit.UnknownOperator, nil
+	}
+	operator = strings.TrimSpace(operator)
+	if operator == "" || utf8.RuneCountInString(operator) > 64 || strings.IndexFunc(operator, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
+		return nil, "", errors.New("operator must be 1 to 64 printable characters, e.g. --operator alice")
+	}
+	return rest, operator, nil
 }
 
 // migrate brings the database schema up to date. With

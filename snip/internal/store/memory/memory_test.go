@@ -3,6 +3,7 @@ package memory_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -81,5 +82,45 @@ func TestAuditTrail(t *testing.T) {
 	}
 	if other, _ := st.AuditLog(context.Background(), owner.ID+1, 100); len(other) != 0 {
 		t.Errorf("another owner's trail = %+v, want empty", other)
+	}
+}
+
+// A `snip keys` command puts its operator in ctx, and every key event
+// records it next to the details already there. Link events, made over HTTP
+// by the key's owner, have none.
+func TestKeyEventsRecordTheOperator(t *testing.T) {
+	st := memory.New()
+	_, owner, err := auth.CreateKey(audit.WithOperator(context.Background(), "alice-oncall"), st, "customer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.RotateKey(audit.WithOperator(context.Background(), "bob-oncall"), st, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	l := links.Link{Slug: "docs", URL: "https://go.dev", OwnerID: owner.ID, CreatedAt: time.Now()}
+	if _, err := st.Create(audit.WithRequestID(context.Background(), "req-1"), l); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RevokeKey(audit.WithOperator(context.Background(), audit.UnknownOperator), owner.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.AuditLog(context.Background(), owner.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []map[string]string{ // newest first
+		{"operator": "unknown"},
+		{"url": "https://go.dev"},
+		{"operator": "bob-oncall"},
+		{"name": "customer", "operator": "alice-oncall"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d events, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if !maps.Equal(got[i].Detail, w) {
+			t.Errorf("event %d (%s) detail = %v, want %v", i, got[i].Action, got[i].Detail, w)
+		}
 	}
 }

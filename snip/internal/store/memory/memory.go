@@ -143,7 +143,7 @@ func (s *Store) ReplaceKey(ctx context.Context, id int64, keyHash string) error 
 func (s *Store) record(ctx context.Context, ownerID int64, action audit.Action, slug string, detail map[string]string) {
 	s.events = append(s.events, audit.Event{
 		ID: int64(len(s.events) + 1), At: time.Now(), OwnerID: ownerID, Action: action,
-		Slug: slug, RequestID: audit.RequestID(ctx), Detail: detail,
+		Slug: slug, RequestID: audit.RequestID(ctx), Detail: audit.DetailFor(ctx, detail),
 	})
 }
 

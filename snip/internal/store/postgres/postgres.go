@@ -306,9 +306,11 @@ func (s *Store) changeKey(ctx context.Context, id int64, action audit.Action, sq
 
 // record appends one audit event inside tx, the transaction making the
 // change, so the change and its record commit together or not at all. The
-// request ID comes from ctx (the HTTP middleware puts it there); empty
+// request ID comes from ctx (the HTTP middleware puts it there), and so does
+// the operator of a `snip keys` command, which goes into detail; empty
 // strings are stored as NULL.
 func record(ctx context.Context, tx pgx.Tx, ownerID int64, action audit.Action, slug string, detail map[string]string) error {
+	detail = audit.DetailFor(ctx, detail)
 	var detailJSON []byte // nil is stored as NULL
 	if detail != nil {
 		var err error

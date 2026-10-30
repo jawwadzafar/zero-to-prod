@@ -32,6 +32,8 @@ type Config struct {
 	// them, SNIP_DATABASE_URL's login both migrates the schema and serves.
 	MigrateDatabaseURL  string // SNIP_MIGRATE_DATABASE_URL: the schema owner's login, used only to migrate; SNIP_DATABASE_URL is then the app's own login
 	ReadonlyDatabaseURL string // SNIP_READONLY_DATABASE_URL: a read-only login for analytics, created by "snip migrate"
+
+	Operator string // SNIP_OPERATOR: who runs "snip keys" commands, for the audit trail; their --operator flag wins (chapter 7.4)
 }
 
 // Load reads the environment. It returns an error for malformed values
@@ -51,6 +53,8 @@ func Load() (Config, error) {
 
 		MigrateDatabaseURL:  os.Getenv("SNIP_MIGRATE_DATABASE_URL"),
 		ReadonlyDatabaseURL: os.Getenv("SNIP_READONLY_DATABASE_URL"),
+
+		Operator: os.Getenv("SNIP_OPERATOR"),
 	}
 	var err error
 	if c.CacheTTL, err = time.ParseDuration(env("SNIP_CACHE_TTL", "1h")); err != nil {

@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"strings"
 	"sync"
@@ -215,6 +216,49 @@ func TestAuditTrailIsWritten(t *testing.T) {
 			len(e.Detail) != len(w.detail) || e.Detail["url"] != w.detail["url"] || e.Detail["name"] != w.detail["name"] {
 			t.Errorf("event %d = %+v, want %+v", i, e, w)
 		}
+	}
+}
+
+// The operator of a `snip keys` command lands in the row's detail, in the
+// same transaction as the key change, and SQL can find it there.
+func TestKeyEventsRecordTheOperator(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+	_, owner, err := auth.CreateKey(audit.WithOperator(ctx, "alice-oncall"), st, "operated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.RotateKey(audit.WithOperator(ctx, "bob-oncall"), st, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RevokeKey(audit.WithOperator(ctx, audit.UnknownOperator), owner.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.AuditLog(ctx, owner.ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []map[string]string{ // newest first
+		{"operator": "unknown"},
+		{"operator": "bob-oncall"},
+		{"name": "operated", "operator": "alice-oncall"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d events, want %d: %+v", len(got), len(want), got)
+	}
+	for i, w := range want {
+		if !maps.Equal(got[i].Detail, w) {
+			t.Errorf("event %d (%s) detail = %v, want %v", i, got[i].Action, got[i].Detail, w)
+		}
+	}
+
+	var action string
+	err = rawConn(t).QueryRow(ctx,
+		`SELECT action FROM audit_events WHERE owner_id = $1 AND detail->>'operator' = 'bob-oncall'`, owner.ID,
+	).Scan(&action)
+	if err != nil || action != string(audit.KeyRotated) {
+		t.Errorf("who did bob-oncall's change: %q, %v, want key.rotated", action, err)
 	}
 }
 
