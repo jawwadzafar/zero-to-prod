@@ -1,12 +1,14 @@
-# Publish snip's container image to GitHub Container Registry (chapter 9.4).
-# Every push to main that touches snip/ publishes :main and :sha-<commit>;
-# a git tag like snip-v1.2.3 publishes :1.2.3 and :1.2.
+# Publish snip's container images to GitHub Container Registry (chapter 9.4):
+# snip itself, and snip-web, the web UI served by nginx (chapter 16.6).
+# Every push to main that touches snip/ or web/ publishes both as :main and
+# :sha-<commit>, so the two tags always name a matching pair; a git tag like
+# snip-v1.2.3 publishes :1.2.3 and :1.2.
 name: snip image
 
 on:
   push:
     branches: [main]
-    paths: ["snip/**", ".github/workflows/image.yml"]
+    paths: ["snip/**", "web/**", ".github/workflows/image.yml"]
     tags: ["snip-v*"]
   workflow_dispatch:
 
@@ -17,6 +19,12 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:                         # same steps, two images
+          - { image: snip, context: snip, check: /healthz }
+          - { image: snip-web, context: web, check: /app/ }
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,7 +38,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/snip
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           tags: |
             type=sha,prefix=sha-
             type=ref,event=branch
@@ -39,18 +47,18 @@ jobs:
       - id: build
         uses: docker/build-push-action@v7
         with:
-          context: snip
+          context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           sbom: true                     # attach a software bill of materials
           provenance: mode=max           # and a record of how it was built
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
       - name: Show what was published
         env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/snip@${{ steps.build.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
         run: |
           docker buildx imagetools inspect "$IMAGE"
           echo "--- SBOM (linux/amd64): packages inside the image"
@@ -58,8 +66,9 @@ jobs:
             --format '{{ range .SBOM.linux_amd64.SPDX.packages }}{{ .name }} {{ .versionInfo }}{{ "\n" }}{{ end }}'
       - name: Pull the published image by digest and run it
         env:
-          IMAGE: ghcr.io/${{ github.repository_owner }}/snip@${{ steps.build.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}@${{ steps.build.outputs.digest }}
+          CHECK: ${{ matrix.check }}
         run: |
-          docker run -d --name snip -p 8080:8080 "$IMAGE"
-          for _ in $(seq 1 20); do curl -fsS localhost:8080/healthz && exit 0; sleep 1; done
-          docker logs snip; exit 1
+          docker run -d --name app -p 8080:8080 "$IMAGE"   # both listen on 8080
+          for _ in $(seq 1 20); do curl -fsS "localhost:8080$CHECK" > /dev/null && exit 0; sleep 1; done
+          docker logs app; exit 1

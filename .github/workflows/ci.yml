@@ -604,10 +604,11 @@ jobs:
         with:
           version: v0.33.0
           cluster_name: z2p
-      - name: Build snip and load the image into the cluster (chapter 10.2 lab)
+      - name: Build snip and the web UI and load the images into the cluster (chapter 10.2 lab)
         run: |
           docker build -t snip:dev snip
-          kind load docker-image snip:dev --name z2p
+          docker build -t snip-web:dev web
+          kind load docker-image snip:dev snip-web:dev --name z2p
       - name: Apply the manifests
         run: kubectl apply -k snip/deploy/k8s/overlays/kind
       - name: Wait for every workload to be ready
@@ -621,6 +622,7 @@ jobs:
           timeout 120 kubectl -n snip rollout status statefulset/postgres --timeout=100s
           timeout 120 kubectl -n snip rollout status deploy/api --timeout=100s
           timeout 120 kubectl -n snip rollout status deploy/worker --timeout=100s
+          timeout 120 kubectl -n snip rollout status deploy/web --timeout=100s
           kubectl -n snip get pods,svc,pvc
       - name: Smoke test through the Service
         run: |
@@ -630,7 +632,7 @@ jobs:
           SNIP_API_KEY="$KEY" snip/scripts/smoke.sh http://localhost:8080
       - name: Chapter 7.11 lab — no Kubernetes API token in snip's pods; a projected token is short-lived and audience-bound
         run: |
-          for app in api worker postgres redis; do
+          for app in api worker web postgres redis; do
             n=$(kubectl -n snip get pod -l app.kubernetes.io/name=$app -o json | jq '[.items[].spec.volumes[]? | select(.name | startswith("kube-api-access"))] | length')
             echo "$app: $n service account token volumes"; test "$n" = 0
           done
@@ -723,6 +725,25 @@ jobs:
           for _ in $(seq 1 30); do curl -fsS -H "Host: snip.localhost" localhost:8888/healthz && break; sleep 2; done
           curl -fsS -H "Host: snip.localhost" localhost:8888/healthz
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: other.example' localhost:8888/healthz)" = 404
+      - name: The Gateway sends /app to the web UI and everything else to snip (chapter 16.6)
+        run: |
+          H="Host: snip.localhost"; GW=localhost:8888
+          test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -H "$H" $GW/app)" = "301 http://$GW/app/"
+          curl -fsS -D /tmp/app.h -o /tmp/app.html -H "$H" $GW/app/
+          grep -q '<div id="root">' /tmp/app.html
+          grep -qi '^content-security-policy: default-src' /tmp/app.h
+          grep -qi '^cache-control: no-cache' /tmp/app.h
+          ASSET=$(grep -o '/app/assets/[^"]*\.js' /tmp/app.html | head -n1); echo "asset: $ASSET"
+          curl -fsS -D - -o /dev/null -H "$H" -H 'Accept-Encoding: gzip' "$GW$ASSET" | tee /tmp/asset.h
+          grep -qi '^cache-control: public, max-age=31536000, immutable' /tmp/asset.h
+          grep -qi '^content-encoding: gzip' /tmp/asset.h
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "$H" $GW/app/assets/nope.js)" = 404
+          # /api and short links still reach snip; /apple is a slug, not part of /app
+          KEY=$(kubectl -n snip exec deploy/api -- snip keys create gw | grep -o 'snip_[A-Za-z0-9]*')
+          curl -fsS -X POST -H "$H" -H "Authorization: Bearer $KEY" $GW/api/links -d '{"url":"https://go.dev","slug":"apple"}'
+          test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -H "$H" $GW/apple)" = "302 https://go.dev/"
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "$H" -H "Authorization: Bearer $KEY" $GW/api/links -d '{"url":"https://go.dev","slug":"app"}')
+          echo "creating the slug 'app': HTTP $CODE"; test "$CODE" = 400
       - name: Chapter 11.3 lab — canary release with weighted routing
         run: |
           kubectl apply -f snip/deploy/k8s/canary/canary.yaml
@@ -738,6 +759,7 @@ jobs:
           }
           C=$(count); echo "canary answered $C of 200 at weight 10"
           [ "$C" -ge 5 ] && [ "$C" -le 50 ]
+          curl -fsS -H "Host: snip.localhost" localhost:8889/app/ | grep -q '<div id="root">'   # the UI isn't part of the split
           sed -e 's/weight: 90/weight: 0/' -e 's/weight: 10/weight: 100/' snip/deploy/k8s/canary/route.yaml | kubectl apply -f -
           for _ in $(seq 1 20); do C=$(count); [ "$C" = 200 ] && break; sleep 3; done
           echo "canary answered $C of 200 after promotion"; [ "$C" = 200 ]
@@ -793,14 +815,21 @@ jobs:
         run: |
           set -x
           helm lint snip/deploy/helm/snip
+          helm lint snip/deploy/helm/snip --set route.enabled=true
           helm install snip snip/deploy/helm/snip -n snip-helm --create-namespace \
-            --set image.repository=snip --set image.tag=dev --wait --timeout 6m
+            --set image.repository=snip --set image.tag=dev \
+            --set web.image.repository=snip-web --set web.image.tag=dev --wait --timeout 6m
           helm -n snip-helm list
           kubectl -n snip-helm get pods
           kubectl -n snip-helm port-forward svc/snip-api 8084:80 > /dev/null 2>&1 &
           sleep 3
           KEY=$(kubectl -n snip-helm exec deploy/snip-api -- snip keys create helm | grep -o 'snip_[A-Za-z0-9]*')
           SNIP_API_KEY="$KEY" snip/scripts/smoke.sh http://localhost:8084
+          kubectl -n snip-helm port-forward svc/snip-web 8085:80 > /dev/null 2>&1 &
+          sleep 3
+          curl -fsSI localhost:8085/app/ | grep -qi '^content-security-policy:'
+          helm template snip snip/deploy/helm/snip --set route.enabled=true --show-only templates/route.yaml |
+            kubectl -n snip-helm apply --dry-run=server -f -          # the route is valid against the Gateway API CRDs
           BEFORE=$(kubectl -n snip-helm get deploy snip-api -o jsonpath='{.spec.template.metadata.annotations.checksum/config}')
           helm -n snip-helm upgrade snip snip/deploy/helm/snip --reuse-values --set config.logLevel=debug --wait --timeout 5m
           AFTER=$(kubectl -n snip-helm get deploy snip-api -o jsonpath='{.spec.template.metadata.annotations.checksum/config}')
@@ -862,10 +891,11 @@ jobs:
             --set 'args={--kubelet-insecure-tls}' --wait --timeout 5m
           timeout 400 kubectl -n argocd wait --for=condition=Available deploy --all --timeout=380s
           timeout 200 kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=180s
-      - name: Build this commit's snip image and load it into the cluster
+      - name: Build this commit's snip and web images and load them into the cluster
         run: |
           docker build -t snip:dev snip
-          kind load docker-image snip:dev --name gitops
+          docker build -t snip-web:dev web
+          kind load docker-image snip:dev snip-web:dev --name gitops
       - name: Point Argo CD at this commit of the repository and let it sync
         env:
           SHA: ${{ github.sha }}
@@ -873,7 +903,7 @@ jobs:
           # This commit's manifests with this commit's image: the image published from
           # main may not understand settings the manifests just started using.
           sed -e "s/targetRevision: main/targetRevision: $SHA/" \
-            -e 's|^    path: snip/deploy/k8s/base$|&\n    kustomize:\n      images: ["ghcr.io/jawwadzafar/snip=snip:dev"]|' \
+            -e 's|^    path: snip/deploy/k8s/base$|&\n    kustomize:\n      images: ["ghcr.io/jawwadzafar/snip=snip:dev", "ghcr.io/jawwadzafar/snip-web=snip-web:dev"]|' \
             snip/deploy/argocd/application.yaml | tee /dev/stderr | kubectl apply -f -
           for _ in $(seq 1 90); do
             S=$(kubectl -n argocd get application snip -o jsonpath='{.status.sync.status} {.status.health.status}')
@@ -882,6 +912,13 @@ jobs:
           kubectl -n argocd get application snip
           [ "$S" = "Synced Healthy" ]
           kubectl -n snip get pods
+      - name: Argo CD deployed the web UI too; it serves /app/ with its headers
+        run: |
+          kubectl -n snip rollout status deploy/web --timeout=120s
+          kubectl -n snip port-forward svc/web 8086:80 > /dev/null 2>&1 &
+          sleep 3
+          curl -fsSI localhost:8086/app/ | tee /dev/stderr | grep -qi '^content-security-policy:'
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8086/api/links)" = 404   # only the UI lives here
       - name: Drift is undone — a hand-edited ConfigMap reverts, a deleted Deployment returns
         run: |
           kubectl -n snip patch configmap snip-config --type merge -p '{"data":{"SNIP_LOG_LEVEL":"debug"}}'
