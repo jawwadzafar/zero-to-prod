@@ -57,7 +57,7 @@ func TestValidateSlug(t *testing.T) {
 			t.Errorf("ValidateSlug(%q) = %v, want nil", ok, err)
 		}
 	}
-	for _, bad := range []string{"ab", "has space", "emoji🙂", "api", "Healthz", "x/y"} {
+	for _, bad := range []string{"ab", "has space", "emoji🙂", "api", "App", "Healthz", "x/y"} {
 		if err := links.ValidateSlug(bad); !errors.Is(err, links.ErrInvalidSlug) {
 			t.Errorf("ValidateSlug(%q) = %v, want ErrInvalidSlug", bad, err)
 		}

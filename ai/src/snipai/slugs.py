@@ -10,8 +10,8 @@ import re
 
 SLUG_PATTERN = re.compile(r"^[A-Za-z0-9_-]{3,32}$")
 
-# Slugs that would collide with snip's own routes.
-RESERVED = {"api", "healthz", "readyz", "metrics"}
+# Slugs that would collide with snip's own routes, or with the web UI at /app/.
+RESERVED = {"api", "app", "healthz", "readyz", "metrics"}
 
 
 class InvalidSlugError(ValueError):

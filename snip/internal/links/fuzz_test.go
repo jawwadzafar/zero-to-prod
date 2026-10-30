@@ -61,7 +61,7 @@ func FuzzNormalizeURL(f *testing.F) {
 var slugChars = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 func FuzzValidateSlug(f *testing.F) {
-	for _, seed := range []string{"abc", "my-launch_2026", "ab", "api", "Healthz", "x/y", "emoji🙂", "../etc"} {
+	for _, seed := range []string{"abc", "my-launch_2026", "ab", "api", "App", "Healthz", "x/y", "emoji🙂", "../etc"} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
@@ -74,7 +74,7 @@ func FuzzValidateSlug(f *testing.F) {
 			t.Fatalf("ValidateSlug accepted %q", s)
 		}
 		switch strings.ToLower(s) {
-		case "api", "healthz", "readyz", "metrics":
+		case "api", "app", "healthz", "readyz", "metrics":
 			t.Fatalf("ValidateSlug accepted reserved slug %q", s)
 		}
 	})
