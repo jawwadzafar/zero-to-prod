@@ -70,4 +70,4 @@ Found a confusing sentence, a missing step, or a mistake? That's a bug — pleas
 
 ## License
 
-Text: [CC BY-SA 4.0](LICENSE-CONTENT.md). Code (site, `snip/`, `ai/`): [MIT](LICENSE).
+Text: [CC BY-SA 4.0](LICENSE-CONTENT.md). Code (site, `snip/`, `web/`, `ai/`, `data/`): [MIT](LICENSE).

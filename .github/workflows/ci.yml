@@ -343,6 +343,47 @@ jobs:
           grep -o "OLLAMA_NUM_PARALLEL:[0-9]*" /tmp/ollama-parallel.log | tee /dev/stderr | grep -q "OLLAMA_NUM_PARALLEL:4"
           OLLAMA_NUM_PARALLEL=4 uv run python -m snipai.bench qwen2.5:0.5b qwen2.5:1.5b
 
+  data:
+    name: data (Python + dbt) — lint, types, tests, the batch pipeline on generated data (chapters 17.2–17.4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: data
+    services:
+      postgres:                               # for extract's tests, which apply snip's real migrations
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: snip
+          POSTGRES_PASSWORD: snip
+          POSTGRES_DB: snip
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U snip" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SNIPDATA_TEST_DATABASE_URL: postgres://snip:snip@localhost:5432/snip?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.8.17"
+      - run: uv sync --locked                 # fails if uv.lock is out of date with pyproject.toml
+      - run: uv run ruff check . && uv run ruff format --check .
+      - run: uv run mypy
+      - name: Tests, including extract against Postgres with snip's schema (chapter 17.2)
+        run: |
+          set -o pipefail                     # without it, tee would hide a pytest failure (chapter 13.6)
+          uv run pytest -v | tee /tmp/pytest.txt
+          grep -q "test_snapshot_and_incremental_audit PASSED" /tmp/pytest.txt   # ran, not skipped
+      - name: Chapters 17.2–17.4 lab — generate a lake, build and test the dbt project, query it
+        run: |
+          uv run snipdata generate --days 30
+          uv run snipdata build                # every model, then every dbt test
+          uv run snipdata build                # a rerun: the incremental fact reprocesses its last days, tests stay green
+          uv run snipdata query "SELECT slug, sum(clicks) AS clicks FROM wh.link_clicks_daily GROUP BY slug ORDER BY clicks DESC LIMIT 5"
+          uv run snipdata dbt docs generate    # the lineage graph and column docs (chapter 17.4)
+          test -s dbt/target/catalog.json
+
   identity:
     name: Identity labs — MFA, SSO with Keycloak, policies with OPA, mutual TLS (chapters 7.7–7.11)
     runs-on: ubuntu-latest

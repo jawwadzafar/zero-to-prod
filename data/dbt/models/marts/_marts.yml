@@ -1,0 +1,78 @@
+models:
+  - name: dim_links
+    description: >
+      The link dimension: one row per slug snip has ever had, live or deleted, with
+      its URL, host and owner. Built from the newest links snapshot plus the audit
+      trail, so links deleted before the snapshot are still here.
+    columns:
+      - name: slug
+        description: The short code, e.g. golang in https://snip.example/golang. The key of this table.
+        data_tests: [unique, not_null]
+      - name: url
+        data_tests: [not_null]
+      - name: url_host
+        description: The host part of the URL, e.g. go.dev.
+      - name: owner_id
+        data_tests: [not_null]
+      - name: created_at
+        data_tests: [not_null]
+      - name: is_deleted
+        description: True if the link is gone from the newest snapshot or the audit trail says it was deleted.
+        data_tests: [not_null]
+
+  - name: fct_clicks
+    description: The click fact table. One row per click event (no duplicates), keyed by event_id.
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: slug
+        description: Which link was clicked; joins to dim_links.slug.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_links')
+                field: slug
+      - name: clicked_at
+        data_tests: [not_null]
+      - name: click_date
+        data_tests:
+          - not_null
+          - accepted_range:
+              arguments:
+                min_value: "date '2020-01-01'"   # older than any snip data could be
+                max_value: "current_date + 1"    # a click from the future means a broken clock or a bad parse
+      - name: click_hour_utc
+        data_tests:
+          - accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 23
+
+  - name: link_clicks_daily
+    description: Clicks per link per UTC day; one row per (slug, click_date) with at least one click.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [slug, click_date]
+    columns:
+      - name: slug
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_links')
+                field: slug
+      - name: click_date
+        data_tests:
+          - not_null
+          - accepted_range:
+              arguments:
+                min_value: "date '2020-01-01'"
+                max_value: "current_date + 1"
+      - name: clicks
+        data_tests:
+          - not_null
+          - accepted_range:
+              arguments:
+                min_value: 1

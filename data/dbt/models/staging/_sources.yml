@@ -1,0 +1,23 @@
+# The raw tables in the lake. dbt-duckdb reads each one straight from its
+# Parquet files: {name} becomes the table name (clicks, links, ...).
+sources:
+  - name: lake
+    description: Parquet files written by snipdata extract, snipdata generate and the streaming consumer.
+    config:
+      meta:
+        external_location: >-
+          read_parquet('{{ env_var('SNIPDATA_LAKE', '../lake') }}/{name}/*/*.parquet',
+          hive_partitioning = true, union_by_name = true)
+    tables:
+      - name: clicks
+        description: >
+          One row per click event, as delivered by the stream: at least once, so an
+          event can appear twice (same event_id). The contract: event_id (the Redis
+          Stream entry ID), slug, clicked_at (UTC, millisecond precision), in
+          clicks/dt=YYYY-MM-DD/ folders.
+      - name: links
+        description: A full copy of snip's links table per day it was extracted (dt = the day).
+      - name: owners
+        description: snip's API key owners per day extracted, without key hashes.
+      - name: audit_events
+        description: snip's append-only audit trail, copied incrementally by id.
