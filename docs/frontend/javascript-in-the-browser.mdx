@@ -117,7 +117,7 @@ The browser keeps a queue of things to do. The **event loop** takes one task, ru
 
 Two consequences shape all browser code:
 
-1. **Long-running code freezes the page.** A loop that takes two seconds means two seconds of a page that ignores every click and doesn't repaint. Browsers flag tasks over 50 milliseconds as **long tasks**; the performance chapter later in this part measures them. Heavy computation belongs in a **Web Worker**, a separate thread that can't touch the DOM.
+1. **Long-running code freezes the page.** A loop that takes two seconds means two seconds of a page that ignores every click and doesn't repaint. Browsers flag tasks over 50 milliseconds as **long tasks**; the performance chapter ([chapter 16.8](./frontend-performance.mdx)) measures them. Heavy computation belongs in a **Web Worker**, a separate thread that can't touch the DOM.
 2. **Waiting never blocks.** There is no way to "wait for the network" by pausing the thread. Instead, you *start* the request, hand over a function to run when it finishes, and your code returns at once. The browser does the network work outside your thread; when the answer arrives, it queues a task to run your function.
 
 :::note[Everyday anchor]
@@ -452,7 +452,7 @@ flowchart LR
     N -->|"/api/…"| S["snip's stack<br/>(its own nginx and API)"]
 ```
 
-This is the same pattern real frontends use: development servers like Vite have a proxy setting for exactly this, and in production a reverse proxy or CDN serves the app and routes `/api` to the backend ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)). The next chapters build snip's real UI on it.
+This is the same pattern real frontends use: development servers like Vite have a proxy setting for exactly this, and in production a reverse proxy or CDN serves the app and routes `/api` to the backend ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)). The next chapters build snip's real UI on it ([chapters 16.4](./typescript-and-tooling.mdx)–[16.6](./a-ui-for-snip.mdx)).
 
 One more judgment call: the page asks for the API key every time and keeps it only in a form field, never in `localStorage`. snip's API keys are long-lived and can create and delete every link their owner has, which is exactly the kind of credential that section warned about.
 

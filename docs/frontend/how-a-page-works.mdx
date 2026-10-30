@@ -128,7 +128,7 @@ HTML has elements that say what a piece of the page **means**:
 
 These are called **semantic elements**, and choosing them costs nothing. They pay off for three groups of readers who don't see your page the way you do:
 
-- **People using screen readers.** A **screen reader** is software that reads the page aloud for blind and low-vision users. It lists the headings and landmarks (`nav`, `main`) so its user can jump straight to the content, the way you skim with your eyes. A `button` is announced as "button", can be reached with <kbd>Tab</kbd> and pressed with <kbd>Enter</kbd> or <kbd>Space</kbd>; a `div` with a click handler is silent, unreachable by keyboard, and unusable. The accessibility chapter later in this part goes much deeper.
+- **People using screen readers.** A **screen reader** is software that reads the page aloud for blind and low-vision users. It lists the headings and landmarks (`nav`, `main`) so its user can jump straight to the content, the way you skim with your eyes. A `button` is announced as "button", can be reached with <kbd>Tab</kbd> and pressed with <kbd>Enter</kbd> or <kbd>Space</kbd>; a `div` with a click handler is silent, unreachable by keyboard, and unusable. The accessibility chapter ([chapter 16.7](./accessibility.mdx)) goes much deeper.
 - **Search engines.** A crawler reads HTML, not pixels. Headings, `main`, `article` and link text tell it what the page is about.
 - **The browser itself.** A real `a href` gets "open in new tab", a status-bar preview and a working Back button for free. A `span` that changes `location` gets none of them.
 
@@ -202,7 +202,7 @@ flowchart LR
 1. **Parse.** HTML becomes the DOM; CSS (the styling language, [chapter 16.2](./css-from-zero.mdx)) becomes a set of rules.
 2. **Style.** For every element, the browser works out which CSS rules apply and their final values: this paragraph is 16 pixels, dark grey, in this font.
 3. **Layout.** With sizes known, the browser computes the geometry: where each box sits on the page and how wide and tall it is. Text wraps here; a wider window means a different layout.
-4. **Paint.** The browser fills in the pixels: text, colours, borders, images. (Modern browsers split this further — painting into layers and then **compositing** the layers together, often on the graphics chip — which is why some animations stay smooth when others stutter. The performance chapter later in this part measures this.)
+4. **Paint.** The browser fills in the pixels: text, colours, borders, images. (Modern browsers split this further — painting into layers and then **compositing** the layers together, often on the graphics chip — which is why some animations stay smooth when others stutter. The performance chapter ([chapter 16.8](./frontend-performance.mdx)) measures this.)
 
 The order explains a lot of everyday behaviour. Change an element's text colour and only paint needs redoing. Change its width and layout must run again for it and possibly everything around it. A script that changes the DOM in a loop, measuring sizes in between, can force layout hundreds of times — a classic cause of janky pages.
 
@@ -254,7 +254,7 @@ sequenceDiagram
     N->>J: run app.js after parsing ends
 ```
 
-**Rule: put your scripts in the `head` with `defer` (or use `type="module"`), keep stylesheets small, and give images their dimensions.** The performance chapter later in this part turns this into numbers you can measure.
+**Rule: put your scripts in the `head` with `defer` (or use `type="module"`), keep stylesheets small, and give images their dimensions.** The performance chapter ([chapter 16.8](./frontend-performance.mdx)) turns this into numbers you can measure.
 
 ---
 

@@ -173,7 +173,7 @@ The empty state is the one teams forget: a new user's first visit shows a blank 
         {list.status === 'ready' && <LinkList links={list.links} onDelete={handleDelete} />}
 ```
 
-`role="alert"` and `aria-live` make screen readers announce changes that sighted users see; chapter 16.7 goes deeper. The **Refresh** button exists for a reason specific to snip: clicks are counted by a background worker reading a queue ([chapter 8.2](../distributed/queues-and-background-work.mdx)), so a count updates a moment after the click, not instantly.
+`role="alert"` and `aria-live` make screen readers announce changes that sighted users see; [chapter 16.7](./accessibility.mdx) goes deeper. The **Refresh** button exists for a reason specific to snip: clicks are counted by a background worker reading a queue ([chapter 8.2](../distributed/queues-and-background-work.mdx)), so a count updates a moment after the click, not instantly.
 
 ---
 
@@ -240,8 +240,14 @@ nginx was snip's reverse proxy ([chapter 8.3](../distributed/reverse-proxies-and
         root /usr/share/nginx/html;
         try_files $uri /app/index.html;
         add_header Cache-Control "no-cache";   # always check for a new index.html
-        add_header Content-Security-Policy "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+        # Security headers for the page (chapter 16.10). An add_header inside a
+        # location replaces every add_header from outside it, so all of them
+        # live here together. "always" adds them to error pages too.
+        add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'" always;
+        add_header Referrer-Policy no-referrer always;
         add_header X-Content-Type-Options nosniff always;
+        add_header Cross-Origin-Opener-Policy same-origin always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
     }
 
     location /app/assets/ {     # file names carry a content hash, so they never change
@@ -316,7 +322,7 @@ Serving the UI from the API's own nginx is the simplest setup that's correct: on
 - **A backend for frontend (BFF)**: a small server owned by the UI team that renders pages, holds sessions in HttpOnly cookies, and calls the API server-to-server. It's the strongest answer to "where does the secret live" (not in the browser at all), and what frameworks such as Next.js make convenient.
 - **Server-rendered HTML** with a little JavaScript: for a UI this simple, a Go template in snip itself would also work. A React app earns its place as the UI grows: more screens, more shared state, more people working on it.
 
-For snip, same origin behind nginx is the right first step, and chapters 16.7 to 16.10 build on this app: accessibility, performance, testing and shipping.
+For snip, same origin behind nginx is the right first step, and chapters [16.7](./accessibility.mdx) to [16.10](./shipping-a-frontend.mdx) build on this app: accessibility, performance, testing and shipping.
 
 ---
 

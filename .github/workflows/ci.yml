@@ -133,6 +133,29 @@ jobs:
       - run: npm run lint                     # tsc --noEmit: the type check
       - run: npm test
       - run: npm run build
+      - run: npm run size                     # fails if the gzipped JavaScript passes its budget (chapter 16.8)
+
+  web-e2e:
+    name: web end to end — Playwright drives /app/ on the compose stack (chapters 16.7, 16.9)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start the stack
+        working-directory: snip
+        run: docker compose up -d --build --wait
+      - name: Create an API key for the tests
+        working-directory: snip
+        run: echo "SNIP_API_KEY=$(docker compose exec -T api snip keys create ci | grep -o 'snip_[A-Za-z0-9]*')" >> "$GITHUB_ENV"
+      - name: Run the Playwright tests (flow, accessibility, keyboard, CSP)
+        working-directory: web
+        # The official image ships the browsers that match @playwright/test 1.64.1.
+        run: |
+          docker run --rm --network snip_default -e CI=1 -e SNIP_URL=http://nginx -e SNIP_API_KEY \
+            -v "$PWD:/w" -w /w mcr.microsoft.com/playwright:v1.64.1-noble sh -c 'npm ci && npx playwright test'
+      - if: always()
+        working-directory: snip
+        run: docker compose down -v
 
   ai:
     name: ai (Python) — lint, types, tests, live against snip

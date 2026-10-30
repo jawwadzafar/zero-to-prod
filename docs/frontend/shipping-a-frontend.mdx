@@ -245,7 +245,7 @@ What changed, and why:
 - **`Referrer-Policy: no-referrer`.** The UI has nothing to tell other sites. (The short links in the list already open with `rel="noreferrer"`.)
 - **`Cross-Origin-Opener-Policy` and `Permissions-Policy`** close two doors the app never uses.
 
-How it was tested: a container from the compose stack's own nginx image ran with this location in place of the current one, on the stack's network, and the end-to-end suite ([chapter 16.9](./testing-the-frontend.mdx)) ran against it. All seven tests passed, including `web/e2e/csp.spec.ts`, which listens for the browser's `securitypolicyviolation` events through the whole create-and-delete flow and fails on any:
+How it was tested: a container from the compose stack's own nginx image ran with this location in place of the first version, on the stack's network, and the end-to-end suite ([chapter 16.9](./testing-the-frontend.mdx)) ran against it. All seven tests passed, including `web/e2e/csp.spec.ts`, which listens for the browser's `securitypolicyviolation` events through the whole create-and-delete flow and fails on any:
 
 ```ts title="web/e2e/csp.spec.ts (excerpt)"
   await page.addInitScript(() => {
