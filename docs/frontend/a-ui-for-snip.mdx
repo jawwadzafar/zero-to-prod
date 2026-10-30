@@ -305,7 +305,7 @@ And in `snip/docker-compose.yml` ([chapter 9.3](../containers/docker-compose.mdx
 
 ```yaml title="snip/docker-compose.yml (excerpt)"
   nginx:
-    build: ../web                     # nginx (unprivileged, 1.30-alpine) plus the web UI at /app/ (chapter 16.6)
+    build: ../web                     # nginx (unprivileged, 1.31-alpine) plus the web UI at /app/ (chapter 16.6)
 ```
 
 On Kubernetes, the same image runs as its own small Deployment, `web`, with the server in `web/nginx/default.conf`: it listens on 8080, serves `/app/` with the same `app.conf`, and answers `404` for anything else. The Gateway sends `/app` to it and every other path to the API ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)), so the browser still sees one origin. CI publishes the image as `ghcr.io/jawwadzafar/snip-web` next to snip's ([chapter 9.4](../containers/images-in-production.mdx)), and the Helm chart has it too (`web.enabled`).
