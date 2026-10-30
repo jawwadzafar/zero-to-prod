@@ -250,7 +250,7 @@ In 0.15 seconds the fuzzer found what the seed tests didn't: a Chinese character
 
 - **`go test` without `-fuzz` runs only the seeds**, as ordinary tests. Fuzz tests cost nothing in your normal test run.
 - **Failing inputs are saved** under `testdata/fuzz/`, and from then on `go test` runs them as seeds too. Commit that file: it's a regression test the fuzzer wrote for you.
-- **`-fuzz` takes one target in one package at a time.** Fuzzing is a separate, longer job: run it for minutes locally, or nightly in CI.
+- **`-fuzz` takes one target in one package at a time.** Fuzzing is a separate, longer job: run it for minutes locally, or nightly in CI. This repository does: `.github/workflows/fuzz.yml` gives each of snip's fuzz targets five minutes every night and keeps any failing input so it can be committed as a regression test.
 
 :::info[If you've written code]
 Fuzzing is close to **property-based testing** (Hypothesis in Python, fast-check in JavaScript), which also checks properties over generated inputs. The difference is the guidance: property-based tools generate structured values from types you describe, while coverage-guided fuzzers mutate raw inputs and use code coverage to steer toward unexplored paths. They're good at different bugs, and both beat a hand-picked list of examples.

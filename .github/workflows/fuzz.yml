@@ -1,0 +1,45 @@
+name: Nightly fuzzing
+
+# Chapter 7.13: fuzzing is a separate, longer job than the tests. `go test`
+# on every push only replays the saved inputs; this run lets each fuzz target
+# search for new failures for a few minutes every night.
+on:
+  schedule:
+    - cron: "41 3 * * *"   # daily, 03:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzNormalizeURL, FuzzValidateSlug]
+    defaults:
+      run:
+        working-directory: snip
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: snip/go.mod
+          cache-dependency-path: snip/go.sum
+      - name: Fuzz for 5 minutes
+        env:
+          TARGET: ${{ matrix.target }}
+        run: go test ./internal/links -run='^$' -fuzz="^${TARGET}\$" -fuzztime=5m
+      # A failing input is saved under testdata/fuzz/. Keep it so it can be
+      # committed as a regression test (as the one in 7.13 was).
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failure-${{ matrix.target }}
+          path: snip/internal/links/testdata/fuzz/
