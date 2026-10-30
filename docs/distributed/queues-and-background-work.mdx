@@ -301,20 +301,20 @@ That middle step was missing for a long time, and the bug is worth understanding
 
 ## Lab
 
-Free, on your own computer with Docker. Step 1 is standalone; steps 2–4 use snip with Postgres and Redis running (the labs of chapters [6.6](../data/postgres-from-go.mdx) and [6.7](../data/redis-and-caching.mdx) start them).
+Free, on your own computer with Docker. Step 1 is standalone; steps 2–4 use snip with Postgres and Redis running (the labs of chapters [6.6](../data/postgres-from-go.mdx) and [6.7](../data/redis-and-caching.mdx) create them as `pg-lab` and `cache-lab`; if they're stopped, `docker start pg-lab cache-lab`).
 
 1. **Drive a queue by hand.** Repeat the `redis-cli` session from "Drive a queue by hand" above: produce three messages, read them as two consumers, acknowledge one, and claim the others. Then simulate a poison message: run `XAUTOCLAIM` three more times (waiting a second between) and watch the delivery count in `XPENDING` climb. At what count would you move a message to a dead-letter stream?
 
 2. **Start snip's API without a worker, and make a link go viral.**
    ```bash
    cd ~/code/zero-to-prod/snip
-   export SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable" SNIP_REDIS_ADDR=localhost:6379
+   export SNIP_DATABASE_URL="postgres://postgres:learn@localhost:5432/postgres?sslmode=disable" SNIP_REDIS_ADDR=localhost:6379
    KEY=$(go run ./cmd/snip keys create queue-lab | grep -o 'snip_[A-Za-z0-9]*')
    go run ./cmd/snip &
    sleep 3
    curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"viral"}' >/dev/null
    for i in $(seq 1 50); do curl -s -o /dev/null localhost:8080/viral; done    # 50 clicks
-   docker exec snip-redis redis-cli XLEN snip:clicks                            # 50 events waiting
+   docker exec cache-lab redis-cli XLEN snip:clicks                            # 50 events waiting
    curl -s localhost:8080/api/links/viral -H "Authorization: Bearer $KEY" | jq .clicks   # 0: nobody has counted yet
    ```
    Every redirect worked instantly; the counting simply hasn't happened.
@@ -324,11 +324,11 @@ Free, on your own computer with Docker. Step 1 is standalone; steps 2–4 use sn
    go run ./cmd/snip-worker &
    sleep 5
    curl -s localhost:8080/api/links/viral -H "Authorization: Bearer $KEY" | jq .clicks   # 50
-   docker exec snip-redis redis-cli XINFO GROUPS snip:clicks          # lag 0, pending 0
+   docker exec cache-lab redis-cli XINFO GROUPS snip:clicks          # lag 0, pending 0
    ```
    All 50 counted, as a handful of batched `UPDATE`s, not 50.
 
-4. **Scale out.** Start a second worker (`go run ./cmd/snip-worker &`), send another 200 clicks, and check `docker exec snip-redis redis-cli XINFO CONSUMERS snip:clicks workers`: both consumers took a share. Stop everything with `kill %1 %2 %3`.
+4. **Scale out.** Start a second worker (`go run ./cmd/snip-worker &`), send another 200 clicks, and check `docker exec cache-lab redis-cli XINFO CONSUMERS snip:clicks workers`: both consumers took a share. Stop everything with `kill %1 %2 %3`.
 
 ## Self-check
 

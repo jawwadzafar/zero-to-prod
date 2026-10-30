@@ -361,10 +361,10 @@ Free, on your own computer. Steps 1–2 are standalone Go programs (they live in
    ```
    Wait for the `Retry-After` seconds and try again: allowed. Then press Ctrl-C in snip's terminal and read its last log lines: `shutting down`, `stopped cleanly`.
 
-4. **See the shared counter in Redis, and fail open** (with Postgres and Redis running, chapters [6.6](../data/postgres-from-go.mdx)–[6.7](../data/redis-and-caching.mdx)). Run snip with `SNIP_REDIS_ADDR=localhost:6379`, create a few links, then:
+4. **See the shared counter in Redis, and fail open** (with Postgres and Redis running: chapters [6.6](../data/postgres-from-go.mdx)–[6.7](../data/redis-and-caching.mdx) create them as `pg-lab` and `cache-lab`; `docker start pg-lab cache-lab` if they're stopped). Run snip with `SNIP_REDIS_ADDR=localhost:6379`, create a few links, then:
    ```bash
-   docker exec snip-redis redis-cli KEYS 'snip:rl:*'          # one counter per key per minute
-   docker exec snip-redis redis-cli TTL "$(docker exec snip-redis redis-cli KEYS 'snip:rl:*' | head -1)"
+   docker exec cache-lab redis-cli KEYS 'snip:rl:*'          # one counter per key per minute
+   docker exec cache-lab redis-cli TTL "$(docker exec cache-lab redis-cli KEYS 'snip:rl:*' | head -1)"
    ```
    Then stop Redis and create a link: it succeeds (fail open), and snip logs `rate limiter unavailable`.
 
