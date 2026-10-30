@@ -112,6 +112,32 @@ GitOps doesn't replace CI; it replaces the *deploy* step:
 3. Something updates the **desired state in Git** to use the new tag. It's either a CI step that commits a one-line change to the environment's manifests (`kustomize edit set image …`), or a bot like **Argo CD Image Updater** or **Renovate** that opens a pull request.
 4. **Argo CD** notices the Git change and syncs the cluster.
 
+Step through one change, from merge to running in staging, then promoted and rolled back:
+
+<StepThrough
+  title="One change, from merge to production with GitOps"
+  nodes={[
+    {id: "dev", label: "Developer"},
+    {id: "git", label: "Git", sub: "code + config"},
+    {id: "ci", label: "CI", sub: "tests, builds"},
+    {id: "reg", label: "Registry", sub: "images"},
+    {id: "argo", label: "Argo CD", sub: "in the cluster"},
+    {id: "k8s", label: "Cluster", sub: "Kubernetes"},
+  ]}
+  steps={[
+    {title: "Merge", text: "A reviewed pull request is merged to `main`.", from: "dev", to: "git"},
+    {title: "CI runs", text: "The push starts CI. It runs the tests and builds an image. If a test fails, nothing below happens.", from: "git", to: "ci"},
+    {title: "Publish the image", text: "CI pushes the image to a registry under a tag that names the commit, `ghcr.io/example/app:sha-9f3c2a1`. A tag like that never moves, so it always means this exact build.", from: "ci", to: "reg"},
+    {title: "Change the desired state", text: "CI commits a one-line change to `deploy/envs/staging`: use `sha-9f3c2a1`. (Or a bot opens that change as a pull request.) That's the deploy, as far as CI is concerned: CI never had credentials for the cluster.", from: "ci", to: "git"},
+    {title: "Argo CD notices", text: "Argo CD runs inside the cluster and checks Git about every three minutes by default (or at once, if Git sends it a webhook). The staging Application is now `OutOfSync`: Git says `sha-9f3c2a1`, the cluster runs the old tag.", from: "argo", to: "git"},
+    {title: "Argo CD syncs", text: "It applies the changed manifests to the cluster: a Deployment with a new image, which Kubernetes rolls out Pod by Pod: the same rolling update you ran by hand with kubectl.", from: "argo", to: "k8s"},
+    {title: "Nodes pull the image", text: "Each node that runs a new Pod pulls `sha-9f3c2a1` from the registry. Readiness checks gate every step of the rollout.", from: "k8s", to: "reg"},
+    {title: "Synced and Healthy", text: "Argo CD compares again: the cluster matches Git, and every resource is healthy. Staging is done.", active: ["argo", "k8s"]},
+    {title: "Promote to production", text: "A pull request copies the same tag into `deploy/envs/production`. Once it's reviewed and merged, production's Application goes through steps 5 to 8. The image is the one staging tested, byte for byte.", from: "dev", to: "git"},
+    {title: "Roll back by reverting", text: "If production misbehaves, revert that commit. Argo CD sees Git change back and syncs the previous tag. Every deploy and every rollback is a commit someone can read.", from: "dev", to: "git"},
+  ]}
+/>
+
 Often the application code and its deployment configuration live in **separate repositories**. That way a configuration change doesn't trigger a code build, and deployment permissions can differ from code permissions. Small projects (this handbook included) keep them together for simplicity.
 
 ### Promoting between environments
