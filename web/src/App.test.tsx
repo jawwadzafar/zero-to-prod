@@ -95,4 +95,54 @@ describe('App', () => {
 
     expect(await screen.findByText('0 clicks')).toBeInTheDocument();
   });
+
+  // Accessibility (chapter 16.7): where focus goes when the screen changes
+  // under it, and what a screen reader is told.
+  it('moves focus to the first field once the key is accepted', async () => {
+    stubFetch(json(200, { links: [] }));
+    const user = userEvent.setup();
+    render(<App />);
+    await enterKey(user);
+
+    expect(screen.getByLabelText('Long URL')).toHaveFocus();
+  });
+
+  it('announces a new link without moving focus', async () => {
+    stubFetch(json(200, { links: [] }), json(201, godoc));
+    const user = userEvent.setup();
+    render(<App />);
+    await enterKey(user);
+    await screen.findByText(/No links yet/);
+
+    await user.type(screen.getByLabelText('Long URL'), 'https://go.dev/doc/');
+    await user.click(screen.getByRole('button', { name: 'Create short link' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(`Created ${godoc.short_url}`);
+    expect(screen.getByRole('button', { name: 'Create short link' })).toHaveFocus();
+  });
+
+  it('after a delete, announces it and puts focus on the list heading', async () => {
+    stubFetch(json(200, { links: [godoc] }), new Response(null, { status: 204 }));
+    vi.stubGlobal('confirm', () => true);
+    const user = userEvent.setup();
+    render(<App />);
+    await enterKey(user);
+
+    await user.click(await screen.findByRole('button', { name: 'Delete godoc' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Deleted godoc');
+    expect(screen.getByRole('heading', { name: 'Your links' })).toHaveFocus();
+  });
+
+  it('gives the key field focus again after "Forget key"', async () => {
+    stubFetch(json(200, { links: [] }));
+    const user = userEvent.setup();
+    render(<App />);
+    await enterKey(user);
+
+    await user.click(screen.getByRole('button', { name: 'Forget key' }));
+
+    expect(screen.getByLabelText('API key')).toHaveFocus();
+    expect(screen.getByLabelText('API key')).toHaveAccessibleDescription(/snip keys create/);
+  });
 });

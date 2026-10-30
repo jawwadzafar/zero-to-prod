@@ -8,6 +8,9 @@ import { LinksPage } from './components/LinksPage';
 export function App() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // True once the user has left the links page (Forget key, or a rejected
+  // key): the key form then takes focus, because the button they pressed is gone.
+  const [returning, setReturning] = useState(false);
 
   // One client per key. useMemo and useCallback keep the same object between
   // renders, so the list's effect (which depends on them) runs only when the
@@ -15,6 +18,7 @@ export function App() {
   const client = useMemo(() => (apiKey ? createClient(apiKey) : null), [apiKey]);
   const handleUnauthorized = useCallback(() => {
     setApiKey(null);
+    setReturning(true);
     setNotice('snip did not accept that API key. Paste a valid one.');
   }, []);
 
@@ -23,7 +27,14 @@ export function App() {
       <header className="app-header">
         <h1>snip</h1>
         {client && (
-          <button type="button" className="secondary" onClick={() => setApiKey(null)}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setApiKey(null);
+              setReturning(true);
+            }}
+          >
             Forget key
           </button>
         )}
@@ -33,6 +44,7 @@ export function App() {
       ) : (
         <KeyForm
           notice={notice}
+          autoFocus={returning}
           onSubmit={(key) => {
             setNotice(null);
             setApiKey(key);

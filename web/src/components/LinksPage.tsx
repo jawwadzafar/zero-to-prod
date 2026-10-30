@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, describeError, type Link, type SnipClient } from '../api';
 import { CreateLinkForm } from './CreateLinkForm';
 import { LinkList } from './LinkList';
@@ -18,6 +18,10 @@ interface Props {
 export function LinksPage({ client, onUnauthorized }: Props) {
   const [list, setList] = useState<ListState>({ status: 'loading' });
   const [actionError, setActionError] = useState<string | null>(null);
+  // What a screen reader should say after an action. Sighted users see the
+  // row appear or vanish; this sentence is how everyone else finds out.
+  const [announcement, setAnnouncement] = useState('');
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   // Any call can fail with 401 (the key was revoked a minute ago, say);
   // that always means "ask for a key again", wherever it happens.
@@ -57,6 +61,7 @@ export function LinksPage({ client, onUnauthorized }: Props) {
   }, [load]);
 
   function handleCreated(link: Link) {
+    setAnnouncement(`Created ${link.short_url}`);
     setList((prev) => (prev.status === 'ready' ? { status: 'ready', links: [link, ...prev.links] } : prev));
   }
 
@@ -64,6 +69,10 @@ export function LinksPage({ client, onUnauthorized }: Props) {
     setActionError(null);
     try {
       await client.deleteLink(slug);
+      setAnnouncement(`Deleted ${slug}`);
+      // The Delete button that had focus is gone with its row. Put focus on
+      // the list's heading, so keyboard users continue from a known place.
+      headingRef.current?.focus();
       setList((prev) =>
         prev.status === 'ready' ? { status: 'ready', links: prev.links.filter((l) => l.slug !== slug) } : prev,
       );
@@ -74,11 +83,26 @@ export function LinksPage({ client, onUnauthorized }: Props) {
 
   return (
     <>
+      {/* A live region is only reliable if it is already on the page before
+          its text changes, so this one is always rendered, empty at first. */}
+      <p className="visually-hidden" role="status">
+        {announcement}
+      </p>
       <CreateLinkForm client={client} onCreated={handleCreated} onError={handleError} />
       <section className="card" aria-labelledby="links-heading">
         <div className="section-header">
-          <h2 id="links-heading">Your links</h2>
-          <button type="button" className="secondary" onClick={() => void load()} disabled={list.status === 'loading'}>
+          <h2 id="links-heading" ref={headingRef} tabIndex={-1}>
+            Your links
+          </h2>
+          <button
+            type="button"
+            className="secondary"
+            // aria-disabled keeps focus on the button while the list reloads (see CreateLinkForm).
+            aria-disabled={list.status === 'loading'}
+            onClick={() => {
+              if (list.status !== 'loading') void load();
+            }}
+          >
             Refresh
           </button>
         </div>
@@ -87,7 +111,7 @@ export function LinksPage({ client, onUnauthorized }: Props) {
             {actionError}
           </p>
         )}
-        {list.status === 'loading' && <p aria-live="polite">Loading your links…</p>}
+        {list.status === 'loading' && <p>Loading your links…</p>}
         {list.status === 'error' && (
           <div role="alert">
             <p className="error">{list.message}</p>
