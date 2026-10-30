@@ -35,13 +35,15 @@ needs_db = pytest.mark.skipif(not DSN, reason="SNIPDATA_TEST_DATABASE_URL not se
 def db() -> Iterator[tuple[str, psycopg.Connection[Any]]]:
     """(dsn, connection) for a fresh schema holding snip's tables."""
     assert DSN
+    migrations = sorted(MIGRATIONS.glob("*.sql"))
+    assert migrations, f"snip's migrations not found in {MIGRATIONS}"
     schema = f"snipdata_test_{secrets.token_hex(4)}"
     with psycopg.connect(DSN, autocommit=True) as admin:
         admin.execute(f"CREATE SCHEMA {schema}")
         dsn = make_conninfo(DSN, options=f"-c search_path={schema}")
         try:
             with psycopg.connect(dsn, autocommit=True) as conn:
-                for f in sorted(MIGRATIONS.glob("*.sql")):
+                for f in migrations:
                     conn.execute(f.read_text())  # type: ignore[arg-type]  # trusted files from this repo
                 yield dsn, conn
         finally:

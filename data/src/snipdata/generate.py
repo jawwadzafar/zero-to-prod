@@ -74,7 +74,7 @@ HOUR_WEIGHTS = [max(0.15, math.exp(-(((h - 14) / 5.0) ** 2))) for h in range(24)
 class Options:
     seed: int = 42
     days: int = 30  # how many days of clicks, ending on `end`
-    end: date | None = None  # last day (UTC); default today
+    end: date | None = None  # last day (UTC); default yesterday, the last full day
     links: int = 25
     clicks_per_day: int = 5000  # average, before weekend dips and the launch spike
     duplicate_rate: float = 0.005  # share of events delivered twice
@@ -115,7 +115,7 @@ def generate(lake: Path, opts: Options) -> Summary:
     _prepare(lake)
 
     rng = random.Random(opts.seed)
-    end = opts.end or datetime.now(UTC).date()
+    end = opts.end or datetime.now(UTC).date() - timedelta(days=1)  # no clicks from the future
     first = end - timedelta(days=opts.days - 1)
     window_start = datetime.combine(first, time(), UTC)
     extracted_at = datetime.combine(end, time(23, 59, 59), UTC)

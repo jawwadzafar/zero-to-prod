@@ -117,7 +117,7 @@ def parser() -> argparse.ArgumentParser:
         "--end",
         type=date.fromisoformat,
         default=None,
-        help="last day, YYYY-MM-DD (default: today, UTC)",
+        help="last day, YYYY-MM-DD (default: yesterday, UTC: the last full day)",
     )
     g.add_argument("--links", type=int, default=25)
     g.add_argument("--clicks-per-day", type=int, default=5000)
