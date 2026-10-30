@@ -187,9 +187,10 @@ func run(args []string) error {
 // command's arguments, wherever it is, and returns the other arguments and
 // who is running the command: the flag, else fromEnv (SNIP_OPERATOR), else
 // audit.UnknownOperator after a warning on stderr. Not the OS user: inside a
-// container, where these commands usually run, that is root or nobody, which
-// would look like an answer without being one. The name is the operator's
-// own claim; chapter 7.4 explains what real systems do instead.
+// container, where these commands usually run, that is the image's user
+// (snip's is "nonroot") whoever runs `docker exec`, and $USER isn't set,
+// so it would look like an answer without being one. The name is the
+// operator's own claim; chapter 7.4 explains what real systems do instead.
 func keyOperator(args []string, fromEnv string, stderr io.Writer) (rest []string, operator string, err error) {
 	fromFlag, set := "", false
 	for i := 0; i < len(args); i++ {

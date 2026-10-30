@@ -90,6 +90,9 @@ jobs:
       - name: Chapter 7.4 — the app's database login can't drop the audit trigger or change the schema (ran, not skipped)
         run: |
           go test -count=1 -v -run 'Login' ./internal/store/postgres/ | tee /dev/stderr | grep -q -- '--- PASS: TestAppLoginIsLeastPrivilege'
+      - name: Chapter 7.4 — key events record their operator in real Postgres (ran, not skipped)
+        run: |
+          go test -count=1 -v -run 'TestKeyEventsRecordTheOperator' ./internal/store/postgres/ | tee /dev/stderr | grep -q -- '--- PASS: TestKeyEventsRecordTheOperator'
       - run: go build ./...
       - name: Chapter 13.6 lab — git bisect finds the commit that broke 3-character slugs
         run: |
@@ -604,6 +607,13 @@ jobs:
           as snip_app snip-app-dev-only "SELECT count(*) FROM links" | tee /dev/stderr | grep -q '(1 row)'
           as snip_readonly snip-readonly-dev-only "SELECT key_hash FROM api_keys" | tee /dev/stderr | grep -q 'permission denied'
           docker compose exec -T postgres psql -U snip -tAc "SELECT count(*) FROM pg_trigger WHERE tgname = 'audit_events_append_only'" | grep -qx 1
+      - name: Chapter 7.4 — key commands record their operator (flag, SNIP_OPERATOR, or "unknown" with a warning)
+        run: |
+          ID=$(docker compose exec -T api snip keys create op-check --operator ci-flag | grep -o 'owner id [0-9]*' | grep -o '[0-9]*$')
+          docker compose exec -T api snip keys rotate "$ID" 2>&1 >/dev/null | tee /dev/stderr | grep -q 'warning: no --operator'
+          docker compose exec -T -e SNIP_OPERATOR=ci-env api snip keys revoke "$ID"
+          docker compose exec -T api snip audit "$ID" | jq -r '.action + " " + .detail.operator' | tee /dev/stderr | paste -sd, - \
+            | grep -qx 'key.revoked ci-env,key.rotated unknown,key.created ci-flag'
       - name: Chapter 9.3 lab — look inside postgres and redis; prometheus finds the api copies
         run: |
           docker compose exec -T postgres psql -U snip -c "SELECT slug, clicks FROM links ORDER BY slug" | tee /dev/stderr | grep -q counted
