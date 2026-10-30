@@ -23,7 +23,7 @@ src/session.tsx   the key in Secure Store, shared with every screen
 
    ```bash
    docker compose up -d --build --wait
-   docker compose exec api snip keys create me    # copy the snip_… key it prints
+   docker compose exec api snip keys create me --operator you   # copy the snip_… key it prints
    ```
 
 2. Start the app (from `mobile/`), then open it in **Expo Go** on your phone

@@ -65,6 +65,14 @@ describe('createClient', () => {
     expect(describeError(err)).toBe('snip had a problem on its side. Try again in a moment.');
   });
 
+  it('does not take a 200 that is not JSON for success', async () => {
+    stubFetch(new Response('<!doctype html><title>Not snip</title>', { status: 200 }));
+
+    const err = await createClient('snip_test').createLink('https://go.dev/').catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ status: 200, code: 'unexpected' });
+  });
+
   it('reports a network failure as code "network"', async () => {
     stubFetch(new TypeError('Failed to fetch'));
 

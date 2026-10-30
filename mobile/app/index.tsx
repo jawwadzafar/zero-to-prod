@@ -1,6 +1,6 @@
 // The setup screen ("/"): where snip is, and your API key.
-import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput } from 'react-native';
+import { useEffect, useState } from 'react';
+import { AccessibilityInfo, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput } from 'react-native';
 import { Button } from '../src/components/Button';
 import { defaultBaseUrl, useSession } from '../src/session';
 import { shared } from '../src/theme';
@@ -13,6 +13,12 @@ export default function SetupScreen() {
   const [error, setError] = useState<string | null>(null);
   const ready = baseUrl.trim() !== '' && apiKey.trim() !== '' && !saving;
 
+  // Say why we are asking for a key again. The alert role below doesn't make
+  // VoiceOver speak on its own; an announcement does, on both platforms.
+  useEffect(() => {
+    if (notice) AccessibilityInfo.announceForAccessibility(notice);
+  }, [notice]);
+
   async function handleSave() {
     setSaving(true);
     setError(null);
@@ -20,7 +26,9 @@ export default function SetupScreen() {
       // After this, the layout's guard flips and the router shows the links.
       await signIn({ baseUrl: baseUrl.trim(), apiKey: apiKey.trim() });
     } catch {
-      setError('Could not save the key on this phone. Try again.');
+      const message = 'Could not save the key on this phone. Try again.';
+      setError(message);
+      AccessibilityInfo.announceForAccessibility(message);
       setSaving(false);
     }
   }
@@ -30,8 +38,9 @@ export default function SetupScreen() {
     <KeyboardAvoidingView style={shared.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={shared.form} keyboardShouldPersistTaps="handled">
         {notice && (
-          // accessibilityRole="alert" and the live region make screen readers
-          // say it as soon as it appears (iOS and Android respectively).
+          // The alert role tells a screen reader this is an important message
+          // when it reaches it; the live region makes Android's TalkBack say it
+          // when it appears. The announcement above covers iOS too.
           <Text style={shared.error} accessibilityRole="alert" accessibilityLiveRegion="polite">
             {notice}
           </Text>

@@ -112,7 +112,12 @@ export function createClient(baseUrl: string, apiKey: string): SnipClient {
 
     if (res.status === 204) return undefined as T; // DELETE answers with no body
     const data: unknown = await res.json().catch(() => null);
-    if (res.ok) return data as T;
+    if (res.ok) {
+      // A success that isn't JSON wasn't written by snip: a Wi-Fi login page
+      // answers 200 with HTML for every address, for example.
+      if (data === null) throw new ApiError(res.status, 'unexpected', 'The answer was not from snip.');
+      return data as T;
+    }
 
     if (isErrorBody(data)) {
       const retry = Number(res.headers.get('Retry-After')) || undefined;
@@ -144,8 +149,12 @@ export function describeError(err: unknown): string {
       return 'snip did not accept that API key. Check it, or create a new one.';
     case 'rate_limited':
       return `You are creating links too fast. Try again in ${err.retryAfterSeconds ?? 'a few'} seconds.`;
-    case 'internal':
     case 'unexpected':
+      // A 2xx that wasn't snip's JSON: something stood in for snip, most often public Wi-Fi's login page.
+      if (err.status >= 200 && err.status < 300)
+        return 'Something other than snip answered. If this Wi-Fi has a login page, open it in a browser, then try again.';
+      return 'snip had a problem on its side. Try again in a moment.';
+    case 'internal':
       return 'snip had a problem on its side. Try again in a moment.';
     default:
       return err.message; // snip's own message (or ours, for "network") is already written for people

@@ -68,6 +68,15 @@ describe('createClient', () => {
     expect(describeError(err)).toBe('snip had a problem on its side. Try again in a moment.');
   });
 
+  it('does not take a 200 that is not JSON (a Wi-Fi login page) for success', async () => {
+    stubFetch(new Response('<html>Accept the terms to continue</html>', { status: 200 }));
+
+    const err = await client().createLink('https://go.dev/').catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ status: 200, code: 'unexpected' });
+    expect(describeError(err)).toMatch(/login page/);
+  });
+
   it('reports a network failure as code "network", naming the address it tried', async () => {
     stubFetch(new TypeError('Network request failed'));
 

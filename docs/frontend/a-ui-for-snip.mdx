@@ -101,7 +101,7 @@ Copying by hand is honest about its weakness: if snip adds a field, nothing tell
 A request can fail in three different ways, and the client turns all three into one `ApiError` with a `code`, so components handle a single shape:
 
 1. **snip answered with its error shape**, `{"error": {"code": "slug_taken", "message": "that slug is already in use"}}` ([chapter 5.3](../apis/validation-errors-status-codes.mdx) designed it so clients need one piece of code). The code is kept as-is.
-2. **Something answered, but not snip.** If every snip copy is down, nginx answers `502 Bad Gateway` or `504 Gateway Timeout` with an HTML page. Parsing that as JSON fails; the client reports code `unexpected`.
+2. **Something answered, but not snip.** If every snip copy is down, nginx answers `502 Bad Gateway` or `504 Gateway Timeout` with an HTML page. Parsing that as JSON fails; the client reports code `unexpected`. The same goes for a *successful* status with a body that isn't JSON: snip never sends one, so it can't be trusted as an answer.
 3. **Nothing answered.** Wi-Fi dropped, DNS failed: `fetch` itself throws. The client reports code `network`.
 
 Here is the heart of it:
@@ -109,7 +109,12 @@ Here is the heart of it:
 ```ts title="web/src/api.ts (excerpt)"
     if (res.status === 204) return undefined as T; // DELETE answers with no body
     const data: unknown = await res.json().catch(() => null);
-    if (res.ok) return data as T;
+    if (res.ok) {
+      // A success that isn't JSON wasn't written by snip: a Wi-Fi login page
+      // answers 200 with HTML for every address, for example.
+      if (data === null) throw new ApiError(res.status, 'unexpected', 'The answer was not from snip.');
+      return data as T;
+    }
 
     if (isErrorBody(data)) {
       const retry = Number(res.headers.get('Retry-After')) || undefined;
@@ -118,7 +123,7 @@ Here is the heart of it:
     throw new ApiError(res.status, 'unexpected', `snip answered ${res.status} ${res.statusText}`.trim());
 ```
 
-`data` starts as `unknown` (anything could have arrived), and `isErrorBody` is a **type guard**: a function that checks the shape at run time and tells TypeScript the result. Note the honest weak spot: `data as T` on success trusts snip's success responses without checking them. That's a judgment call for a client talking to its own team's API with a contract test in CI; for a third-party API you'd validate those too.
+`data` starts as `unknown` (anything could have arrived), and `isErrorBody` is a **type guard**: a function that checks the shape at run time and tells TypeScript the result. Note the honest weak spot: `data as T` on success trusts the shape of snip's success responses without checking them (beyond refusing a success that isn't JSON at all). That's a judgment call for a client talking to its own team's API with a contract test in CI; for a third-party API you'd validate those too.
 
 Components never show raw codes. One function turns an error into a sentence a person can act on:
 
@@ -161,7 +166,7 @@ Any screen that loads data is in one of four states, and each needs something on
 The empty state is the one teams forget: a new user's first visit shows a blank box and no idea what to do next. `LinksPage` keeps the state as a discriminated union ([chapter 16.4](./typescript-and-tooling.mdx)), so "loading *and* showing an old error" can't be written:
 
 ```tsx title="web/src/components/LinksPage.tsx (excerpt)"
-        {list.status === 'loading' && <p aria-live="polite">Loading your links…</p>}
+        {list.status === 'loading' && <p>Loading your links…</p>}
         {list.status === 'error' && (
           <div role="alert">
             <p className="error">{list.message}</p>

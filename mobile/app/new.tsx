@@ -1,6 +1,6 @@
 // The create form ("/new"), shown as a modal over the links (see _layout.tsx).
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput } from 'react-native';
+import { AccessibilityInfo, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput } from 'react-native';
 import { router } from 'expo-router';
 import { ApiError, describeError } from '../src/api';
 import { Button } from '../src/components/Button';
@@ -39,7 +39,10 @@ export default function NewLinkScreen() {
         await signOut(describeError(err)); // the layout closes this and the list, and asks for a key
         return;
       }
-      setError({ field: fieldFor(err), message: describeError(err) });
+      const message = describeError(err);
+      setError({ field: fieldFor(err), message });
+      // Spoken at once on iOS and Android; the alert role alone doesn't make VoiceOver speak.
+      AccessibilityInfo.announceForAccessibility(message);
       setSaving(false);
     }
   }

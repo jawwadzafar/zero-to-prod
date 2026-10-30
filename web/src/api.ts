@@ -84,7 +84,12 @@ export function createClient(apiKey: string): SnipClient {
 
     if (res.status === 204) return undefined as T; // DELETE answers with no body
     const data: unknown = await res.json().catch(() => null);
-    if (res.ok) return data as T;
+    if (res.ok) {
+      // A success that isn't JSON wasn't written by snip: a Wi-Fi login page
+      // answers 200 with HTML for every address, for example.
+      if (data === null) throw new ApiError(res.status, 'unexpected', 'The answer was not from snip.');
+      return data as T;
+    }
 
     if (isErrorBody(data)) {
       const retry = Number(res.headers.get('Retry-After')) || undefined;
