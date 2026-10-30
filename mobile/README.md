@@ -61,3 +61,5 @@ npm run bundle      # builds the Android JavaScript bundle into dist/, no device
 ```
 
 CI runs all three on every push (`mobile` in `.github/workflows/ci.yml`).
+
+`package.json` overrides `zod` to 4.6.7: Expo's command-line tool (`@expo/cli`) pins zod 3, which has a published memory-exhaustion advisory. The CLI only uses zod APIs that work the same in zod 4 (its dev-tools plugin schemas), and the bundle, config and `expo-doctor` all pass with it. Remove the override once an Expo SDK ships a patched zod.
