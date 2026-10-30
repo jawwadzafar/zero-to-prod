@@ -362,7 +362,7 @@ volumes:
   pgdata:
 ```
 
-nginx is the hello stack's `proxy`, with a fuller config (`snip/deploy/nginx/nginx.conf`) that adds timeouts and forwarded headers. Instead of `image:` it has **`build: ../web`**: Compose builds a small image from `web/Dockerfile`, nginx plus the web UI's static files and the rules for serving them ([chapter 16.6](../frontend/a-ui-for-snip.mdx)), so `docker compose up --build` rebuilds the UI too. Prometheus, Grafana and Jaeger sit behind the `observability` profile ([chapter 13.2](../observability/metrics.mdx)). Prometheus finds every API copy the same way nginx does, by looking up the service name `api` (its config uses `dns_sd_configs` with `names: [api]`).
+nginx is the hello stack's `proxy`, with a fuller config (`snip/deploy/nginx/nginx.conf`) that adds timeouts and forwarded headers. Instead of `image:` it has **`build: ../web`**: Compose builds a small image from `web/Dockerfile`, nginx plus the web UI's static files and the rules for serving them ([chapter 16.6](../frontend/a-ui-for-snip.mdx)), so `docker compose up --build` rebuilds the UI too. Prometheus, Grafana and Jaeger sit behind the `observability` profile ([chapter 13.2](../observability/metrics.mdx)). A second profile, `analytics`, adds a consumer that copies click events from Redis into a data lake as Parquet files ([chapter 17.6](../data-engineering/streaming.mdx)). Prometheus finds every API copy the same way nginx does, by looking up the service name `api` (its config uses `dns_sd_configs` with `names: [api]`).
 
 ---
 
