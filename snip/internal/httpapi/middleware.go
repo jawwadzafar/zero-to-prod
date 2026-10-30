@@ -20,7 +20,14 @@ type ctxKey int
 const (
 	ownerKey ctxKey = iota
 	requestIDKey
+	authLogKey
 )
+
+// authLog is filled in by requireKey and read by observe's log line, so every
+// authenticated request's line says whose key made it (chapter 13.7: during a
+// leak, that is how you find what the key did). Only the owner's id is
+// logged, never the key.
+type authLog struct{ ownerID int64 }
 
 // statusRecorder remembers the status code a handler wrote, for logs and metrics.
 type statusRecorder struct {
@@ -73,6 +80,8 @@ func (s *Server) observe(next http.Handler) http.Handler {
 		// JSON into something executable (chapter 7.5).
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		ctx := context.WithValue(r.Context(), requestIDKey, id)
+		who := &authLog{}
+		ctx = context.WithValue(ctx, authLogKey, who)
 		r = r.WithContext(ctx)
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 
@@ -99,6 +108,9 @@ func (s *Server) observe(next http.Handler) http.Handler {
 			}
 			attrs := []any{"request_id", id, "method", r.Method, "route", route, "path", r.URL.Path,
 				"status", rec.status, "duration_ms", elapsed.Milliseconds()}
+			if who.ownerID != 0 {
+				attrs = append(attrs, "owner_id", who.ownerID)
+			}
 			// With tracing on (chapter 13.3), name the request's span by its route and
 			// put the trace ID in the log line, so logs and traces link to each other.
 			if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
@@ -136,6 +148,9 @@ func (s *Server) requireKey(next http.HandlerFunc) http.HandlerFunc {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="snip"`)
 			s.writeDomainError(w, r, err)
 			return
+		}
+		if who, ok := r.Context().Value(authLogKey).(*authLog); ok {
+			who.ownerID = owner.ID // for the request's log line
 		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ownerKey, owner)))
 	}

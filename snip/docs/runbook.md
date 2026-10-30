@@ -1,6 +1,6 @@
 # snip runbook
 
-What to do when an alert fires (chapters 13.4–13.6). Each section matches an
+What to do when an alert fires (chapters 13.4–13.7). Each section matches an
 alert's `Runbook:` link. Commands assume the Compose stack (chapter 9.3); the
 Kubernetes equivalents are noted.
 
@@ -30,7 +30,8 @@ declare an incident (chapter 13.5).
      Postgres down → `"ready": false` (503). Redis down → `"degraded": true`
      but still 200: snip keeps redirecting from Postgres (chapter 13.5).
 4. **What do the errors say?**
-   `docker compose logs api --since 15m | jq -c 'select(.status >= 500)'`
+   `docker compose logs api --no-log-prefix --since 15m | jq -c 'select(.status >= 500)'`
+   (`--no-log-prefix` drops Compose's `api-1 |` prefix, so each line is pure JSON.)
    Take a `trace_id` from a failing line and open it in Jaeger (chapter 13.3).
 5. If the database is overloaded: check slow queries and connections (chapter 6.4);
    consider scaling snip *down* if connections are exhausted (chapter 8.6).
@@ -91,6 +92,39 @@ rate limiting fails open.
 2. If it's crash-looping: `kubectl logs --previous` shows why.
 3. If it's running but unscrapable: network policy or port changes
    (chapter 10.3), or the metrics endpoint itself failing.
+
+## leaked-api-key
+
+**No alert**: someone tells you. The key's owner, GitHub secret scanning (keys
+start with `snip_`), or a stranger who found one in a paste or a public repo.
+**Means:** whoever holds the key can create, list and delete its owner's
+links. Treat it as a **security incident** (chapter 13.7): SEV1, private channel,
+and don't discuss details in public until it's contained.
+
+1. **Which owner?** Hash the reported key the way snip does (SHA-256, hex) and
+   look it up. snip stores only the hash:
+   `printf %s "$LEAKED" | sha256sum` (macOS: `shasum -a 256`), then
+   `docker compose exec -T postgres psql -U snip -c "SELECT id, name, created_at, revoked_at FROM api_keys WHERE key_hash = '<hash>'"`
+2. **Contain, now:** `docker compose exec api snip keys rotate <id>`. The old key
+   fails from the next request; the owner keeps their links. Send the new key to
+   the owner over a channel the attacker can't read. (`snip keys revoke <id>`
+   instead, if the key shouldn't exist at all.)
+3. **Preserve evidence before anything restarts:** container logs disappear
+   with their containers.
+   `docker compose logs api --no-log-prefix > api.jsonl`,
+   `docker compose logs nginx --no-log-prefix > nginx.log`, then
+   `sha256sum api.jsonl nginx.log > SHA256SUMS`. Note who saved them, when, and where.
+4. **What did the key do?** Every authenticated request's log line carries
+   `owner_id`: `jq -c 'select(.msg == "request" and .owner_id == <id>)' api.jsonl`.
+   Changes are the `POST` and `DELETE` lines. Client addresses are in `nginx.log`
+   (match by time, method and path).
+5. **Undo the damage:** delete links the attacker created (check where they
+   point), restore deleted ones from the owner or a backup.
+6. **Rotate whatever leaked alongside the key** (a `.env` file often holds the
+   database URL too), and watch for `401`s on `/api/` from the old key:
+   `jq -c 'select(.status == 401)' api.jsonl`.
+7. Write the timeline while it's fresh, and decide with whoever owns legal and
+   customer communication whether anyone must be notified (chapter 13.7).
 
 ---
 

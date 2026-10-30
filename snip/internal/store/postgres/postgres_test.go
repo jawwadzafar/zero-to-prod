@@ -119,3 +119,29 @@ func TestRevokedKeyStopsWorking(t *testing.T) {
 		t.Fatalf("revoking twice = %v, want ErrUnknownKey", err)
 	}
 }
+
+func TestRotatedKeyKeepsOwner(t *testing.T) {
+	st := openTestDB(t)
+	ctx := context.Background()
+	oldKey, owner, err := auth.CreateKey(ctx, st, "to-rotate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newKey, err := auth.RotateKey(ctx, st, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.Authenticate(ctx, st, oldKey); !errors.Is(err, auth.ErrUnknownKey) {
+		t.Fatalf("old key after rotate: Authenticate error = %v, want ErrUnknownKey", err)
+	}
+	got, err := auth.Authenticate(ctx, st, newKey)
+	if err != nil || got.ID != owner.ID {
+		t.Fatalf("new key: owner %v, err %v; want owner %d", got, err, owner.ID)
+	}
+	if err := st.RevokeKey(ctx, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.RotateKey(ctx, st, owner.ID); !errors.Is(err, auth.ErrUnknownKey) {
+		t.Fatalf("rotating a revoked key = %v, want ErrUnknownKey", err)
+	}
+}

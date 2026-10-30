@@ -4,6 +4,7 @@
 //	snip migrate            apply database migrations and exit
 //	snip keys create NAME   create an API key and print it once
 //	snip keys revoke ID     revoke the API key of owner ID
+//	snip keys rotate ID     replace owner ID's key: the old one stops, links stay
 //
 // All settings come from SNIP_* environment variables (internal/config).
 package main
@@ -103,23 +104,31 @@ func run(args []string) error {
 		log.Info("migrations applied", "versions", applied)
 		return nil
 	case "keys":
-		if len(args) != 3 || (args[1] != "create" && args[1] != "revoke") {
-			return errors.New("usage: snip keys create NAME | snip keys revoke OWNER_ID")
+		if len(args) != 3 || (args[1] != "create" && args[1] != "revoke" && args[1] != "rotate") {
+			return errors.New("usage: snip keys create NAME | snip keys revoke OWNER_ID | snip keys rotate OWNER_ID")
 		}
 		if pg != nil { // make sure the api_keys table exists on a fresh database
 			if _, err := pg.Migrate(ctx); err != nil {
 				return err
 			}
 		}
-		if args[1] == "revoke" {
+		if args[1] == "revoke" || args[1] == "rotate" {
 			id, err := strconv.ParseInt(args[2], 10, 64)
 			if err != nil {
 				return fmt.Errorf("OWNER_ID must be a number: %w", err)
 			}
-			if err := st.RevokeKey(ctx, id); err != nil {
+			if args[1] == "revoke" {
+				if err := st.RevokeKey(ctx, id); err != nil {
+					return err
+				}
+				fmt.Printf("revoked API key for owner id %d — it stops working immediately\n", id)
+				return nil
+			}
+			key, err := auth.RotateKey(ctx, st, id)
+			if err != nil {
 				return err
 			}
-			fmt.Printf("revoked API key for owner id %d — it stops working immediately\n", id)
+			fmt.Printf("rotated API key for owner id %d — the old key stops working immediately\n\n  %s\n\nGive the new key to its owner; it cannot be shown again.\n", id, key)
 			return nil
 		}
 		key, owner, err := auth.CreateKey(ctx, st, args[2])

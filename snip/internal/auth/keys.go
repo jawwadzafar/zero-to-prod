@@ -24,8 +24,9 @@ type Owner struct {
 // KeyStore persists API keys by their hash.
 type KeyStore interface {
 	CreateKey(ctx context.Context, name, keyHash string) (Owner, error)
-	LookupKey(ctx context.Context, keyHash string) (Owner, error) // ErrUnknownKey if none
-	RevokeKey(ctx context.Context, id int64) error                // ErrUnknownKey if no active key has this id
+	LookupKey(ctx context.Context, keyHash string) (Owner, error)   // ErrUnknownKey if none
+	RevokeKey(ctx context.Context, id int64) error                  // ErrUnknownKey if no active key has this id
+	ReplaceKey(ctx context.Context, id int64, keyHash string) error // ErrUnknownKey if no active key has this id
 }
 
 const keyPrefix = "snip_"
@@ -62,6 +63,18 @@ func CreateKey(ctx context.Context, ks KeyStore, name string) (string, Owner, er
 	key := GenerateKey()
 	owner, err := ks.CreateKey(ctx, name, HashKey(key))
 	return key, owner, err
+}
+
+// RotateKey gives owner id a new key and stops the old one working, in one
+// step. The owner (and so their links) stays the same: this is what you run
+// when a key has leaked but its owner still needs access (chapter 13.7).
+// Like CreateKey, it returns the plaintext key once.
+func RotateKey(ctx context.Context, ks KeyStore, id int64) (string, error) {
+	key := GenerateKey()
+	if err := ks.ReplaceKey(ctx, id, HashKey(key)); err != nil {
+		return "", err
+	}
+	return key, nil
 }
 
 // Authenticate looks up the owner of a presented key.

@@ -233,12 +233,15 @@ func (s *Server) requireKey(next http.HandlerFunc) http.HandlerFunc {
 			s.writeDomainError(w, r, err)
 			return
 		}
+		if who, ok := r.Context().Value(authLogKey).(*authLog); ok {
+			who.ownerID = owner.ID // for the request's log line
+		}
 		next(w, r.WithContext(context.WithValue(r.Context(), ownerKey, owner)))
 	}
 }
 ```
 
-`Authenticate` hashes the presented key and looks the hash up — `SELECT id, name FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL`. On success, the **owner** is attached to the request's context ([chapter 4.5](../go/concurrency.mdx)), and every handler after it knows exactly who is asking. Every failure — no header, wrong format, unknown key, revoked key — gives the **same** `401 unauthorized`, revealing nothing about *why*.
+`Authenticate` hashes the presented key and looks the hash up — `SELECT id, name FROM api_keys WHERE key_hash = $1 AND revoked_at IS NULL`. On success, the **owner** is attached to the request's context ([chapter 4.5](../go/concurrency.mdx)), and every handler after it knows exactly who is asking. The owner's id (never the key) also goes into the request's log line, so an investigator can list everything one key did ([chapter 13.7](../observability/security-incident-response.mdx)). Every failure — no header, wrong format, unknown key, revoked key — gives the **same** `401 unauthorized`, revealing nothing about *why*.
 
 **4. Revoke** — keys leak (pasted into a chat, committed to Git, left in a laptop backup). Revocation must be instant:
 

@@ -115,3 +115,16 @@ func (s *Store) RevokeKey(_ context.Context, id int64) error {
 	}
 	return auth.ErrUnknownKey
 }
+
+func (s *Store) ReplaceKey(_ context.Context, id int64, keyHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for h, o := range s.keys {
+		if o.ID == id {
+			delete(s.keys, h)
+			s.keys[keyHash] = o
+			return nil
+		}
+	}
+	return auth.ErrUnknownKey
+}

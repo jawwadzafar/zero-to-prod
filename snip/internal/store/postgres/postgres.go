@@ -212,3 +212,17 @@ func (s *Store) RevokeKey(ctx context.Context, id int64) error {
 	}
 	return nil
 }
+
+// ReplaceKey swaps an active key's hash for a new one: the old key stops
+// working from the next request, and the owner keeps its id and its links.
+func (s *Store) ReplaceKey(ctx context.Context, id int64, keyHash string) error {
+	tag, err := s.pool.Exec(ctx,
+		`UPDATE api_keys SET key_hash = $2 WHERE id = $1 AND revoked_at IS NULL`, id, keyHash)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return auth.ErrUnknownKey
+	}
+	return nil
+}

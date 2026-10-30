@@ -278,3 +278,73 @@ func TestRequestIDIsEchoedOnlyWhenPlain(t *testing.T) {
 		}
 	}
 }
+
+// During a key leak, investigators list what the key did by its owner's id
+// (chapter 13.7), so every authenticated request's log line must carry it,
+// and no line may carry the key itself.
+func TestRequestLogNamesTheKeysOwner(t *testing.T) {
+	st := memory.New()
+	key, owner, _ := auth.CreateKey(context.Background(), st, "tester")
+	var logs strings.Builder
+	api := httpapi.New(httpapi.Options{
+		Links:  links.NewService(st, nil, nil),
+		Keys:   st,
+		Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+	})
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+	do(t, "GET", ts.URL+"/api/links", key, "")
+	do(t, "GET", ts.URL+"/api/links", "snip_not-a-real-key", "")
+
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d log lines, want 2:\n%s", len(lines), logs.String())
+	}
+	var ok, denied map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &ok); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &denied); err != nil {
+		t.Fatal(err)
+	}
+	if ok["owner_id"] != float64(owner.ID) || ok["status"] != float64(200) {
+		t.Errorf("authenticated line = %v, want owner_id %d and status 200", ok, owner.ID)
+	}
+	if _, has := denied["owner_id"]; has || denied["status"] != float64(401) {
+		t.Errorf("rejected line = %v, want status 401 and no owner_id", denied)
+	}
+	if strings.Contains(logs.String(), key) {
+		t.Error("a log line contains the API key itself")
+	}
+}
+
+// Rotating a leaked key: the old key stops at once, the new one works, and
+// the owner (with its links) is unchanged.
+func TestRotatedKeyKeepsOwnerAndLinks(t *testing.T) {
+	st := memory.New()
+	ctx := context.Background()
+	oldKey, owner, _ := auth.CreateKey(ctx, st, "tester")
+	api := httpapi.New(httpapi.Options{
+		Links:  links.NewService(st, nil, nil),
+		Keys:   st,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+	if res := do(t, "POST", ts.URL+"/api/links", oldKey, `{"url":"https://go.dev","slug":"kept"}`); res.StatusCode != http.StatusCreated {
+		t.Fatalf("create: %d", res.StatusCode)
+	}
+	newKey, err := auth.RotateKey(ctx, st, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := do(t, "GET", ts.URL+"/api/links/kept", oldKey, ""); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old key after rotate: %d, want 401", res.StatusCode)
+	}
+	if res := do(t, "GET", ts.URL+"/api/links/kept", newKey, ""); res.StatusCode != http.StatusOK {
+		t.Fatalf("new key after rotate: %d, want 200 (same owner, same links)", res.StatusCode)
+	}
+	if _, err := auth.RotateKey(ctx, st, owner.ID+99); !errors.Is(err, auth.ErrUnknownKey) {
+		t.Fatalf("rotating an unknown owner = %v, want ErrUnknownKey", err)
+	}
+}
