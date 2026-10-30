@@ -104,6 +104,31 @@ flowchart TB
 
 **Everything goes through the API server, and every component watches it.** Nobody talks to anybody directly. When you ask for 3 copies of a web server, `kubectl` sends it to the API server, which stores it in etcd. A controller notices and creates 3 Pod records. The scheduler notices Pods without nodes and assigns them. Each chosen node's kubelet notices a Pod assigned to it and starts the containers. Every step is a component watching for state it cares about, and writing its result back.
 
+Here is that chain one step at a time, for a Deployment of 3 copies. Watch which box does the work: it's the API server in almost every step.
+
+<StepThrough
+  title="kubectl apply, from YAML to running containers"
+  nodes={[
+    {id: "you", label: "You", sub: "kubectl"},
+    {id: "api", label: "API server", sub: "front door"},
+    {id: "etcd", label: "etcd", sub: "cluster state"},
+    {id: "ctl", label: "Control loops", sub: "controllers"},
+    {id: "sch", label: "Scheduler", sub: "picks nodes"},
+    {id: "kubelet", label: "kubelet", sub: "on a node"},
+  ]}
+  steps={[
+    {title: "Send the desired state", text: "`kubectl apply -f web.yaml` sends a Deployment asking for 3 replicas of a web server to the API server, over HTTPS.", from: "you", to: "api"},
+    {title: "Check it, then store it", text: "The API server checks who you are, whether you may create Deployments in this namespace, and that the object is valid. Then it writes it to etcd.", from: "api", to: "etcd"},
+    {title: "kubectl is already done", text: "`kubectl` prints `deployment.apps/web created` and exits. Nothing is running yet: Kubernetes has only recorded what you want. Everything after this happens without you.", from: "api", to: "you"},
+    {title: "A controller makes a ReplicaSet", text: "The Deployment controller is watching for Deployments. It sees the new one and creates a ReplicaSet: \"keep 3 Pods like this\". (Deployments use ReplicaSets so that a rolling update can run an old and a new one side by side.)", from: "ctl", to: "api"},
+    {title: "Another controller makes Pods", text: "The ReplicaSet controller compares: 3 wanted, 0 exist. It creates 3 Pod objects. They're only records so far, with no node.", from: "ctl", to: "api"},
+    {title: "The scheduler picks nodes", text: "The scheduler is watching for Pods with no node. For each, it filters out nodes without enough unreserved CPU and memory for the Pod's requests, scores the rest (spreading copies apart, for example), and writes its choice onto the Pod.", from: "sch", to: "api"},
+    {title: "The kubelet sees its Pod", text: "The kubelet on each chosen node is watching for Pods assigned to its node. It sees one, and tells the container runtime to pull the image and start the containers.", from: "api", to: "kubelet"},
+    {title: "Report back", text: "The kubelet runs the health checks and writes the Pod's status: `Running`, then `Ready` once the readiness check passes. Only now does a Service send it traffic.", from: "kubelet", to: "api"},
+    {title: "And the loop never stops", text: "Delete a Pod, or lose its node, and the ReplicaSet controller sees 2 where 3 are wanted. It creates a Pod, and steps 6 to 8 happen again. That's the self-healing you'll watch in the lab.", active: ["ctl", "api"]},
+  ]}
+/>
+
 :::info[If you've written code]
 The Kubernetes API is a REST API ([chapter 5.2](../apis/designing-rest-apis.mdx)) over HTTPS with JSON bodies. `kubectl` is just a client. Every object has an `apiVersion`, a `kind`, `metadata` (name, namespace, labels), a `spec` (the desired state, which you write) and a `status` (the observed state, which controllers write). "Watching" is a long-lived HTTP request that streams changes. You can extend the API with your own object types (**CustomResourceDefinitions**) and your own controllers (**operators**). That's how databases, certificates and whole cloud resources get managed "the Kubernetes way".
 :::
