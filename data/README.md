@@ -49,11 +49,14 @@ violation unless you pass `--quarantine`. Quarantined files go to
 
 To copy a real snip's data instead, start snip's compose stack with its Postgres
 published on 127.0.0.1:15432 (snip's own compose file publishes only nginx), and
-extract into a separate lake folder (`extract` won't mix real rows with generated ones):
+extract into a separate lake folder (`extract` won't mix real rows with generated ones).
+It signs in as `snip_readonly`, a login snip's migrate service creates: it can read
+links, owners and the audit trail, never key hashes, and can change nothing
+(chapter 7.4):
 
 ```bash
 (cd ../snip && docker compose -f docker-compose.yml -f ../data/snip-db-port.yml up -d --build --wait)
-uv run snipdata --lake lake-snip extract   # or set SNIP_DATABASE_URL / --dsn for another database
+uv run snipdata --lake lake-snip extract   # or set SNIP_READONLY_DATABASE_URL / --dsn for another database
 ```
 
 ## The lake

@@ -18,6 +18,7 @@ import duckdb
 import psycopg
 import pyarrow.parquet as pq
 import pytest
+from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
 from snipdata import lake as lk
@@ -43,6 +44,8 @@ def db() -> Iterator[tuple[str, psycopg.Connection[Any]]]:
         dsn = make_conninfo(DSN, options=f"-c search_path={schema}")
         try:
             with psycopg.connect(dsn, autocommit=True) as conn:
+                # snip's migrator creates this before applying the files; 0003 grants on it.
+                conn.execute("CREATE TABLE schema_migrations (version INT PRIMARY KEY)")
                 for f in migrations:
                     conn.execute(f.read_text())  # type: ignore[arg-type]  # trusted files from this repo
                 yield dsn, conn
@@ -114,6 +117,42 @@ def test_snapshot_and_incremental_audit(
     # The next day's snapshot sits next to today's: history is kept.
     extract(dsn, tmp_path, date(2026, 10, 30), settle_seconds=0)
     assert count(tmp_path, "links") == 6
+
+
+@needs_db
+def test_extract_needs_only_the_readonly_login(
+    db: tuple[str, psycopg.Connection[Any]], tmp_path: Path
+) -> None:
+    """snip's migration 0003 creates snip_readonly; a login holding it is all extract needs."""
+    dsn, conn = db
+    owner = add_key(conn, "marketing")
+    add_link(conn, owner, "golang", "https://go.dev/")
+    user, password = f"snipdata_test_{secrets.token_hex(4)}", secrets.token_hex(16)
+    conn.execute(
+        sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} IN ROLE snip_readonly").format(
+            sql.Identifier(user), sql.Literal(password)
+        )
+    )
+    try:
+        # This test's schema is new; snip's own tables live in public, which every role may use.
+        row = conn.execute("SELECT current_schema()").fetchone()
+        assert row
+        conn.execute(
+            sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
+                sql.Identifier(row[0]), sql.Identifier(user)
+            )
+        )
+        readonly = make_conninfo(dsn, user=user, password=password)
+        s = extract(readonly, tmp_path, DAY, settle_seconds=0)
+        assert (s.links, s.owners, s.audit_events) == (1, 1, 2)
+        with psycopg.connect(readonly, autocommit=True) as ro:
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                ro.execute("SELECT key_hash FROM api_keys")
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                ro.execute("DELETE FROM links")
+    finally:
+        conn.execute(sql.SQL("DROP OWNED BY {}").format(sql.Identifier(user)))
+        conn.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(user)))
 
 
 @needs_db

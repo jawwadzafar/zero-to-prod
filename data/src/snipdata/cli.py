@@ -12,7 +12,7 @@
 
 Run it from the data/ folder. Paths come from flags or environment variables:
 SNIPDATA_LAKE (default ./lake), SNIPDATA_WAREHOUSE (default ./warehouse/snip.duckdb),
-SNIP_DATABASE_URL for extract.
+SNIP_READONLY_DATABASE_URL for extract.
 """
 
 from __future__ import annotations
@@ -32,8 +32,10 @@ from snipdata import lake as lk
 from snipdata import orchestrate as orc
 from snipdata.transform import run_dbt
 
-# snip's compose Postgres, published on your laptop by snip-db-port.yml (chapter 17.2).
-DEFAULT_DSN = "postgres://snip:snip@localhost:15432/snip?sslmode=disable"
+# snip's compose Postgres, published on your laptop by snip-db-port.yml (chapter 17.2),
+# as snip_readonly: a login that can read links, owners and the audit trail, but
+# no key hashes, and can change nothing (snip's migration 0003, chapter 7.4).
+DEFAULT_DSN = "postgres://snip_readonly:snip-readonly-dev-only@localhost:15432/snip?sslmode=disable"
 
 
 def default_warehouse() -> Path:
@@ -188,7 +190,7 @@ def parser() -> argparse.ArgumentParser:
     g.add_argument("--duplicate-rate", type=float, default=0.005)
 
     e = sub.add_parser("extract", help="copy snip's links, owners and audit events from Postgres")
-    e.add_argument("--dsn", default=os.environ.get("SNIP_DATABASE_URL", DEFAULT_DSN))
+    e.add_argument("--dsn", default=os.environ.get("SNIP_READONLY_DATABASE_URL", DEFAULT_DSN))
     e.add_argument(
         "--day", type=date.fromisoformat, default=None, help="snapshot day (default: today, UTC)"
     )
@@ -217,7 +219,7 @@ def parser() -> argparse.ArgumentParser:
     for sp in (r, bf, rs):
         sp.add_argument("--warehouse", type=Path, default=default_warehouse())
         sp.add_argument("--dbt-dir", type=Path, default=Path("dbt"))
-        sp.add_argument("--dsn", default=os.environ.get("SNIP_DATABASE_URL", DEFAULT_DSN))
+        sp.add_argument("--dsn", default=os.environ.get("SNIP_READONLY_DATABASE_URL", DEFAULT_DSN))
         sp.add_argument("--retries", type=int, default=2, help="extra attempts for retryable steps")
         sp.add_argument(
             "--grace-minutes", type=float, default=60, help="how late a click may arrive"
