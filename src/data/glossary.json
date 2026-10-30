@@ -295,6 +295,11 @@
   "doc": "ai/calling-models-from-code"
  },
  {
+  "term": "Batch pipeline",
+  "def": "A job that moves and transforms data in chunks on a schedule, such as every night, built so that it can safely be run again.",
+  "doc": "data-engineering/batch-pipelines"
+ },
+ {
   "term": "Batching",
   "def": "Advancing several requests with one pass over a model's weights, so a server's total throughput rises far above one user's speed.",
   "doc": "ai/serving-open-models"
@@ -505,6 +510,11 @@
   "doc": "observability/security-incident-response"
  },
  {
+  "term": "Change data capture (CDC)",
+  "def": "Reading a database's own change log (in Postgres, the write-ahead log) to turn every insert, update and delete into an event.",
+  "doc": "data-engineering/batch-pipelines"
+ },
+ {
   "term": "Channel",
   "def": "A typed pipe for passing values safely between goroutines.",
   "doc": "go/concurrency"
@@ -673,6 +683,11 @@
   "term": "Consumer group",
   "def": "A set of workers sharing the messages of one stream or topic, with each message delivered to one member of the group.",
   "doc": "distributed/queues-and-background-work"
+ },
+ {
+  "term": "Consumer lag",
+  "def": "How far a consumer group is behind the newest record in a log, in records or (more usefully) in time. In a log, lag that reaches the retention limit means lost data.",
+  "doc": "data-engineering/streaming"
  },
  {
   "term": "Container",
@@ -870,6 +885,11 @@
   "doc": "containers/images-in-production"
  },
  {
+  "term": "Crypto-shredding",
+  "def": "Encrypting each person's data with its own key and deleting the key to make every copy, backups included, unreadable.",
+  "doc": "data-engineering/data-platforms-and-governance"
+ },
+ {
   "term": "crypto/rand",
   "def": "Go's cryptographically secure random generator — use it for every key, token and salt, never math/rand.",
   "doc": "security/security-literacy"
@@ -915,9 +935,19 @@
   "doc": "ai/ml-foundations"
  },
  {
+  "term": "Data engineering",
+  "def": "Building the pipelines that collect, store, clean and serve data so that people and programs can trust the numbers.",
+  "doc": "data-engineering/what-data-engineering-is"
+ },
+ {
   "term": "Data exfiltration",
   "def": "Getting data out to an attacker. With AI features, often by making a model output an image or link whose URL carries the data.",
   "doc": "ai/ai-in-production"
+ },
+ {
+  "term": "Data lake",
+  "def": "Raw and cleaned data kept as files, usually Parquet, in cheap storage and organised in folders.",
+  "doc": "data-engineering/what-data-engineering-is"
  },
  {
   "term": "Data leakage",
@@ -925,9 +955,24 @@
   "doc": "ai/ml-foundations"
  },
  {
+  "term": "Data lineage",
+  "def": "A record of which inputs produced which outputs, down to the column, used for impact analysis, debugging and finding where data flowed.",
+  "doc": "data-engineering/data-platforms-and-governance"
+ },
+ {
+  "term": "Data minimisation",
+  "def": "Collecting only the personal data a stated purpose needs. A GDPR principle, and the cheapest privacy control: data never collected never needs protecting or erasing.",
+  "doc": "data-engineering/data-platforms-and-governance"
+ },
+ {
   "term": "Data source",
   "def": "A Terraform block that reads existing information without managing it.",
   "doc": "cloud/terraform-from-zero"
+ },
+ {
+  "term": "Data warehouse",
+  "def": "A database built for analytics: columnar, scales to billions of rows, queried with SQL (BigQuery, Snowflake, DuckDB).",
+  "doc": "data-engineering/what-data-engineering-is"
  },
  {
   "term": "Data-flow diagram",
@@ -938,6 +983,11 @@
   "term": "Database / DBMS",
   "def": "An organised collection of data, and the software (like PostgreSQL) that stores it safely and answers questions about it.",
   "doc": "data/why-databases"
+ },
+ {
+  "term": "dbt",
+  "def": "A tool that builds warehouse tables from SQL SELECT models, in dependency order (ref), with tests, docs and a lineage graph.",
+  "doc": "data-engineering/modeling-for-analytics"
  },
  {
   "term": "Dead-letter queue",
@@ -1040,6 +1090,11 @@
   "doc": "security/security-literacy"
  },
  {
+  "term": "Dimension table",
+  "def": "One row per thing (a product, a customer, a day), holding the attributes analysts filter and group by.",
+  "doc": "data-engineering/modeling-for-analytics"
+ },
+ {
   "term": "Distillation",
   "def": "Training a small model on a large model's outputs, so it does one task nearly as well, more cheaply.",
   "doc": "ai/fine-tuning"
@@ -1100,6 +1155,11 @@
   "doc": "shipping/gitops"
  },
  {
+  "term": "DuckDB",
+  "def": "An analytical SQL database that runs inside a single program, with no server; it reads Parquet, CSV and even Postgres directly.",
+  "doc": "data-engineering/columnar-storage-and-duckdb"
+ },
+ {
   "term": "Durability",
   "def": "Once a database confirms a write, it survives crashes and restarts.",
   "doc": "data/why-databases"
@@ -1113,6 +1173,11 @@
   "term": "effect",
   "def": "Code in useEffect that syncs a component with something outside React (fetching, timers, subscriptions), with a cleanup that undoes it.",
   "doc": "frontend/react"
+ },
+ {
+  "term": "Effectively-once",
+  "def": "What 'exactly-once' processing really means in practice: delivery stays at-least-once, and the sink makes repeats harmless.",
+  "doc": "data-engineering/streaming"
  },
  {
   "term": "effort",
@@ -1210,6 +1275,11 @@
   "doc": "kubernetes/why-orchestration"
  },
  {
+  "term": "ETL / ELT",
+  "def": "Extract, transform, load cleans data before loading it; extract, load, transform loads raw data first and cleans it inside the warehouse, keeping the raw copy.",
+  "doc": "data-engineering/what-data-engineering-is"
+ },
+ {
   "term": "Eval",
   "def": "A test suite for an AI system: a dataset of inputs, graders that score outputs, and metrics, run on every change.",
   "doc": "ai/evals"
@@ -1218,6 +1288,11 @@
   "term": "event loop",
   "def": "The browser's mechanism for running page JavaScript: it takes one queued task at a time (a click, a network answer, a timer), runs it to completion, then lets the page redraw.",
   "doc": "frontend/javascript-in-the-browser"
+ },
+ {
+  "term": "Event time",
+  "def": "When an event actually happened, recorded where it happened; as opposed to processing time, when a pipeline sees it. Analytics groups by event time.",
+  "doc": "data-engineering/streaming"
  },
  {
   "term": "Eventual consistency",
@@ -1273,6 +1348,11 @@
   "term": "External Secrets Operator",
   "def": "A Kubernetes controller that creates Secrets from values held in an external secret manager (AWS, Google, Azure, Vault).",
   "doc": "kubernetes/config-secrets-storage"
+ },
+ {
+  "term": "Fact table",
+  "def": "One row per event or measurement (an order line, a click), holding numbers to add up and keys to dimensions.",
+  "doc": "data-engineering/modeling-for-analytics"
  },
  {
   "term": "Fail closed",
@@ -1540,6 +1620,11 @@
   "doc": "observability/metrics"
  },
  {
+  "term": "Grain",
+  "def": "The exact meaning of one row of a table, such as one row per click or per link per day. Mixing grains in a join inflates totals.",
+  "doc": "data-engineering/modeling-for-analytics"
+ },
+ {
   "term": "Greedy decoding",
   "def": "Always picking the single most likely next token (temperature 0). Predictable, but can loop.",
   "doc": "ai/how-llms-work"
@@ -1783,6 +1868,11 @@
   "term": "Idempotent",
   "def": "An operation that has the same effect whether done once or many times. GET, PUT and DELETE are; POST is not.",
   "doc": "apis/designing-rest-apis"
+ },
+ {
+  "term": "Idempotent sink",
+  "def": "A destination where writing the same data twice leaves the same result as writing it once, e.g. by deduplicating on an event ID. With at-least-once delivery it gives effectively-once results.",
+  "doc": "data-engineering/streaming"
  },
  {
   "term": "Identity provider (IdP)",
@@ -2100,6 +2190,11 @@
   "doc": "ai/ml-foundations"
  },
  {
+  "term": "Lakehouse",
+  "def": "A data lake of open files plus a table format and a catalog, so it behaves like a warehouse while many engines can read the same data.",
+  "doc": "data-engineering/data-platforms-and-governance"
+ },
+ {
   "term": "Landing zone",
   "def": "A standard multi-account cloud layout: separate accounts per environment, central audit logs, single sign-on and guardrails applied to all of them.",
   "doc": "cloud/cloud-security"
@@ -2288,6 +2383,11 @@
   "term": "Manifest",
   "def": "A YAML (or JSON) file describing Kubernetes objects: apiVersion, kind, metadata and spec.",
   "doc": "kubernetes/core-objects"
+ },
+ {
+  "term": "Materialization (dbt)",
+  "def": "What a dbt model becomes in the warehouse: a view, a table, an incremental table, or nothing (ephemeral).",
+  "doc": "data-engineering/modeling-for-analytics"
  },
  {
   "term": "max_tokens",
@@ -2575,6 +2675,11 @@
   "doc": "kubernetes/helm"
  },
  {
+  "term": "Offset",
+  "def": "A record's position in a log partition (0, 1, 2…). A consumer group commits the offset it has processed up to, so it can resume there.",
+  "doc": "data-engineering/streaming"
+ },
+ {
   "term": "OIDC",
   "def": "OpenID Connect: here, CI proving its identity to a cloud with a short-lived signed token to get temporary credentials, instead of stored keys.",
   "doc": "shipping/ci-with-github-actions"
@@ -2740,6 +2845,26 @@
   "doc": "ai/how-llms-work"
  },
  {
+  "term": "Parquet",
+  "def": "An open, compressed, column-by-column file format for tables, read by nearly every data tool.",
+  "doc": "data-engineering/columnar-storage-and-duckdb"
+ },
+ {
+  "term": "Partition (data lake)",
+  "def": "One folder per value of a column, usually a date (dt=2026-10-29), so a day can be rebuilt, deleted or skipped on its own.",
+  "doc": "data-engineering/batch-pipelines"
+ },
+ {
+  "term": "Partition (Kafka)",
+  "def": "One of the independent logs a topic is split into, so it can be stored and read in parallel. Records with the same key go to the same partition, which keeps their order.",
+  "doc": "data-engineering/streaming"
+ },
+ {
+  "term": "Partition pruning",
+  "def": "Skipping whole folders (partitions) whose value cannot match a query's filter, without opening their files.",
+  "doc": "data-engineering/columnar-storage-and-duckdb"
+ },
+ {
   "term": "Passkey",
   "def": "A phishing-resistant login using public-key cryptography stored on your device, replacing passwords.",
   "doc": "security/authentication"
@@ -2895,6 +3020,11 @@
   "doc": "ai/ml-foundations"
  },
  {
+  "term": "Predicate pushdown",
+  "def": "Applying a query's filter while reading a file, using each block's stored min/max values to skip blocks that cannot match.",
+  "doc": "data-engineering/columnar-storage-and-duckdb"
+ },
+ {
   "term": "Prefill",
   "def": "The first phase of a model request: reading the whole prompt, in parallel. Limited by computing speed.",
   "doc": "ai/serving-open-models"
@@ -3033,6 +3163,11 @@
   "term": "Prune",
   "def": "Deleting cluster resources that were removed from Git.",
   "doc": "shipping/gitops"
+ },
+ {
+  "term": "Pseudonymisation",
+  "def": "Replacing an identifier with a stand-in (such as a keyed hash) that only the key holder can link back. Lowers risk, but the result is still personal data.",
+  "doc": "data-engineering/data-platforms-and-governance"
  },
  {
   "term": "Pub/sub",
@@ -3355,6 +3490,11 @@
   "doc": "git/git-mental-model"
  },
  {
+  "term": "Right to erasure",
+  "def": "A person's right under GDPR Article 17 to have their personal data deleted, with exceptions such as legal obligations. In an append-only lake it means rewriting files and expiring snapshots.",
+  "doc": "data-engineering/data-platforms-and-governance"
+ },
+ {
   "term": "Rightsizing",
   "def": "Matching resource sizes to measured use instead of guessing large.",
   "doc": "cloud/cost-control"
@@ -3498,6 +3638,11 @@
   "term": "Schema",
   "def": "The shape of your data: tables, columns, types and the rules the data must obey.",
   "doc": "data/designing-schemas"
+ },
+ {
+  "term": "Schema evolution",
+  "def": "How data files and tables cope with columns being added, renamed or retyped over time; additive changes are the safe kind.",
+  "doc": "data-engineering/batch-pipelines"
  },
  {
   "term": "scikit-learn",
@@ -3750,6 +3895,11 @@
   "doc": "observability/logs"
  },
  {
+  "term": "Slowly changing dimension (SCD)",
+  "def": "How a dimension handles changing attributes: type 1 overwrites the value, type 2 adds a new row with validity dates to keep history.",
+  "doc": "data-engineering/modeling-for-analytics"
+ },
+ {
   "term": "SLSA",
   "def": "Supply-chain Levels for Software Artifacts: a framework of increasing assurance levels about how software was built.",
   "doc": "containers/images-in-production"
@@ -3868,6 +4018,11 @@
   "term": "Standard Webhooks",
   "def": "An open spec (started 2023) for webhook headers and signing: webhook-id, webhook-timestamp and webhook-signature, with HMAC-SHA256 over id.timestamp.body.",
   "doc": "distributed/webhooks"
+ },
+ {
+  "term": "Star schema",
+  "def": "A fact table in the middle joined to the dimension tables around it: the standard shape for analytics data.",
+  "doc": "data-engineering/modeling-for-analytics"
  },
  {
   "term": "Startup probe",
@@ -4028,6 +4183,11 @@
   "term": "Table / row / column",
   "def": "A table holds one kind of thing; each row is one item; each column is one typed attribute.",
   "doc": "data/why-databases"
+ },
+ {
+  "term": "Table format",
+  "def": "A metadata layer (Apache Iceberg, Delta Lake, Apache Hudi) that turns files in object storage into a table with snapshots, atomic commits, deletes and time travel.",
+  "doc": "data-engineering/data-platforms-and-governance"
  },
  {
   "term": "Table-driven test",
@@ -4445,6 +4605,11 @@
   "doc": "containers/images-in-production"
  },
  {
+  "term": "Watermark",
+  "def": "Two related meanings. In a batch pipeline, the highest value (an id or timestamp) already copied, so the next run copies only rows above it. In a stream processor, the working assumption that all events up to a given event time have arrived, used to decide when a window can be closed.",
+  "doc": "data-engineering/batch-pipelines"
+ },
+ {
   "term": "WCAG",
   "def": "Web Content Accessibility Guidelines: the W3C's testable accessibility criteria. Version 2.2 at level AA is the usual target, and the one laws and contracts name.",
   "doc": "frontend/accessibility"
@@ -4478,6 +4643,16 @@
   "term": "Weights",
   "def": "The numbers inside a trained model (also called parameters). Running the model means loading them all into memory and doing arithmetic with them.",
   "doc": "ai/serving-open-models"
+ },
+ {
+  "term": "Window",
+  "def": "A slice of event time a stream is aggregated over: tumbling (back to back), hopping (overlapping), or session (closed by a gap of inactivity).",
+  "doc": "data-engineering/streaming"
+ },
+ {
+  "term": "Window function",
+  "def": "An SQL function with OVER (...) that computes a value from related rows (previous day, running total, rank) while keeping every row.",
+  "doc": "data-engineering/columnar-storage-and-duckdb"
  },
  {
   "term": "Worker pool",
