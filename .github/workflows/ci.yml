@@ -87,6 +87,9 @@ jobs:
           cache-dependency-path: snip/go.sum
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Chapter 7.4 — the app's database login can't drop the audit trigger or change the schema (ran, not skipped)
+        run: |
+          go test -count=1 -v -run 'Login' ./internal/store/postgres/ | tee /dev/stderr | grep -q -- '--- PASS: TestAppLoginIsLeastPrivilege'
       - run: go build ./...
       - name: Chapter 13.6 lab — git bisect finds the commit that broke 3-character slugs
         run: |
@@ -375,6 +378,7 @@ jobs:
           set -o pipefail                     # without it, tee would hide a pytest failure (chapter 13.6)
           uv run pytest -v | tee /tmp/pytest.txt
           grep -q "test_snapshot_and_incremental_audit PASSED" /tmp/pytest.txt   # ran, not skipped
+          grep -q "test_extract_needs_only_the_readonly_login PASSED" /tmp/pytest.txt   # snip_readonly is enough (chapter 7.4)
       - name: Chapters 17.2–17.4 lab — generate a lake, build and test the dbt project, query it
         run: |
           uv run snipdata generate --days 30
@@ -585,6 +589,21 @@ jobs:
           KEY=$(docker compose exec -T api snip keys create ci-web | grep -o 'snip_[A-Za-z0-9]*')
           CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"app"}')
           echo "creating the slug 'app': HTTP $CODE"; test "$CODE" = 400
+      - name: Chapter 7.4 — migrate ran as the owner; the api's login can't drop the audit trigger, rewrite the trail or change the schema
+        run: |
+          docker compose logs migrate | tee /dev/stderr | grep -q '"users":\["snip_app","snip_readonly"\]'
+          for c in $(docker compose ps -q api worker); do   # the owner's login reaches the migrate service only
+            if docker inspect "$c" --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -q SNIP_MIGRATE_DATABASE_URL; then
+              echo "$c has the owner's login"; exit 1
+            fi
+          done
+          as() { docker compose exec -T -e PGPASSWORD="$2" postgres psql -h localhost -U "$1" -d snip -c "$3" 2>&1 || true; }
+          as snip_app snip-app-dev-only "DROP TRIGGER audit_events_append_only ON audit_events" | tee /dev/stderr | grep -q 'must be owner'
+          as snip_app snip-app-dev-only "DELETE FROM audit_events" | tee /dev/stderr | grep -q 'permission denied for table audit_events'
+          as snip_app snip-app-dev-only "ALTER TABLE links ADD COLUMN note text" | tee /dev/stderr | grep -q 'must be owner'
+          as snip_app snip-app-dev-only "SELECT count(*) FROM links" | tee /dev/stderr | grep -q '(1 row)'
+          as snip_readonly snip-readonly-dev-only "SELECT key_hash FROM api_keys" | tee /dev/stderr | grep -q 'permission denied'
+          docker compose exec -T postgres psql -U snip -tAc "SELECT count(*) FROM pg_trigger WHERE tgname = 'audit_events_append_only'" | grep -qx 1
       - name: Chapter 9.3 lab — look inside postgres and redis; prometheus finds the api copies
         run: |
           docker compose exec -T postgres psql -U snip -c "SELECT slug, clicks FROM links ORDER BY slug" | tee /dev/stderr | grep -q counted
@@ -704,6 +723,15 @@ jobs:
           sleep 3
           KEY=$(kubectl -n snip exec deploy/api -- snip keys create ci | grep -o 'snip_[A-Za-z0-9]*')
           SNIP_API_KEY="$KEY" snip/scripts/smoke.sh http://localhost:8080
+      - name: Chapter 7.4 — the init container migrated as the owner; the api's login can't drop the audit trigger
+        run: |
+          POD=$(kubectl -n snip get pod -l app.kubernetes.io/name=api -o name | head -1)
+          kubectl -n snip logs "$POD" -c migrate | tee /dev/stderr | grep -q '"users":\["snip_app"\]'
+          kubectl -n snip get "$POD" -o jsonpath='{.spec.containers[?(@.name=="api")].envFrom[*].secretRef.name}' | tee /dev/stderr | grep -vq snip-db-migrate
+          as_app() { kubectl -n snip exec postgres-0 -- env PGPASSWORD=snip-app-dev-only psql -h localhost -U snip_app -d snip -c "$1" 2>&1 || true; }
+          as_app "DROP TRIGGER audit_events_append_only ON audit_events" | tee /dev/stderr | grep -q 'must be owner'
+          as_app "DELETE FROM audit_events" | tee /dev/stderr | grep -q 'permission denied for table audit_events'
+          kubectl -n snip exec postgres-0 -- psql -U snip -tAc "SELECT count(*) FROM pg_trigger WHERE tgname = 'audit_events_append_only'" | grep -qx 1
       - name: Chapter 7.11 lab — no Kubernetes API token in snip's pods; a projected token is short-lived and audience-bound
         run: |
           for app in api worker web postgres redis; do
@@ -745,7 +773,7 @@ jobs:
           echo "$RESULT" | grep -q ' bad=0$'
       - name: Chapter 10.4 lab — Secrets are only base64; config rolls out on restart; data survives its Pod
         run: |
-          kubectl -n snip get secret snip-db -o jsonpath='{.data.SNIP_DATABASE_URL}' | base64 -d | grep -q snip-dev-only
+          kubectl -n snip get secret snip-db -o jsonpath='{.data.SNIP_DATABASE_URL}' | base64 -d | grep -q snip-app-dev-only
           kubectl -n snip get secret snip-redis -o jsonpath='{.data.SNIP_REDIS_PASSWORD}' | base64 -d | grep -qx snip-dev-only
           kubectl -n snip exec deploy/redis -- env -u REDISCLI_AUTH redis-cli ping | tee /dev/stderr | grep -q NOAUTH
           kubectl -n snip exec deploy/redis -- redis-cli ping | grep -qx PONG   # REDISCLI_AUTH comes from the Secret
@@ -853,14 +881,14 @@ jobs:
           kubectl -n snip rollout undo deploy/api
           timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
           # 2. config the app rejects → CrashLoopBackOff, reason in --previous logs
-          kubectl -n snip set env deploy/api SNIP_RATE_LIMIT=0
+          kubectl -n snip set env deploy/api -c api SNIP_RATE_LIMIT=0   # -c api: not the migrate init container too
           for _ in $(seq 1 40); do
             NEW=$(kubectl -n snip get pods -l app.kubernetes.io/name=api --sort-by=.metadata.creationTimestamp -o name | tail -1)
             kubectl -n snip logs "$NEW" --previous 2>/dev/null | grep -q 'SNIP_RATE_LIMIT: must be a positive integer' && break
             sleep 3
           done
           kubectl -n snip logs "$NEW" --previous | grep 'SNIP_RATE_LIMIT: must be a positive integer'
-          kubectl -n snip set env deploy/api SNIP_RATE_LIMIT-
+          kubectl -n snip set env deploy/api -c api SNIP_RATE_LIMIT-
           timeout 200 kubectl -n snip rollout status deploy/api --timeout=180s
           # 3. impossible request → Pending, FailedScheduling
           kubectl -n snip create deployment greedy --image=ghcr.io/jawwadzafar/snip:main
