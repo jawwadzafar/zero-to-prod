@@ -14,6 +14,20 @@ updates:
       npm-minor-patch:
         update-types: [minor, patch]
 
+  - package-ecosystem: npm            # snip's phone app (/mobile)
+    directory: /mobile
+    schedule: { interval: weekly }
+    groups:
+      mobile-minor-patch:
+        update-types: [minor, patch]
+    # Each Expo SDK pins its own React Native and expo-* majors; those move
+    # only in an SDK upgrade, done by hand with `npx expo install expo@latest --fix`.
+    ignore:
+      - dependency-name: "expo*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-native"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
   - package-ecosystem: gomod          # snip
     directories: [/snip, /snip/examples/dockerlab]
     schedule: { interval: weekly }
