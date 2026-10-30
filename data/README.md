@@ -16,6 +16,24 @@ uv run snipdata query "SELECT * FROM wh.link_clicks_daily ORDER BY clicks DESC L
 uv run pytest && uv run ruff check . && uv run mypy   # tests, lint, types
 ```
 
+Run it the way production would, one day partition at a time (chapter 17.5):
+
+```bash
+uv run snipdata run                                        # yesterday (UTC): sensor, extract, dbt, verify
+uv run snipdata backfill --start 2026-10-01 --end 2026-10-28   # every day in a range, oldest first
+uv run snipdata runs                                       # each day's latest run, from warehouse/runs.jsonl
+```
+
+Each run retries what waiting can fix (a locked warehouse, Postgres
+restarting, a partition not there yet) with exponential backoff, never runs
+twice at once (`warehouse/snipdata.lock`), and ends by reconciling the
+warehouse with the lake. Every step is idempotent: rerunning a day gives the
+same rows, and the same fingerprint in the run log. A nightly crontab line:
+
+```text
+30 1 * * *  cd /path/to/data && uv run snipdata run >> warehouse/cron.log 2>&1
+```
+
 With snip's compose stack running (`cd ../snip && docker compose up -d --build --wait`),
 copy its real data instead (into a fresh lake folder; `extract` won't mix real rows with generated ones):
 
@@ -44,3 +62,4 @@ Nothing in `lake/`, `warehouse/` or `dbt/target/` is ever committed.
 | `snipdata.extract` | Full snapshots of links and owners; incremental audit events with a watermark | 17.2 |
 | `snipdata query` | SQL over the lake with DuckDB | 17.3 |
 | `dbt/` | Staging models, `dim_links`, `fct_clicks`, `link_clicks_daily`, and tests | 17.4 |
+| `snipdata.orchestrate` | Daily runs, a sensor, retries with backoff, backfills, the run log | 17.5 |
