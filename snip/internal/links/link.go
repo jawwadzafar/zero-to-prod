@@ -35,6 +35,8 @@ var (
 
 // Store is anything that can keep links: memory for tests and early chapters,
 // Postgres for real use. The service code never knows which one it has.
+// Create and Delete also append an audit event (package audit) as part of
+// the same change, so no link appears or disappears without a record.
 type Store interface {
 	Create(ctx context.Context, l Link) (Link, error) // ErrSlugTaken if the slug exists
 	Get(ctx context.Context, slug string) (Link, error)

@@ -5,12 +5,14 @@
 //	snip keys create NAME   create an API key and print it once
 //	snip keys revoke ID     revoke the API key of owner ID
 //	snip keys rotate ID     replace owner ID's key: the old one stops, links stay
+//	snip audit ID           print owner ID's audit trail (newest first) as JSON lines
 //
 // All settings come from SNIP_* environment variables (internal/config).
 package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,6 +26,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/jawwadzafar/zero-to-prod/snip/internal/audit"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/auth"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/cache"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/clicks"
@@ -45,10 +48,12 @@ func main() {
 	}
 }
 
-// store is what snip needs from its storage: links and API keys.
+// store is what snip needs from its storage: links, API keys, and the audit
+// trail of changes to both.
 type store interface {
 	links.Store
 	auth.KeyStore
+	audit.Reader
 }
 
 func run(args []string) error {
@@ -137,8 +142,27 @@ func run(args []string) error {
 		}
 		fmt.Printf("created API key for %q (owner id %d)\n\n  %s\n\nStore it somewhere safe — it cannot be shown again.\n", owner.Name, owner.ID, key)
 		return nil
+	case "audit":
+		if len(args) != 2 {
+			return errors.New("usage: snip audit OWNER_ID")
+		}
+		id, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			return fmt.Errorf("OWNER_ID must be a number: %w", err)
+		}
+		events, err := st.AuditLog(ctx, id, 1000)
+		if err != nil {
+			return err
+		}
+		enc := json.NewEncoder(os.Stdout) // one JSON object per line, ready for jq
+		for _, e := range events {
+			if err := enc.Encode(e); err != nil {
+				return err
+			}
+		}
+		return nil
 	default:
-		return fmt.Errorf("unknown command %q (want serve, migrate or keys)", cmd)
+		return fmt.Errorf("unknown command %q (want serve, migrate, keys or audit)", cmd)
 	}
 }
 

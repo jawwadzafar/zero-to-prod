@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/jawwadzafar/zero-to-prod/snip/internal/audit"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/auth"
 )
 
@@ -19,7 +20,6 @@ type ctxKey int
 
 const (
 	ownerKey ctxKey = iota
-	requestIDKey
 	authLogKey
 )
 
@@ -79,7 +79,7 @@ func (s *Server) observe(next http.Handler) http.Handler {
 		// Browsers must treat responses as the declared type, never "sniff"
 		// JSON into something executable (chapter 7.5).
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		ctx := context.WithValue(r.Context(), requestIDKey, id)
+		ctx := audit.WithRequestID(r.Context(), id) // stores copy it into audit rows
 		who := &authLog{}
 		ctx = context.WithValue(ctx, authLogKey, who)
 		r = r.WithContext(ctx)

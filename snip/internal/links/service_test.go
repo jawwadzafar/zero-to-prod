@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jawwadzafar/zero-to-prod/snip/internal/audit"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/links"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/store/memory"
 )
@@ -107,7 +108,8 @@ func (c *fakeCache) Delete(_ context.Context, slug string) error { delete(c.data
 func TestServiceShortenResolveDelete(t *testing.T) {
 	ctx := context.Background()
 	cache := &fakeCache{data: map[string]string{}}
-	svc := links.NewService(memory.New(), cache, nil)
+	st := memory.New()
+	svc := links.NewService(st, cache, nil)
 
 	l, err := svc.Shorten(ctx, 1, "https://go.dev/doc", "")
 	if err != nil {
@@ -144,6 +146,17 @@ func TestServiceShortenResolveDelete(t *testing.T) {
 	}
 	if _, err := svc.Resolve(ctx, l.Slug); !errors.Is(err, links.ErrNotFound) {
 		t.Fatalf("resolve after delete = %v, want ErrNotFound (cache must be evicted)", err)
+	}
+
+	// The store recorded the three changes that happened, and none of the
+	// attempts that failed (owner 2's taken slug and refused delete).
+	events, _ := st.AuditLog(ctx, 1, 10)
+	if len(events) != 3 || events[0].Action != audit.LinkDeleted || events[0].Slug != l.Slug ||
+		events[1].Action != audit.LinkCreated || events[2].Action != audit.LinkCreated {
+		t.Fatalf("owner 1's audit trail = %+v, want deleted, created, created", events)
+	}
+	if events, _ := st.AuditLog(ctx, 2, 10); len(events) != 0 {
+		t.Fatalf("owner 2's audit trail = %+v, want empty", events)
 	}
 }
 

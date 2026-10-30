@@ -21,7 +21,9 @@ type Owner struct {
 	Name string
 }
 
-// KeyStore persists API keys by their hash.
+// KeyStore persists API keys by their hash. CreateKey, RevokeKey and
+// ReplaceKey also append an audit event (package audit) as part of the same
+// change.
 type KeyStore interface {
 	CreateKey(ctx context.Context, name, keyHash string) (Owner, error)
 	LookupKey(ctx context.Context, keyHash string) (Owner, error)   // ErrUnknownKey if none

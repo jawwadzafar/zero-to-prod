@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/jawwadzafar/zero-to-prod/snip/internal/audit"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/auth"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/links"
 )
@@ -23,7 +25,8 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-// Store wraps a pgx connection pool.
+// Store wraps a pgx connection pool. Every change it makes to links or keys
+// also appends an audit_events row in the same transaction (see record).
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -115,12 +118,18 @@ func (s *Store) Migrate(ctx context.Context) ([]int, error) {
 const uniqueViolation = "23505"
 
 func (s *Store) Create(ctx context.Context, l links.Link) (links.Link, error) {
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO links (slug, url, owner_id, created_at)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING clicks, created_at`,
-		l.Slug, l.URL, l.OwnerID, l.CreatedAt,
-	).Scan(&l.Clicks, &l.CreatedAt)
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`INSERT INTO links (slug, url, owner_id, created_at)
+			 VALUES ($1, $2, $3, $4)
+			 RETURNING clicks, created_at`,
+			l.Slug, l.URL, l.OwnerID, l.CreatedAt,
+		).Scan(&l.Clicks, &l.CreatedAt)
+		if err != nil {
+			return err
+		}
+		return record(ctx, tx, l.OwnerID, audit.LinkCreated, l.Slug, map[string]string{"url": l.URL})
+	})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
 		return links.Link{}, links.ErrSlugTaken
@@ -156,15 +165,22 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID int64, limit int) ([]li
 	})
 }
 
+// Delete removes the link and records who deleted it in one transaction: if
+// the audit row can't be written, the link isn't deleted either (chapter 6.5).
 func (s *Store) Delete(ctx context.Context, slug string, ownerID int64) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM links WHERE slug = $1 AND owner_id = $2`, slug, ownerID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return links.ErrNotFound
-	}
-	return nil
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var url string
+		err := tx.QueryRow(ctx,
+			`DELETE FROM links WHERE slug = $1 AND owner_id = $2 RETURNING url`, slug, ownerID,
+		).Scan(&url)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return links.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return record(ctx, tx, ownerID, audit.LinkDeleted, slug, map[string]string{"url": url})
+	})
 }
 
 // AddClicks adds n in one atomic UPDATE, so concurrent workers never lose a
@@ -182,9 +198,15 @@ func (s *Store) AddClicks(ctx context.Context, slug string, n int64) error {
 
 func (s *Store) CreateKey(ctx context.Context, name, keyHash string) (auth.Owner, error) {
 	o := auth.Owner{Name: name}
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO api_keys (name, key_hash) VALUES ($1, $2) RETURNING id`, name, keyHash,
-	).Scan(&o.ID)
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`INSERT INTO api_keys (name, key_hash) VALUES ($1, $2) RETURNING id`, name, keyHash,
+		).Scan(&o.ID)
+		if err != nil {
+			return err
+		}
+		return record(ctx, tx, o.ID, audit.KeyCreated, "", map[string]string{"name": name})
+	})
 	return o, err
 }
 
@@ -202,27 +224,65 @@ func (s *Store) LookupKey(ctx context.Context, keyHash string) (auth.Owner, erro
 // RevokeKey marks a key as revoked. The row is kept (revoked_at is set) so
 // the history of who owned which links stays intact.
 func (s *Store) RevokeKey(ctx context.Context, id int64) error {
-	tag, err := s.pool.Exec(ctx,
+	return s.changeKey(ctx, id, audit.KeyRevoked,
 		`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, id)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return auth.ErrUnknownKey
-	}
-	return nil
 }
 
 // ReplaceKey swaps an active key's hash for a new one: the old key stops
 // working from the next request, and the owner keeps its id and its links.
 func (s *Store) ReplaceKey(ctx context.Context, id int64, keyHash string) error {
-	tag, err := s.pool.Exec(ctx,
+	return s.changeKey(ctx, id, audit.KeyRotated,
 		`UPDATE api_keys SET key_hash = $2 WHERE id = $1 AND revoked_at IS NULL`, id, keyHash)
+}
+
+// changeKey runs an UPDATE of one active key and records action for it, in
+// one transaction. No active key with that id: ErrUnknownKey, and no record.
+func (s *Store) changeKey(ctx context.Context, id int64, action audit.Action, sql string, args ...any) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, sql, args...)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return auth.ErrUnknownKey
+		}
+		return record(ctx, tx, id, action, "", nil)
+	})
+}
+
+// record appends one audit event inside tx, the transaction making the
+// change, so the change and its record commit together or not at all. The
+// request ID comes from ctx (the HTTP middleware puts it there); empty
+// strings are stored as NULL.
+func record(ctx context.Context, tx pgx.Tx, ownerID int64, action audit.Action, slug string, detail map[string]string) error {
+	var detailJSON []byte // nil is stored as NULL
+	if detail != nil {
+		var err error
+		if detailJSON, err = json.Marshal(detail); err != nil {
+			return err
+		}
+	}
+	_, err := tx.Exec(ctx,
+		`INSERT INTO audit_events (owner_id, action, slug, request_id, detail)
+		 VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5)`,
+		ownerID, string(action), slug, audit.RequestID(ctx), detailJSON)
+	return err
+}
+
+// AuditLog returns ownerID's most recent events, newest first.
+func (s *Store) AuditLog(ctx context.Context, ownerID int64, limit int) ([]audit.Event, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, at, owner_id, action, coalesce(slug, ''), coalesce(request_id, ''), detail
+		   FROM audit_events
+		  WHERE owner_id = $1
+		  ORDER BY at DESC, id DESC
+		  LIMIT $2`, ownerID, limit)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if tag.RowsAffected() == 0 {
-		return auth.ErrUnknownKey
-	}
-	return nil
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (audit.Event, error) {
+		var e audit.Event
+		err := r.Scan(&e.ID, &e.At, &e.OwnerID, &e.Action, &e.Slug, &e.RequestID, &e.Detail)
+		return e, err
+	})
 }

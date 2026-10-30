@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jawwadzafar/zero-to-prod/snip/internal/audit"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/auth"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/httpapi"
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/links"
@@ -346,5 +347,49 @@ func TestRotatedKeyKeepsOwnerAndLinks(t *testing.T) {
 	}
 	if _, err := auth.RotateKey(ctx, st, owner.ID+99); !errors.Is(err, auth.ErrUnknownKey) {
 		t.Fatalf("rotating an unknown owner = %v, want ErrUnknownKey", err)
+	}
+}
+
+// Creating and deleting a link over HTTP leaves audit events that carry the
+// request's ID, so each one can be matched to its log line (chapter 13.7).
+func TestLinkChangesAreAuditedWithRequestID(t *testing.T) {
+	st := memory.New()
+	key, owner, _ := auth.CreateKey(context.Background(), st, "tester")
+	api := httpapi.New(httpapi.Options{
+		Links:  links.NewService(st, nil, nil),
+		Keys:   st,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	ts := httptest.NewServer(api.Handler())
+	defer ts.Close()
+	send := func(method, path, body, requestID string) int {
+		req, _ := http.NewRequest(method, ts.URL+path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("X-Request-ID", requestID)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if code := send("POST", "/api/links", `{"url":"https://go.dev","slug":"docs"}`, "req-create"); code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	if code := send("DELETE", "/api/links/docs", "", "req-delete"); code != http.StatusNoContent {
+		t.Fatalf("delete: %d", code)
+	}
+	if code := send("DELETE", "/api/links/docs", "", "req-again"); code != http.StatusNotFound {
+		t.Fatalf("second delete: %d, want 404", code)
+	}
+	events, _ := st.AuditLog(context.Background(), owner.ID, 10)
+	if len(events) != 3 { // link.deleted, link.created, key.created; nothing for the 404
+		t.Fatalf("got %d events, want 3: %+v", len(events), events)
+	}
+	if e := events[0]; e.Action != audit.LinkDeleted || e.Slug != "docs" || e.RequestID != "req-delete" || e.Detail["url"] != "https://go.dev" {
+		t.Errorf("newest event = %+v, want link.deleted of docs by req-delete", e)
+	}
+	if e := events[1]; e.Action != audit.LinkCreated || e.RequestID != "req-create" {
+		t.Errorf("second event = %+v, want link.created by req-create", e)
 	}
 }
