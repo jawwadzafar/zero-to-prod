@@ -83,6 +83,7 @@ chapter.** The owner should never have to repeat what is written here.
 ├── snip/                     ← the Go project readers build (reference implementation)
 ├── sandbox/                  ← Buildroot config for the in-browser Linux (built by sandbox.yml, released as sandbox-<sha>)
 ├── ai/                       ← Python code for the AI Engineering track
+├── data/                     ← Python + dbt for the Data Engineering track (lake, pipeline, models)
 └── .github/workflows/        ← deploy.yml (Pages), ci.yml (site + snip)
 ```
 

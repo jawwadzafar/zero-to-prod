@@ -1,0 +1,20 @@
+# The dbt project for snip's analytics (chapter 17.4).
+# Run it with `uv run snipdata build` from data/, which points dbt at the lake
+# and the warehouse; or `cd dbt && uv run dbt build --profiles-dir .`.
+name: snip_analytics
+version: "1.0.0"
+profile: snip
+
+model-paths: ["models"]
+test-paths: ["tests"]           # tests/generic/ holds reusable tests; tests/*.sql are one-off checks
+clean-targets: ["target", "logs"]
+
+models:
+  snip_analytics:
+    staging:
+      +materialized: view     # thin renames and clean-ups: cheap to recompute on every query
+    marts:
+      +materialized: table    # what people query: computed once per build
+
+flags:
+  send_anonymous_usage_stats: false   # no telemetry from a reader's laptop or CI

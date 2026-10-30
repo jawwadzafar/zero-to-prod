@@ -1,0 +1,10 @@
+# Where dbt builds: a DuckDB file on your laptop. No server, no password.
+snip:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('SNIPDATA_WAREHOUSE', '../warehouse/snip.duckdb') }}"
+      threads: 4
+      settings:
+        TimeZone: UTC   # dates are UTC days, on every laptop and in CI

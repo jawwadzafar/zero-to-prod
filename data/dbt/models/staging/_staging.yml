@@ -1,0 +1,47 @@
+models:
+  - name: stg_clicks
+    description: One row per click event from the lake, with redelivered duplicates removed.
+    columns:
+      - name: event_id
+        description: The Redis Stream entry ID, e.g. 1761800000000-0. Unique per event.
+        data_tests: [unique, not_null]
+      - name: slug
+        data_tests: [not_null]
+      - name: clicked_at
+        description: When the redirect happened (UTC).
+        data_tests: [not_null]
+      - name: click_date
+        description: The UTC day of clicked_at.
+        data_tests: [not_null]
+
+  - name: stg_links
+    description: Every daily snapshot of snip's links table.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [slug, snapshot_date]
+    columns:
+      - name: slug
+        data_tests: [not_null]
+      - name: url
+        data_tests: [not_null]
+      - name: snapshot_date
+        data_tests: [not_null]
+
+  - name: stg_owners
+    description: Every daily snapshot of snip's API key owners (no key hashes).
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [owner_id, snapshot_date]
+
+  - name: stg_audit_events
+    description: snip's audit trail.
+    columns:
+      - name: audit_event_id
+        data_tests: [unique, not_null]
+      - name: action
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [key.created, key.rotated, key.revoked, link.created, link.deleted]

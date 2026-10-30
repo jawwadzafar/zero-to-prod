@@ -1,0 +1,46 @@
+[project]
+name = "snipdata"
+version = "0.1.0"
+description = "The Data Engineering track's code (Part 17): a batch pipeline and a dbt project over snip's links and clicks."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "duckdb>=2.0",          # in-process analytical database (chapter 17.3)
+    "pyarrow>=26.0",        # Arrow tables and Parquet files (chapters 17.2, 17.3)
+    "psycopg[binary]>=3.3", # reads snip's Postgres (chapter 17.2)
+    "dbt-core>=1.12",       # models, tests, docs and lineage (chapter 17.4)
+    "dbt-duckdb>=1.11",     # dbt's adapter for DuckDB
+]
+
+[project.scripts]
+snipdata = "snipdata.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2",
+    "ruff>=0.17",
+    "mypy>=2.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]   # errors, pyflakes, imports, bugbear, pyupgrade, simplify
+
+[tool.mypy]
+strict = true
+packages = ["snipdata"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["pyarrow.*", "dbt.*"]   # these ship without type hints
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
