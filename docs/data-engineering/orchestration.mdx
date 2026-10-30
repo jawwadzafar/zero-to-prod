@@ -370,19 +370,20 @@ snip, the URL shortener this handbook builds, writes one row per click into a la
 
 The choice, made for this project, and the reasons:
 
-- **The pipeline is small.** Four steps, one machine, one warehouse file. Dagster or Airflow would bring a scheduler, a web server and a metadata database, and several hundred Python packages, to run four functions.
+- **The pipeline is small.** Five steps, one machine, one warehouse file. Dagster or Airflow would bring a scheduler, a web server and a metadata database, and several hundred Python packages, to run five functions.
 - **The lab must be free and quick on a laptop.** `uv sync` stays the only install.
 - **You should see the mechanics.** A retry loop, a sensor and a backfill in plain code teach what the frameworks do for you. When you open Dagster's partition view later, you'll know what each square means.
 
 The day snipdata grows to a dozen pipelines and a team, the steps move into Dagster assets unchanged, as the order counter did above.
 
-### One run is one day, through four steps
+### One run is one day, through five steps
 
 `snipdata run --day D` runs these steps, from `data/src/snipdata/orchestrate.py`:
 
 ```python
 STEPS: list[tuple[str, Step]] = [
     ("wait_for_clicks", wait_for_clicks),
+    ("check_contract", check_contract),
     ("extract", extract),
     ("transform", transform),
     ("verify", verify),
@@ -391,12 +392,14 @@ STEPS: list[tuple[str, Step]] = [
 
 ```mermaid
 flowchart LR
-  W["wait_for_clicks<br/>(sensor)"] --> E["extract<br/>(Postgres snapshot)"]
+  W["wait_for_clicks<br/>(sensor)"] --> C["check_contract<br/>(are the files valid?)"]
+  C --> E["extract<br/>(Postgres snapshot)"]
   E --> T["transform<br/>(dbt build for day D)"]
   T --> V["verify<br/>(warehouse = lake?)"]
 ```
 
 - **`wait_for_clicks`** is the sensor. Day D is ready when it's over plus a grace hour for late clicks, and `clicks/dt=D/` holds files.
+- **`check_contract`** checks the day's files against the agreed schema before anything reads them, and stops the run if one breaks it. That's a data quality gate, and [chapter 17.7](./data-quality.mdx) builds it.
 - **`extract`** snapshots snip's Postgres (links and their owners), but only for today or yesterday: it skips older days with the message "a snapshot shows the database now, it can't be taken for a past day". That's the backfill warning above, in code.
 - **`transform`** runs `dbt build` for exactly that day:
 
@@ -448,9 +451,10 @@ How does the runner tell a locked warehouse from a failed test? dbt runs as a ch
 
 ```text
 2026-10-27  wait_for_clicks ok        0.0s  2 file(s) in clicks/dt=2026-10-27
+2026-10-27  check_contract  ok        0.0s  2 file(s) keep the contract
 2026-10-27  extract         ok        0.0s  skipped: generated lake, no Postgres to read
-2026-10-27  transform       retry     2.9s  _duckdb.IOException: IO Error: Could not set lock on file "/w/data/warehouse/snip.duckdb": Conflicting lock is held in /usr/local/bin/python3.12 (PID 99). See also https://duckdb.org/docs/current/connect/concurrency
-2026-10-27  transform       ok        2.9s  dbt build: 35 pass, 7 success
+2026-10-27  transform       retry     3.0s  _duckdb.IOException: IO Error: Could not set lock on file "/w/data/warehouse/snip.duckdb": Conflicting lock is held in /usr/local/bin/python3.12 (PID 2249). See also https://duckdb.org/docs/current/connect/concurrency
+2026-10-27  transform       ok        2.9s  dbt build: 39 pass, 7 success
 2026-10-27  verify          ok        0.0s  3989 clicks, fingerprint 10a76b76802bd17c
 ```
 
@@ -463,21 +467,22 @@ On a lake of seven generated days, the nightly run builds the newest day, a back
 ```text
 $ uv run snipdata run --day 2026-10-29
 2026-10-29  wait_for_clicks ok        0.0s  2 file(s) in clicks/dt=2026-10-29
+2026-10-29  check_contract  ok        0.0s  2 file(s) keep the contract
 2026-10-29  extract         ok        0.0s  skipped: generated lake, no Postgres to read
-2026-10-29  transform       ok        3.8s  dbt build: 35 pass, 7 success
+2026-10-29  transform       ok        3.8s  dbt build: 39 pass, 7 success
 2026-10-29  verify          ok        0.0s  5337 clicks, fingerprint ca7a30991113a82b
 $ uv run snipdata backfill --start 2026-10-23 --end 2026-10-28
 ...
 backfill 2026-10-23 to 2026-10-28: 6 of 6 days done
 $ uv run snipdata runs
 day         run      status  step            retries  message
-2026-10-23  66049c10 ok      verify                0  4471 clicks, fingerprint 6c005955dee589df
-2026-10-24  9a7792d2 ok      verify                0  2635 clicks, fingerprint f5b72c46baef31ba
-2026-10-25  31c9c0bc ok      verify                0  3123 clicks, fingerprint 0547fe2e7dca1c88
-2026-10-26  a7257a70 ok      verify                0  4684 clicks, fingerprint f752d05afd4bc98e
-2026-10-27  af67e278 ok      verify                0  3989 clicks, fingerprint 10a76b76802bd17c
-2026-10-28  8c0896c5 ok      verify                0  4549 clicks, fingerprint a7da42960db1e010
-2026-10-29  affb0406 ok      verify                0  5337 clicks, fingerprint ca7a30991113a82b
+2026-10-23  45a4c897 ok      verify                0  4471 clicks, fingerprint 6c005955dee589df
+2026-10-24  333cc411 ok      verify                0  2635 clicks, fingerprint f5b72c46baef31ba
+2026-10-25  8e885577 ok      verify                0  3123 clicks, fingerprint 0547fe2e7dca1c88
+2026-10-26  035ea604 ok      verify                0  4684 clicks, fingerprint f752d05afd4bc98e
+2026-10-27  4c48e9a7 ok      verify                0  3989 clicks, fingerprint 10a76b76802bd17c
+2026-10-28  ee0f6bfa ok      verify                0  4549 clicks, fingerprint a7da42960db1e010
+2026-10-29  4fa99ce1 ok      verify                0  5337 clicks, fingerprint ca7a30991113a82b
 ```
 
 Rerun one day in the middle:
@@ -485,8 +490,9 @@ Rerun one day in the middle:
 ```text
 $ uv run snipdata run --day 2026-10-26
 2026-10-26  wait_for_clicks ok        0.0s  2 file(s) in clicks/dt=2026-10-26
+2026-10-26  check_contract  ok        0.0s  2 file(s) keep the contract
 2026-10-26  extract         ok        0.0s  skipped: generated lake, no Postgres to read
-2026-10-26  transform       ok        3.8s  dbt build: 35 pass, 7 success
+2026-10-26  transform       ok        3.8s  dbt build: 39 pass, 7 success
 2026-10-26  verify          ok        0.0s  4684 clicks, fingerprint f752d05afd4bc98e
 ```
 
@@ -515,7 +521,7 @@ That covers schedule, order, retries, waiting, no overlap and a history. The mis
 | Retry with backoff + jitter | Try again, waiting longer and slightly random | Transient failures only |
 | Sensor | Waits until input is ready | Before processing a day |
 | Backfill | Runs the pipeline for past partitions | First load, fixes, late data |
-| `uv run snipdata run --day D` | One orchestrated day for snipdata | Nightly, or to redo one day |
+| `uv run snipdata run --day D` | One orchestrated day for snipdata (`--quarantine` sets bad files aside) | Nightly, or to redo one day |
 | `uv run snipdata backfill --start A --end B` | Every day from A to B, oldest first | Filling or fixing history |
 | `uv run snipdata runs` | Each day's latest run from the run log | "Did last night work?" |
 | `airflow backfill create --dag-id X --from-date A --to-date B` | Airflow 3's backfill | The same, in Airflow |
@@ -548,7 +554,7 @@ Everything runs on your laptop, free. Steps 1 and 2 need only bash; steps 3 and 
    ```bash
    uv sync                                                  # install snipdata and dbt
    uv run snipdata generate --days 7                        # 7 days of clicks, ending today
-   uv run snipdata run                                      # yesterday: sensor, extract, dbt, verify
+   uv run snipdata run                                      # yesterday: sensor, contract, extract, dbt, verify
    uv run snipdata run --day "$(date -u +%F)"               # today isn't over: the sensor says so, retries, gives up
    uv run snipdata backfill --start "$(date -u -d '-6 days' +%F)" --end "$(date -u -d '-2 days' +%F)"
    uv run snipdata runs                                     # the run log, one line per day
