@@ -25,6 +25,7 @@ export function CreateLinkForm({ client, onCreated, onError }: Props) {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (saving) return; // already sending; see aria-disabled on the button below
     setSaving(true);
     setError(null);
     try {
@@ -55,6 +56,10 @@ export function CreateLinkForm({ client, onCreated, onError }: Props) {
         id="url"
         type="url"
         required
+        // The form appears after the user submits their key, replacing the key
+        // form they were typing in. Without this, focus falls back to <body> and
+        // a keyboard or screen reader user is left at the top of nothing.
+        autoFocus
         placeholder="https://example.com/a/long/page"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
@@ -76,7 +81,10 @@ export function CreateLinkForm({ client, onCreated, onError }: Props) {
       </p>
       {errorFor('slug')}
       {errorFor('form')}
-      <button type="submit" disabled={saving}>
+      {/* aria-disabled, not disabled: a disabled button loses keyboard focus
+          (it drops to <body>), so a user who pressed it would have to find
+          their way back. aria-disabled keeps focus and still tells screen readers it is unavailable. */}
+      <button type="submit" aria-disabled={saving}>
         {saving ? 'Creating…' : 'Create short link'}
       </button>
     </form>
