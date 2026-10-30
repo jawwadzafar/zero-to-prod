@@ -35,6 +35,12 @@ spec:
       containers:
         - name: redis
           image: redis:7-alpine
+          # Start Redis with the password from the snip-redis Secret (chapter 7.6).
+          command: ["sh", "-c", 'exec redis-server --requirepass "$REDISCLI_AUTH"']
+          env:
+            - name: REDISCLI_AUTH           # redis-cli (the probe, kubectl exec) logs in with it too
+              valueFrom:
+                secretKeyRef: { name: snip-redis, key: SNIP_REDIS_PASSWORD }
           ports:
             - containerPort: 6379
           readinessProbe:

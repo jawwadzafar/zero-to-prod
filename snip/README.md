@@ -28,6 +28,7 @@ SNIP_API_KEY=$KEY ./scripts/smoke.sh           # end-to-end check → [smoke] PA
 ```bash
 export SNIP_DATABASE_URL="postgres://snip:snip@localhost:5432/snip?sslmode=disable"
 export SNIP_REDIS_ADDR="localhost:6379"
+# export SNIP_REDIS_PASSWORD="..."         # only if your Redis requires one (compose's Redis: snip-dev-only)
 go run ./cmd/snip migrate
 go run ./cmd/snip keys create me        # copy the snip_… key it prints (and note the owner id)
 # later: go run ./cmd/snip keys revoke <owner id>   — the key stops working immediately
@@ -64,6 +65,8 @@ Errors always look like `{"error": {"code": "invalid_url", "message": "..."}}`.
 | `SNIP_BASE_URL` | `http://localhost:8080` | Used to build `short_url` |
 | `SNIP_DATABASE_URL` | *(empty → memory)* | Postgres connection string |
 | `SNIP_REDIS_ADDR` | *(empty → no cache/queue)* | Redis `host:port` |
+| `SNIP_REDIS_PASSWORD` | *(empty → no password)* | Redis password (`requirepass` / ElastiCache AUTH token). Never logged |
+| `SNIP_REDIS_TLS` | `false` | `true` = connect to Redis over TLS and verify its certificate (minimum TLS 1.2); managed Redis in the cloud |
 | `SNIP_CACHE_TTL` | `1h` | How long redirects stay cached |
 | `SNIP_RATE_LIMIT` | `60` | Link creations per key per minute |
 | `SNIP_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |

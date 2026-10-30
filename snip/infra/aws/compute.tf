@@ -32,26 +32,31 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-data "aws_iam_policy_document" "read_db_secret" {
+data "aws_iam_policy_document" "read_secrets" {
   statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.db_url.arn]
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      aws_secretsmanager_secret.db_url.arn,
+      aws_secretsmanager_secret.redis_auth.arn,
+    ]
   }
 }
 
-resource "aws_iam_role_policy" "read_db_secret" {
-  name   = "read-db-secret"
+resource "aws_iam_role_policy" "read_secrets" {
+  name   = "read-snip-secrets"
   role   = aws_iam_role.execution.id
-  policy = data.aws_iam_policy_document.read_db_secret.json
+  policy = data.aws_iam_policy_document.read_secrets.json
 }
 
 locals {
   snip_environment = [
-    { name = "SNIP_REDIS_ADDR", value = "${aws_elasticache_cluster.redis.cache_nodes[0].address}:6379" },
+    { name = "SNIP_REDIS_ADDR", value = "${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379" },
+    { name = "SNIP_REDIS_TLS", value = "true" }, # ElastiCache accepts only TLS (main.tf)
     { name = "SNIP_BASE_URL", value = "http://${aws_lb.this.dns_name}" },
   ]
   snip_secrets = [
     { name = "SNIP_DATABASE_URL", valueFrom = aws_secretsmanager_secret.db_url.arn },
+    { name = "SNIP_REDIS_PASSWORD", valueFrom = aws_secretsmanager_secret.redis_auth.arn },
   ]
   log_config = {
     logDriver = "awslogs"

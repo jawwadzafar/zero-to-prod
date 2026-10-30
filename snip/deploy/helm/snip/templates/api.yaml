@@ -29,6 +29,9 @@ spec:
           envFrom:
             - configMapRef: { name: {{ include "snip.fullname" . }}-config }
             - secretRef: { name: {{ include "snip.dbSecret" . }} }
+            {{- if .Values.redis.enabled }}
+            - secretRef: { name: {{ include "snip.redisSecret" . }} }
+            {{- end }}
           ports:
             - { name: http, containerPort: 8080 }
           startupProbe:

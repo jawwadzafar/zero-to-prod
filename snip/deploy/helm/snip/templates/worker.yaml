@@ -32,6 +32,9 @@ spec:
           envFrom:
             - configMapRef: { name: {{ include "snip.fullname" . }}-config }
             - secretRef: { name: {{ include "snip.dbSecret" . }} }
+            {{- if .Values.redis.enabled }}
+            - secretRef: { name: {{ include "snip.redisSecret" . }} }
+            {{- end }}
           resources: {{- toYaml .Values.worker.resources | nindent 12 }}
           securityContext: {{- include "snip.containerSecurity" . | nindent 12 }}
 {{- end }}

@@ -43,9 +43,14 @@ postgres:
   password: snip-dev-only # development only: never put a real password in values files
   storage: 1Gi
 
+# Redis requires a password (chapter 7.6). Like the database URL, it comes from:
+#  - redis.existingSecret: a Secret you created (key SNIP_REDIS_PASSWORD). Recommended.
+#  - otherwise, a Secret the chart builds from redis.password.
 redis:
   enabled: true
   image: redis:7-alpine
+  password: snip-dev-only # development only: never put a real password in values files
+  existingSecret: ""
 
 networkPolicy:
   enabled: true

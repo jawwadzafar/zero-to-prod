@@ -13,3 +13,9 @@ output "database_password" {
   value       = random_password.db.result
   sensitive   = true # hidden in plan/apply output; still stored in the state file
 }
+
+output "redis_password" {
+  description = "The generated Redis password."
+  value       = random_password.redis.result
+  sensitive   = true
+}

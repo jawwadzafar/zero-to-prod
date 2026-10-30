@@ -9,3 +9,9 @@ Try it:
 This release runs its own Postgres with a development password. For anything
 real, set postgres.enabled=false and database.existingSecret (chapter 10.4).
 {{- end }}
+{{- if and .Values.redis.enabled (not .Values.redis.existingSecret) }}
+
+Redis's password comes from redis.password in your values (a development
+default unless you changed it). For anything real, create a Secret with the
+key SNIP_REDIS_PASSWORD and set redis.existingSecret (chapter 7.6).
+{{- end }}

@@ -19,6 +19,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    # A password, so nothing else on the network can rewrite the cache or the
+    # click queue (chapter 7.6). Override it with SNIP_REDIS_PASSWORD in your shell or .env.
+    command: ["redis-server", "--requirepass", "${SNIP_REDIS_PASSWORD:-snip-dev-only}"]
+    environment:
+      REDISCLI_AUTH: ${SNIP_REDIS_PASSWORD:-snip-dev-only}   # lets redis-cli inside this container log in
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
@@ -29,6 +34,7 @@ services:
     environment: &snip-env
       SNIP_DATABASE_URL: postgres://snip:snip@postgres:5432/snip?sslmode=disable
       SNIP_REDIS_ADDR: redis:6379
+      SNIP_REDIS_PASSWORD: ${SNIP_REDIS_PASSWORD:-snip-dev-only}  # local development only
       SNIP_BASE_URL: http://localhost:8080
       # Tracing (chapter 13.3) is off unless you set it, e.g.:
       #   OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d

@@ -22,6 +22,8 @@ spec:
   template:
     metadata:
       labels: {{- include "snip.selector" (dict "root" . "component" "redis") | nindent 8 }}
+      annotations:                          # a new password restarts Redis with it
+        checksum/password: {{ .Values.redis.password | sha256sum }}
     spec:
       automountServiceAccountToken: false   # never calls the Kubernetes API, so no token (chapter 7.11)
       securityContext:
@@ -34,6 +36,12 @@ spec:
       containers:
         - name: redis
           image: {{ .Values.redis.image }}
+          # Start Redis with the password from the Secret (chapter 7.6).
+          command: ["sh", "-c", 'exec redis-server --requirepass "$REDISCLI_AUTH"']
+          env:
+            - name: REDISCLI_AUTH           # redis-cli (the probe, kubectl exec) logs in with it too
+              valueFrom:
+                secretKeyRef: { name: {{ include "snip.redisSecret" . }}, key: SNIP_REDIS_PASSWORD }
           ports:
             - containerPort: 6379
           readinessProbe:

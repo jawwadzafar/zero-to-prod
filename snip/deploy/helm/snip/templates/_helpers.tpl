@@ -28,6 +28,10 @@ app.kubernetes.io/name: {{ .component }}
 {{- .Values.database.existingSecret | default (printf "%s-db" (include "snip.fullname" .)) -}}
 {{- end -}}
 
+{{- define "snip.redisSecret" -}}
+{{- .Values.redis.existingSecret | default (printf "%s-redis" (include "snip.fullname" .)) -}}
+{{- end -}}
+
 {{/* The same hardened settings for every snip container (chapter 9.4). */}}
 {{- define "snip.podSecurity" -}}
 runAsNonRoot: true

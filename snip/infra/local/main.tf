@@ -10,6 +10,13 @@ resource "random_password" "db" {
   special = false
 }
 
+# Redis gets one too, so only snip's containers can read or rewrite the cache
+# and the click queue (chapter 7.6).
+resource "random_password" "redis" {
+  length  = 24
+  special = false
+}
+
 resource "docker_volume" "pgdata" {
   name = "snip-tf-pgdata"
 }
@@ -53,17 +60,26 @@ resource "docker_container" "postgres" {
 }
 
 resource "docker_container" "redis" {
-  name  = "snip-tf-redis"
-  image = docker_image.redis.image_id
+  name    = "snip-tf-redis"
+  image   = docker_image.redis.image_id
+  command = ["redis-server", "--requirepass", random_password.redis.result]
+  env     = ["REDISCLI_AUTH=${random_password.redis.result}"] # lets redis-cli in the container log in
   networks_advanced {
     name = docker_network.snip.id
   }
+  healthcheck {
+    test     = ["CMD", "redis-cli", "ping"]
+    interval = "3s"
+    retries  = 20
+  }
+  wait = true
 }
 
 locals {
   snip_env = [
     "SNIP_DATABASE_URL=postgres://snip:${random_password.db.result}@${docker_container.postgres.name}:5432/snip?sslmode=disable",
     "SNIP_REDIS_ADDR=${docker_container.redis.name}:6379",
+    "SNIP_REDIS_PASSWORD=${random_password.redis.result}",
     "SNIP_BASE_URL=http://localhost:${var.api_port}",
     "SNIP_LOG_LEVEL=${var.log_level}",
   ]

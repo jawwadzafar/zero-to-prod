@@ -21,3 +21,14 @@ type: Opaque
 stringData:
   SNIP_DATABASE_URL: postgres://snip:{{ .Values.postgres.password }}@{{ include "snip.fullname" . }}-postgres:5432/snip?sslmode=disable
 {{- end }}
+{{- if and .Values.redis.enabled (not .Values.redis.existingSecret) }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "snip.redisSecret" . }}
+  labels: {{- include "snip.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  SNIP_REDIS_PASSWORD: {{ .Values.redis.password | quote }}
+{{- end }}

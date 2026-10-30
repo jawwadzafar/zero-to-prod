@@ -155,11 +155,36 @@ resource "aws_elasticache_subnet_group" "this" {
   subnet_ids = module.network.private_subnet_ids
 }
 
-resource "aws_elasticache_cluster" "redis" {
-  cluster_id         = local.name
-  engine             = "redis"
-  node_type          = "cache.t4g.micro"
-  num_cache_nodes    = 1
-  subnet_group_name  = aws_elasticache_subnet_group.this.name
-  security_group_ids = [aws_security_group.data.id]
+# Redis's AUTH token, generated and stored the same way as the database
+# password: ephemeral, write-only, never in state (chapter 7.6).
+ephemeral "random_password" "redis" {
+  length  = 32
+  special = false # ElastiCache rejects some symbols in tokens; length makes it strong
+}
+
+# A replication group (one node) rather than a bare cluster, because only a
+# replication group can require a token and encrypt traffic in transit.
+resource "aws_elasticache_replication_group" "redis" {
+  replication_group_id       = local.name
+  description                = "snip cache, rate limits and click queue"
+  engine                     = "redis"
+  node_type                  = "cache.t4g.micro"
+  num_cache_clusters         = 1
+  subnet_group_name          = aws_elasticache_subnet_group.this.name
+  security_group_ids         = [aws_security_group.data.id]
+  transit_encryption_enabled = true # TLS only: snip sets SNIP_REDIS_TLS=true (compute.tf)
+  at_rest_encryption_enabled = true
+  auth_token_wo              = ephemeral.random_password.redis.result
+  auth_token_wo_version      = 1 # bump to rotate
+}
+
+resource "aws_secretsmanager_secret" "redis_auth" {
+  name                    = "${local.name}/redis-auth-token"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "redis_auth" {
+  secret_id                = aws_secretsmanager_secret.redis_auth.id
+  secret_string_wo         = ephemeral.random_password.redis.result
+  secret_string_wo_version = 1
 }
