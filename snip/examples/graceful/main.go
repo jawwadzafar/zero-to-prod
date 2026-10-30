@@ -6,13 +6,15 @@
 //
 //  1. Flip readiness: /readyz starts answering 503, so load balancers stop
 //     sending new requests here.
+//
 //  2. Wait a short drain delay, so they notice (health checks run every few seconds).
+//
 //  3. Shutdown: stop accepting connections, let in-flight requests finish
 //     (up to a deadline), then exit.
 //
-//	go run ./examples/graceful                      # listens on :9091
-//	curl localhost:9091/slow &                       # a request that takes 3 s
-//	kill -TERM <pid>                                 # or Ctrl-C: the slow request still completes
+//     go run ./examples/graceful                      # listens on :9091
+//     curl localhost:9091/slow &                       # a request that takes 3 s
+//     kill -TERM <pid>                                 # or Ctrl-C: the slow request still completes
 package main
 
 import (
