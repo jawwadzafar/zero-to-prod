@@ -225,8 +225,8 @@ proxy_set_header X-Forwarded-Proto $scheme;                        # was it http
 Here's the trap: **a client can send its own `X-Forwarded-For` header**, full of lies. Through the `lb` stack:
 
 ```bash
-curl -s localhost:8080 -H "X-Forwarded-For: 1.2.3.4" | grep -i forwarded
-# X-Forwarded-For: 1.2.3.4, 172.20.0.1
+curl -s localhost:8080 -H "X-Forwarded-For: 198.51.100.7" | grep -i forwarded
+# X-Forwarded-For: 198.51.100.7, 172.20.0.1
 ```
 
 nginx *appended* the address it really saw (your machine, as seen from inside Docker) to the one the client typed. If your app blindly takes the first address in the list, anyone can pretend to be any IP: bypassing per-IP rate limits, polluting logs, faking locations. The rule: **only trust the entries added by proxies you control.** Count from the *right*, skipping your own known proxies, and take the first address that isn't one of them, or configure the proxy (nginx's `real_ip` module) to rewrite the client address from trusted proxies only. Better still, rate-limit by something the client can't forge, such as an API key ([chapter 8.4](./rate-limiting-and-resilience.mdx)).
@@ -340,7 +340,7 @@ Free, on your own computer with Docker. Steps 1–4 use the `lb/` folder from th
 4. **See the edge rules.**
    ```bash
    curl -s -o /dev/null -w "%{http_code}\n" localhost:8080/admin           # 403: blocked by nginx
-   curl -s localhost:8080 -H "X-Forwarded-For: 1.2.3.4" | grep -i forwarded  # "1.2.3.4, 172.…"
+   curl -s localhost:8080 -H "X-Forwarded-For: 198.51.100.7" | grep -i forwarded  # "198.51.100.7, 172.…"
    docker compose down
    ```
    Which of the two `X-Forwarded-For` addresses could the app trust, and why? (Only the rightmost, added by the proxy you control; the left one is whatever the client typed.)

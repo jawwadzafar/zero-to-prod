@@ -190,7 +190,8 @@ func TestSSRF(t *testing.T) {
 			t.Errorf("%s counted as public", s)
 		}
 	}
-	for _, s := range []string{"93.184.215.14", "2606:4700::6810:84e5"} {
+	// Documentation addresses (RFC 5737, RFC 3849): public as far as this filter knows.
+	for _, s := range []string{"203.0.113.10", "2001:db8::10"} {
 		if !isPublic(netip.MustParseAddr(s)) {
 			t.Errorf("%s counted as internal", s)
 		}
