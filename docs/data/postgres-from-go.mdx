@@ -280,6 +280,8 @@ Most teams use a tool for this: **golang-migrate**, **goose** or **Atlas** in Go
 
 Two rules hold whichever runner you use. Never edit a migration that has already run somewhere: other databases won't re-run it, so add a new one. And on a live system, change columns with **expand, then contract** ([chapter 6.3](./designing-schemas.mdx)), because old and new code run side by side during a deploy.
 
+A third habit comes from security. Creating and altering tables needs far more power than reading and writing rows, and the login that creates a table **owns** it: it can alter it, drop it, or remove the protections on it. So production setups often run migrations as their own step, signed in as an owner login, and let the running program sign in as a second login that may only read and write rows. [Chapter 7.4](../security/authorization-multi-tenancy.mdx) shows why that matters; you'll see snip's version below.
+
 :::info[If you've written code]
 Many languages lean on an **ORM** (object-relational mapper) such as Prisma, SQLAlchemy, Hibernate or GORM, which generates SQL from objects. ORMs speed up simple create/read/update/delete code, but hide what SQL runs, which is how N+1 queries ([chapter 6.4](./indexes-and-performance.mdx)) sneak in. Go culture leans towards writing SQL directly, as in this chapter, or generating type-safe Go from SQL with **sqlc**. Whatever you use, learn to read the SQL it produces.
 :::
@@ -421,7 +423,24 @@ if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(7412)`); err != nil {
 defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7412)`) //nolint:errcheck
 ```
 
-Notice `Acquire`: an advisory lock belongs to one **connection**, so `Migrate` borrows a single connection from the pool and does all its work on it. Running each statement on whatever connection the pool hands out would take the lock on one connection and run migrations on others. When three copies of snip start at once on Kubernetes, the first takes the lock and migrates; the other two wait, then find every version already recorded in `schema_migrations`. Migrations run on every `snip serve` start, and also as `snip migrate` for teams that prefer a separate deploy step ([chapter 11.3](../shipping/delivery-and-deployment.mdx)).
+Notice `Acquire`: an advisory lock belongs to one **connection**, so `Migrate` borrows a single connection from the pool and does all its work on it. Running each statement on whatever connection the pool hands out would take the lock on one connection and run migrations on others. When three copies of snip start at once on Kubernetes, the first takes the lock and migrates; the other two wait, then find every version already recorded in `schema_migrations`.
+
+### Two logins: one changes the schema, one serves
+
+`snip migrate` applies the migrations and exits; `snip serve` (and `snip keys`) also check on start. Which login does the work depends on one setting:
+
+- **`SNIP_DATABASE_URL` alone**: one login migrates and serves. That's this chapter's lab, and fine on a laptop.
+- **`SNIP_MIGRATE_DATABASE_URL` as well**: migrations run as that login, the schema's owner, and `SNIP_DATABASE_URL` becomes the app's own login, `snip_app`, which may read and write rows but never change the schema ([chapter 7.4](../security/authorization-multi-tenancy.mdx)). `snip migrate` creates that login, with the password in its URL, after migrating.
+
+Every deployment in this handbook runs `snip migrate` as a separate step with the owner's login (a one-shot Compose service, a Kubernetes init container, an ECS container that must succeed before the API starts), and gives the API only `snip_app`'s. When that API starts, it still calls `Migrate`, which first asks whether anything is pending:
+
+```go
+	if pending, err := s.pending(ctx, names); err != nil || !pending {
+		return []int{}, err // empty, not nil, so "nothing to do" logs as []
+	}
+```
+
+`pending` only reads `schema_migrations`, which `snip_app` may do, so a current schema costs one query and no special rights. If a migration *is* pending and the login can't apply it, snip stops with `permission denied … run "snip migrate" with SNIP_MIGRATE_DATABASE_URL set to the schema owner's login`, rather than serving against a schema its code doesn't expect.
 
 ---
 
@@ -458,7 +477,7 @@ Free, on your own computer, using Docker ([chapter 0.2](../start/set-up-your-mac
 4. **Apply it to snip: links that survive a restart.** snip uses the same database (its tables don't clash with `notes`):
    ```bash
    export SNIP_DATABASE_URL="$DATABASE_URL"
-   go run ./cmd/snip migrate            # "migrations applied" versions=[1,2]
+   go run ./cmd/snip migrate            # "migrations applied" versions=[1,2,3]
    go run ./cmd/snip migrate            # again: versions=[] — nothing left to do
    go run ./cmd/snip keys create me     # prints your snip_… key — copy it
    export KEY=snip_paste_it_here

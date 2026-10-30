@@ -240,7 +240,7 @@ rules:
                 - { name: x-snip-track, value: canary }
 ```
 
-- **The database**: snip's migrations run at startup under a Postgres advisory lock (`snip/internal/store/postgres/postgres.go`, [chapter 6.6](../data/postgres-from-go.mdx)), so many API Pods starting at once apply each migration exactly once. That makes the migration *mechanics* safe; the *schema changes* themselves still have to follow expand-and-contract once snip has real users, because during a canary the old and new API share one database.
+- **The database**: snip's migrations run before each API Pod starts, in its `migrate` init container, under a Postgres advisory lock (`snip/internal/store/postgres/postgres.go`, [chapter 6.6](../data/postgres-from-go.mdx)), so many API Pods starting at once apply each migration exactly once. That makes the migration *mechanics* safe; the *schema changes* themselves still have to follow expand-and-contract once snip has real users, because during a canary the old and new API share one database.
 
 ---
 

@@ -216,14 +216,14 @@ Free, on your kind cluster. Steps 1–5 break and inspect `echo` ([chapter 10.2]
    ```bash
    kubectl -n snip set image deploy/api api=ghcr.io/jawwadzafar/snip:does-not-exist   # ImagePullBackOff
    kubectl -n snip rollout undo deploy/api
-   kubectl -n snip set env deploy/api SNIP_RATE_LIMIT=0                               # config snip rejects
+   kubectl -n snip set env deploy/api -c api SNIP_RATE_LIMIT=0                        # config snip rejects (-c api: not the migrate init container too)
    kubectl -n snip get pods -l app.kubernetes.io/name=api -w                          # CrashLoopBackOff (Ctrl-C)
    kubectl -n snip logs "$(kubectl -n snip get pods -l app.kubernetes.io/name=api --sort-by=.metadata.creationTimestamp -o name | tail -1)" --previous
    ```
    ```text
    snip: SNIP_RATE_LIMIT: must be a positive integer
    ```
-   Fix it with `kubectl -n snip set env deploy/api SNIP_RATE_LIMIT-` (the trailing `-` removes the variable). Then look inside snip's distroless container with `kubectl -n snip debug -it "$(kubectl -n snip get pods -l app.kubernetes.io/name=api -o name | head -1)" --image=alpine:3.22 --target=api --profile=general -- sh`, and check its autoscaler with `kubectl -n snip get hpa api`, which now shows a real percentage instead of `<unknown>`.
+   Fix it with `kubectl -n snip set env deploy/api -c api SNIP_RATE_LIMIT-` (the trailing `-` removes the variable). Without `-c api`, `set env` also changes the Pod's `migrate` init container ([chapter 10.2](./core-objects.mdx)); that one would then fail first, and the Pod would sit at `Init:CrashLoopBackOff` with the error in `kubectl logs POD -c migrate`. Then look inside snip's distroless container with `kubectl -n snip debug -it "$(kubectl -n snip get pods -l app.kubernetes.io/name=api -o name | head -1)" --image=alpine:3.22 --target=api --profile=general -- sh`, and check its autoscaler with `kubectl -n snip get hpa api`, which now shows a real percentage instead of `<unknown>`.
 
 ## Self-check
 

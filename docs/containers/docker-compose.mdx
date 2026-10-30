@@ -243,7 +243,7 @@ A detail worth knowing: after you change one service's settings and run `up -d` 
 
 ## Apply it to snip
 
-snip, the URL shortener you build in this handbook, has grown into exactly the kind of system Compose is for: Postgres, Redis, two copies of the API, a background worker, and nginx in front, plus Prometheus and Grafana when you want to watch it. You've used its compose file since [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx). With the hello stack behind you, every line should read as familiar. The file is `snip/docker-compose.yml`; here it is in pieces.
+snip, the URL shortener you build in this handbook, has grown into exactly the kind of system Compose is for: Postgres, Redis, a one-off job that prepares the database, two copies of the API, a background worker, and nginx in front, plus Prometheus and Grafana when you want to watch it. You've used its compose file since [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx). With the hello stack behind you, every line should read as familiar. The file is `snip/docker-compose.yml`; here it is in pieces.
 
 ```mermaid
 flowchart LR
@@ -254,9 +254,10 @@ flowchart LR
   A1 & A2 --> RD[("redis")]
   W["worker"] --> RD
   W --> PG
+  M["migrate<br/>(runs once)"] --> PG
 ```
 
-Same shape as `hello`: one published door (nginx), copies behind it, data services reached by name.
+Same shape as `hello`: one published door (nginx), copies behind it, data services reached by name. One addition: `migrate`, a container that runs, finishes, and stays finished.
 
 ### The database: a named volume and a real healthcheck
 
@@ -267,7 +268,7 @@ services:
   postgres:
     image: postgres:18-alpine
     environment:
-      POSTGRES_USER: snip
+      POSTGRES_USER: snip              # owns the schema; only the migrate service signs in as it (chapter 7.4)
       POSTGRES_PASSWORD: snip          # local development only — never a real password
       POSTGRES_DB: snip
     volumes:
@@ -294,13 +295,32 @@ The official Postgres image reads those three `environment:` variables on first 
 
 Redis, out of the box, answers anyone who can reach it, and the official image even switches off Redis's own safety net for that (**protected mode**). On a shared network that means any compromised container could repoint a cached link. So `command:` starts the server with `--requirepass`, and every client must log in first. **`REDISCLI_AUTH`** is the variable `redis-cli` reads its password from, so the healthcheck and your own `docker compose exec redis redis-cli …` keep working. The password comes from the same `${VAR:-default}` substitution as above, with a default whose name says it is throwaway. Redis has no volume here: snip uses it as a cache and a queue, and losing it on `down` is acceptable in development. ([Chapter 8.2](../distributed/queues-and-background-work.mdx) discusses what a lost queue means in production.)
 
+### A one-off job: migrations before anything serves
+
+```yaml
+  # Runs once, then exits: applies migrations as the schema's owner and creates
+  # the logins the other services use (chapter 7.4). The api and worker only
+  # ever get snip_app's URL, so they can't change the schema or the audit trail.
+  migrate:
+    build: .
+    command: ["migrate"]
+    environment:
+      SNIP_MIGRATE_DATABASE_URL: postgres://snip:snip@postgres:5432/snip?sslmode=disable
+      SNIP_DATABASE_URL: postgres://snip_app:snip-app-dev-only@postgres:5432/snip?sslmode=disable          # local development only
+      SNIP_READONLY_DATABASE_URL: postgres://snip_readonly:snip-readonly-dev-only@postgres:5432/snip?sslmode=disable  # for the data labs (chapter 17.2)
+    depends_on:
+      postgres: { condition: service_healthy }
+```
+
+**`command: ["migrate"]`** runs `snip migrate` from snip's image: it applies the database migrations ([chapter 6.6](../data/postgres-from-go.mdx)) and exits. It signs in as `snip`, the database's owner, and creates two more logins with less power: `snip_app` for the API and worker, and `snip_readonly` for analytics. Only this container ever sees the owner's password; [chapter 7.4](../security/authorization-multi-tenancy.mdx) explains why that matters. In `docker compose ps -a` it shows as `Exited (0)`: that is success, not a crash.
+
 ### The API: build, shared environment, replicas
 
 ```yaml
   api:
     build: .
     environment: &snip-env
-      SNIP_DATABASE_URL: postgres://snip:snip@postgres:5432/snip?sslmode=disable
+      SNIP_DATABASE_URL: postgres://snip_app:snip-app-dev-only@postgres:5432/snip?sslmode=disable  # local development only
       SNIP_REDIS_ADDR: redis:6379
       SNIP_REDIS_PASSWORD: ${SNIP_REDIS_PASSWORD:-snip-dev-only}  # local development only
       SNIP_BASE_URL: http://localhost:8080
@@ -308,7 +328,7 @@ Redis, out of the box, answers anyone who can reach it, and the official image e
       #   OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
-      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     deploy:
       replicas: 2                     # two copies behind nginx (chapter 8.3)
@@ -318,7 +338,8 @@ Redis, out of the box, answers anyone who can reach it, and the official image e
 - The database host is **`postgres`** and the Redis address **`redis:6379`**: service names, never `localhost`.
 - **`&snip-env`** is a YAML anchor, reused by the worker below.
 - **`${OTEL_EXPORTER_OTLP_ENDPOINT:-}`** is variable substitution: empty unless you set it in your shell, which keeps tracing off by default.
-- **`condition: service_healthy`** on both data services: the API runs database migrations at startup, so it must not start before Postgres is ready.
+- **`condition: service_completed_successfully`** on `migrate`: the API starts only once the schema is ready and its login exists. If `migrate` fails, the API never starts, which is what you want: `docker compose logs migrate` says why.
+- **`condition: service_healthy`** on Redis: the API uses it for its cache and rate limits from the first request.
 - No `ports:`. The API copies are reachable only from nginx, which is the reverse-proxy pattern of [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx).
 
 ### The worker: same image, different program
@@ -329,7 +350,8 @@ Redis, out of the box, answers anyone who can reach it, and the official image e
     entrypoint: ["/usr/local/bin/snip-worker"]
     environment: *snip-env
     depends_on:
-      api: { condition: service_started }  # the API runs migrations first
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
 ```
 
 snip's image contains two programs ([chapter 9.2](./writing-dockerfiles.mdx)). **`entrypoint:`** overrides the image's `ENTRYPOINT`, so this service runs the worker instead of the API. `*snip-env` reuses the API's environment.
@@ -429,6 +451,7 @@ Steps 3 and 6 use `docker compose down -v`, which **deletes the project's volume
    cd ~/code/zero-to-prod/snip
    docker compose up -d --build --wait
    docker compose ps                     # postgres and redis "healthy"; api-1, api-2, worker, nginx
+   docker compose ps -a migrate          # Exited (0): it ran the migrations and finished
    KEY=$(docker compose exec -T api snip keys create me | grep -o 'snip_[A-Za-z0-9]*')
    SNIP_API_KEY="$KEY" ./scripts/smoke.sh http://localhost:8080          # [smoke] PASS
    curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"counted"}'

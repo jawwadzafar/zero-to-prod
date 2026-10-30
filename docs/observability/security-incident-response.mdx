@@ -359,16 +359,15 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
    ```
    Without that row, you'd have to ask Alice, or restore a database backup taken before the incident.
 
-8. **Rotate what leaked alongside it.** Suppose the snippet Alice leaked was her whole `.env` file, with the database URL in it. Change the database password, then give the new one to snip:
+8. **Rotate what leaked alongside it.** Suppose the snippet Alice leaked was a whole `.env` file, with snip's database URL in it. That URL holds `snip_app`'s password: the login the API uses, which can read and write rows but not change the schema or the audit trail ([chapter 7.4](../security/authorization-multi-tenancy.mdx)). Bad, but bounded. To rotate it, put a new password in the URL: snip's `migrate` service sets it as it starts, then the API and worker restart with it:
    ```bash
    NEWPW=$(openssl rand -hex 24)
-   docker compose exec -T postgres psql -U snip -c "ALTER ROLE snip PASSWORD '$NEWPW'"
-   printf 'services:\n  api:\n    environment:\n      SNIP_DATABASE_URL: postgres://snip:%s@postgres:5432/snip?sslmode=disable\n  worker:\n    environment:\n      SNIP_DATABASE_URL: postgres://snip:%s@postgres:5432/snip?sslmode=disable\n' \
-     "$NEWPW" "$NEWPW" > docker-compose.override.yml      # Compose reads this file automatically
-   docker compose up -d --wait                             # recreates api and worker with the new URL
+   printf 'services:\n  migrate:\n    environment:\n      SNIP_DATABASE_URL: &url postgres://snip_app:%s@postgres:5432/snip?sslmode=disable\n  api:\n    environment:\n      SNIP_DATABASE_URL: *url\n  worker:\n    environment:\n      SNIP_DATABASE_URL: *url\n' \
+     "$NEWPW" > docker-compose.override.yml               # Compose reads this file automatically
+   docker compose up -d --wait                             # migrate sets the new password; api and worker are recreated with it
    curl -s localhost:8080/api/links -H "Authorization: Bearer $NEW" | jq '.links | length'           # 2: snip works
-   docker run --rm --network snip_default -e PGPASSWORD=snip postgres:18-alpine \
-     psql -h postgres -U snip -c 'SELECT 1'                                                          # old password: refused
+   docker run --rm --network snip_default -e PGPASSWORD=snip-app-dev-only postgres:18-alpine \
+     psql -h postgres -U snip_app -d snip -c 'SELECT 1'                                              # old password: refused
    docker compose logs api --no-log-prefix | jq -c 'select(.owner_id == 1)' | wc -l
    docker compose exec -T api snip audit 1 | wc -l
    ```

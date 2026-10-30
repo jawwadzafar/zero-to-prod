@@ -214,8 +214,8 @@ snip/deploy/helm/snip/
 ├── values.yaml              # every setting, with defaults and comments
 └── templates/
     ├── _helpers.tpl         # shared snippets: names, labels, security settings
-    ├── config.yaml          # ConfigMap (+ database Secret, if the chart runs Postgres)
-    ├── api.yaml             # Deployment, Service, HPA, PodDisruptionBudget
+    ├── config.yaml          # ConfigMap (+ the two database Secrets, if the chart runs Postgres)
+    ├── api.yaml             # Deployment (with its migrate init container), Service, HPA, PodDisruptionBudget
     ├── worker.yaml
     ├── web.yaml             # the web UI's nginx (chapter 16.6), only if web.enabled
     ├── route.yaml           # an HTTPRoute (chapter 10.3), only if route.enabled
@@ -255,11 +255,13 @@ config:
   rateLimit: 60
 
 database:
-  existingSecret: ""      # the name of a Secret you created (recommended), or…
+  existingSecret: ""
+  existingMigrateSecret: ""
 
 postgres:
-  enabled: true           # …an in-cluster Postgres for learning
-  password: snip-dev-only # development only: never put a real password in values files
+  enabled: true           # an in-cluster Postgres for learning; use a managed database in production
+  password: snip-dev-only # the owner's (superuser's) password; development only: never put a real password in values files
+  appPassword: snip-app-dev-only # snip_app's password, set by the migrate init container; development only
 
 redis:
   enabled: true
@@ -304,7 +306,7 @@ Change any config value, and the hash changes. That changes the Pod template, so
 {{- end }}
 ```
 
-A mistaken setting gives a clear error at install time instead of a crash-looping Pod later. The chart also carries the same hardened security context as [chapter 10.2](./core-objects.mdx)'s manifests, and `database.existingSecret` lets a real deployment take its database URL from a Secret managed elsewhere ([chapter 10.4](./config-secrets-storage.mdx)); `postgres.enabled: false` then removes the in-cluster database entirely.
+A mistaken setting gives a clear error at install time instead of a crash-looping Pod later. The chart also carries the same hardened security context as [chapter 10.2](./core-objects.mdx)'s manifests, and `database.existingSecret` lets a real deployment take its database URL from a Secret managed elsewhere ([chapter 10.4](./config-secrets-storage.mdx)); `postgres.enabled: false` then removes the in-cluster database entirely. Two URLs, in fact: `existingSecret` holds the app's own login, and `existingMigrateSecret` the schema owner's, which only the API Pods' `migrate` init container receives ([chapter 7.4](../security/authorization-multi-tenancy.mdx)). Leave `existingMigrateSecret` empty and the chart renders no init container, and the API migrates with its own URL, as it did before that chapter.
 
 ---
 
@@ -458,6 +460,7 @@ config:
   logLevel: info
 database:
   existingSecret: snip-db       # created by the External Secrets Operator from the cloud secret manager
+  existingMigrateSecret: snip-db-migrate   # the owner's login, for the migrate init container only (chapter 7.4)
 postgres:
   enabled: false                # a managed database instead (chapter 12.3)
 redis:

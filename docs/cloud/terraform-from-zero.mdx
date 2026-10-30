@@ -341,9 +341,10 @@ flowchart LR
   net --> rd["redis"]
   pw["random_password.db"] --> pg
   pw2["random_password.redis"] --> rd
-  pg --> api["api"]
+  pg --> m["migrate<br/>(runs once)"]
+  m -. "depends_on" .-> api["api"]
+  m -. "depends_on" .-> w["worker (count)"]
   rd --> api
-  api -. "depends_on" .-> w["worker (count)"]
 ```
 
 The providers are the same two you used, plus a **network** so the containers can reach each other by name (as Docker Compose does, [chapter 9.3](../containers/docker-compose.mdx)):
@@ -378,12 +379,13 @@ resource "docker_container" "postgres" {
 
 `random_password` is `random_pet`'s cousin. The password is generated once, kept in state, and handed to Postgres through a reference. Redis gets a second one, `random_password.redis`, passed to `redis-server --requirepass` and to snip as `SNIP_REDIS_PASSWORD`, so only snip's containers can use the cache ([chapter 7.6](../security/secrets-management.mdx)). `wait = true` makes Terraform hold the containers that depend on Postgres until it's actually accepting connections.
 
-The API and the worker need the same settings, so they're written once as a **local**:
+The API and the worker need the same settings, so they're written once as a **local**. They sign in to Postgres as `snip_app`, a login with its own generated password (`random_password.db_app`) that may read and write rows but not change the tables ([chapter 7.4](../security/authorization-multi-tenancy.mdx)):
 
 ```hcl title="snip/infra/local/main.tf (excerpt)"
 locals {
+  db_address = "${docker_container.postgres.name}:5432/snip?sslmode=disable"
   snip_env = [
-    "SNIP_DATABASE_URL=postgres://snip:${random_password.db.result}@${docker_container.postgres.name}:5432/snip?sslmode=disable",
+    "SNIP_DATABASE_URL=postgres://snip_app:${random_password.db_app.result}@${local.db_address}",
     "SNIP_REDIS_ADDR=${docker_container.redis.name}:6379",
     "SNIP_REDIS_PASSWORD=${random_password.redis.result}",
     "SNIP_BASE_URL=http://localhost:${var.api_port}",
@@ -400,11 +402,33 @@ resource "docker_container" "worker" {
   networks_advanced {
     name = docker_network.snip.id
   }
-  depends_on = [docker_container.api] # the API runs the migrations first
+  depends_on = [docker_container.migrate] # the schema and snip_app's login exist first
 }
 ```
 
-Every idea from the web server is here. `local.snip_env` refers to the Postgres and Redis containers, so the graph builds both before the API and the worker. `count = var.workers` scales the workers. And `depends_on` adds the one edge no reference shows: the API creates the database tables when it starts, so the worker must not start before it.
+Every idea from the web server is here. `local.snip_env` refers to the Postgres and Redis containers, so the graph builds both before the API and the worker. `count = var.workers` scales the workers. And `depends_on` adds the one edge no reference shows: the tables and `snip_app`'s login must exist before anything signs in as `snip_app`. They are made by a container that runs once and exits:
+
+```hcl title="snip/infra/local/main.tf (excerpt)"
+resource "docker_container" "migrate" {
+  name     = "snip-tf-migrate"
+  image    = docker_image.snip.image_id
+  command  = ["migrate"]
+  env      = concat(local.snip_env, ["SNIP_MIGRATE_DATABASE_URL=postgres://snip:${random_password.db.result}@${local.db_address}"])
+  attach   = true  # wait until it exits
+  must_run = false # exited is its finished state, not drift
+  networks_advanced {
+    name = docker_network.snip.id
+  }
+  lifecycle {
+    postcondition {
+      condition     = self.exit_code == 0
+      error_message = "snip migrate failed: see docker logs snip-tf-migrate."
+    }
+  }
+}
+```
+
+`snip migrate` signs in as `snip`, the owner Postgres created from `POSTGRES_USER`, applies the migrations, and creates `snip_app` with the password from `SNIP_DATABASE_URL`. Two arguments make a one-off job fit a tool built for things that stay running. **`attach = true`** makes Terraform wait for the container to finish. **`must_run = false`** tells it that a stopped container is fine; without it, every plan would see `migrate` stopped and want to start it again. A **`postcondition`** then checks the result (`exit_code` is known once the container has finished) and fails the apply if the migrations didn't work, instead of starting an API against a half-ready database.
 
 The inputs and results look like yours, with one new flag:
 
@@ -415,7 +439,7 @@ output "url" {
 }
 
 output "database_password" {
-  description = "The generated Postgres password."
+  description = "The generated password of Postgres's owner login, snip."
   value       = random_password.db.result
   sensitive   = true # hidden in plan/apply output; still stored in the state file
 }
@@ -423,7 +447,7 @@ output "database_password" {
 
 `sensitive = true` hides the value on screen, and that's all it does: the password is still in `terraform.tfstate` in plain text. [Chapter 12.6](./terraform-in-real-life.mdx) shows how production keeps secrets out of state entirely.
 
-On a fresh machine, the plan is `Plan: 10 to add, 0 to change, 0 to destroy.`: a network, a volume, a password, three images and four containers.
+On a fresh machine, the plan is `Plan: 13 to add, 0 to change, 0 to destroy.`: a network, a volume, three passwords, three images and five containers (one of which runs once and exits).
 
 ### Proving it in CI
 
@@ -518,7 +542,7 @@ Free, on your computer with Docker running. Steps 1–5 need nothing from this h
 6. **Apply it to snip.** Clone this handbook's repository if you haven't (`git clone https://github.com/jawwadzafar/zero-to-prod ~/code/zero-to-prod`), then:
    ```bash
    cd ~/code/zero-to-prod/snip/infra/local
-   terraform init && terraform plan          # 10 to add
+   terraform init && terraform plan          # 13 to add
    terraform apply                           # type "yes"; the first run downloads three images
    curl localhost:8080/healthz               # {"status":"ok"}
    terraform apply -var workers=2            # one more worker: 1 to add

@@ -235,7 +235,7 @@ A test proves it: `TestAddClicksIsAtomic` (in `postgres_test.go`, [chapter 4.4](
 
 **Slugs: let the constraint decide.** snip doesn't check "is this slug free?" before creating a link. It inserts, the `PRIMARY KEY` on `slug` accepts exactly one of two racing requests, and snip turns the loser's duplicate-key error into `409 Conflict` ([chapter 6.6](./postgres-from-go.mdx)).
 
-**Migrations: an advisory lock.** On Kubernetes, three copies of snip may start at the same instant, and each runs migrations at startup ([chapter 6.3](./designing-schemas.mdx)). From `Migrate`:
+**Migrations: an advisory lock.** On Kubernetes, three copies of snip may start at the same instant, and each runs migrations before it serves ([chapter 6.3](./designing-schemas.mdx)). From `Migrate`:
 
 ```go
 // Serialise concurrent migrators (e.g. two pods starting at once).

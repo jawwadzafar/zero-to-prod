@@ -320,6 +320,19 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532                    # distroless "nonroot"; must be numeric for runAsNonRoot to verify it
+      # Runs to completion before the api container starts (chapter 7.4):
+      # applies migrations as the schema's owner and sets snip_app's password
+      # from snip-db. Pods starting together take turns (an advisory lock), and
+      # the api container never sees the owner's login.
+      initContainers:
+        - name: migrate
+          image: snip                       # replaced by kustomize's images: section
+          args: ["migrate"]
+          envFrom:
+            - secretRef:
+                name: snip-db-migrate
+            - secretRef:
+                name: snip-db
       containers:
         - name: api
           image: snip                       # replaced by kustomize's images: section
@@ -333,7 +346,7 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-          startupProbe:                     # give migrations time on first start
+          startupProbe:                     # give a slow first start time before liveness counts
             httpGet: { path: /healthz, port: http }
             periodSeconds: 2
             failureThreshold: 30
@@ -352,10 +365,11 @@ spec:
             limits: { memory: 256Mi }
 ```
 
-Three things are worth noticing, compared with `echo`:
+Four things are worth noticing, compared with `echo`:
 
 - **The probe split is real here.** snip has a database, so `/healthz` (liveness) never touches it, while `/readyz` (readiness) fails if Postgres is unreachable ([chapter 5.4](../apis/structuring-a-real-service.mdx) built both endpoints). If Postgres goes down, snip's Pods stay alive but stop getting traffic, and come back by themselves. A Redis outage only marks snip degraded, not unready ([chapter 13.5](../observability/incidents-and-postmortems.mdx)).
-- **A startup probe**, because snip runs its database migrations at start, which can take a while the first time: up to 30 × 2 seconds before liveness takes over.
+- **An init container**, `migrate`, runs `snip migrate` from the same image and must exit successfully before the `api` container starts. It is the only container given the database owner's login (the `snip-db-migrate` Secret); the API gets a login that can read and write rows but not change the schema ([chapter 7.4](../security/authorization-multi-tenancy.mdx)). While it runs, `kubectl get pods` shows the Pod as `Init:0/1`.
+- **A startup probe**, so a slow first start isn't mistaken for a hung one: up to 30 × 2 seconds before liveness takes over.
 - **Configuration comes from outside the image**: `envFrom` turns every key of a ConfigMap and a Secret into environment variables, which is how snip reads its `SNIP_*` settings. [Chapter 10.4](./config-secrets-storage.mdx) is about exactly that.
 
 The other objects map onto the table above: `api`, `worker`, `redis` and `web` (nginx serving the web UI of [chapter 16.6](../frontend/a-ui-for-snip.mdx)) are Deployments; `postgres` is a StatefulSet with a `volumeClaimTemplates` entry, so `postgres-0` always gets the disk `data-postgres-0`. `snip/deploy/k8s/base/kustomization.yaml` lists the files, puts everything in the `snip` namespace, adds the label `app.kubernetes.io/part-of: snip` to every object, and sets the images to the ones CI publishes, `snip` and `snip-web`. The kind overlay reuses the base and changes only the images, to ones you built yourself:
@@ -443,7 +457,7 @@ Free, on your kind cluster from [chapter 10.1](./why-orchestration.mdx) (`kind c
    KEY=$(kubectl -n snip exec deploy/api -- snip keys create me | grep -o 'snip_[A-Za-z0-9]*')
    SNIP_API_KEY="$KEY" ./scripts/smoke.sh http://localhost:8080        # [smoke] PASS
    ```
-   Watch the order things settle in. The API Pods may stay not-ready until Postgres is ready: the readiness probe doing its job.
+   Watch the order things settle in. The API Pods show `Init:0/1`, and maybe `Init:Error` and a restart, until Postgres accepts connections and their `migrate` init container succeeds; the worker may restart once or twice until its database login exists. Then everything reaches `Running` and `1/1`: Kubernetes retrying until dependencies are ready.
 
 6. **Roll snip out under traffic, and back.** Repeat step 2's probe Pod with `-n snip` and the URL `http://api/healthz`, then change a setting instead of the text:
    ```bash

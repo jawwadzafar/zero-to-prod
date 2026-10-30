@@ -322,7 +322,7 @@ encrypt      = true
 use_lockfile = true # S3-native state locking
 ```
 
-**No password in state.** The database password is ephemeral and reaches AWS only through write-only arguments, once for RDS and once for the connection string in Secrets Manager:
+**No password in state.** snip uses two database logins ([chapter 7.4](../security/authorization-multi-tenancy.mdx)): RDS's master user, which owns the tables and runs migrations, and `snip_app`, which the API and worker sign in as. Both passwords are ephemeral and reach AWS only through write-only arguments: the master's once for RDS and once for its connection string, the app's once, in its connection string, in Secrets Manager:
 
 ```hcl title="snip/infra/aws/main.tf (excerpt)"
 ephemeral "random_password" "db" {
@@ -339,14 +339,25 @@ resource "aws_db_instance" "postgres" {
   skip_final_snapshot = var.environment != "production"
 }
 
+resource "aws_secretsmanager_secret_version" "db_owner_url" {
+  secret_id                = aws_secretsmanager_secret.db_owner_url.id
+  secret_string_wo         = "postgres://snip:${ephemeral.random_password.db.result}@${aws_db_instance.postgres.endpoint}/snip?sslmode=require"
+  secret_string_wo_version = 1 # bump together with password_wo_version
+}
+
+ephemeral "random_password" "db_app" {
+  length  = 32
+  special = false
+}
+
 resource "aws_secretsmanager_secret_version" "db_url" {
   secret_id                = aws_secretsmanager_secret.db_url.id
-  secret_string_wo         = "postgres://snip:${ephemeral.random_password.db.result}@${aws_db_instance.postgres.endpoint}/snip?sslmode=require"
-  secret_string_wo_version = 1
+  secret_string_wo         = "postgres://snip_app:${ephemeral.random_password.db_app.result}@${aws_db_instance.postgres.endpoint}/snip?sslmode=require"
+  secret_string_wo_version = 1 # bump to rotate; the next migrate container applies it
 }
 ```
 
-snip's containers read the connection string from Secrets Manager at start-up, using the execution role from [chapter 12.4](./iam.mdx). Compare the local stack in `snip/infra/local/` ([chapter 12.5](./terraform-from-zero.mdx)): it uses an ordinary `random_password`, so its state *does* hold the password. Fine on a laptop, not in production.
+snip's containers read the connection strings from Secrets Manager at start-up, using the execution role from [chapter 12.4](./iam.mdx). Notice what Terraform *doesn't* do: create the `snip_app` login. That would mean connecting to the database, which sits in private subnets your laptop and CI can't reach, on purpose. Terraform only generates the password; a `migrate` container that runs first in each API task signs in as the master user and creates or updates the login from that secret (`snip/infra/aws/compute.tf`). Compare the local stack in `snip/infra/local/` ([chapter 12.5](./terraform-from-zero.mdx)): it uses an ordinary `random_password`, so its state *does* hold the password. Fine on a laptop, not in production.
 
 **A module for the network.** `main.tf` calls `module "network" { source = "./modules/network" … }`. Inside are the VPC, subnets, gateways and route tables from [chapter 12.2](./cloud-networking.mdx), behind three inputs (`name`, `cidr`, `az_count`) and three outputs (`vpc_id`, `public_subnet_ids`, `private_subnet_ids`). The database, for example, uses `module.network.private_subnet_ids` and knows nothing else about how the network is built.
 

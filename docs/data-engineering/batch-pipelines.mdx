@@ -325,6 +325,8 @@ def write_parquet_atomic(table: pa.Table, path: Path) -> None:
 
 The snapshot reads `links` and `owners` inside one `REPEATABLE READ` transaction ([chapter 6.5](../data/transactions.mdx): every query in it sees the database as of the first one), so the two files always agree: no link points at an owner the owners file lacks. And the owners query lists its columns instead of `SELECT *`, so the key hashes can never reach the lake, even if someone adds a column later.
 
+The database enforces the same rule, a level down. `snipdata extract` signs in as `snip_readonly`, a login snip's migrate step creates ([chapter 7.4](../security/authorization-multi-tenancy.mdx)). It can read `links`, `audit_events` and every column of `api_keys` except `key_hash`, and change nothing: `SELECT key_hash FROM api_keys` answers `permission denied`. It is `READ_ONLY` from the shop example, made a property of the login rather than of one connection, so no bug in the pipeline, and no one holding its password, can write to snip's tables or read a key hash. Its connection string defaults to the compose stack's and can be changed with `--dsn` or `SNIP_READONLY_DATABASE_URL`.
+
 Here's a real run against snip's compose stack, with one deleted link in its history, then the same command again:
 
 ```text

@@ -313,7 +313,8 @@ snip, the URL shortener this handbook builds, has a production-shaped AWS config
 | Database in private subnets, `publicly_accessible = false`, storage encrypted | `main.tf`, `aws_db_instance.postgres` |
 | Security groups reference each other: internet → load balancer → app → data, nothing else | `main.tf`, the `aws_vpc_security_group_*_rule` resources |
 | Database password generated at apply time, never stored in Terraform state, delivered through Secrets Manager | `main.tf`, `ephemeral "random_password"` and `password_wo` |
-| The execution role may read exactly snip's two secrets (database URL, Redis token) | `compute.tf`, `read_secrets` |
+| The execution role may read exactly snip's three secrets (the app's database URL, the owner's for migrations, Redis's token) | `compute.tf`, `read_secrets` |
+| The API and worker sign in to Postgres as `snip_app`, which can't change the schema or the audit trail; the master user's URL goes only to the `migrate` container ([chapter 7.4](../security/authorization-multi-tenancy.mdx)) | `compute.tf`, the API task definition's `migrate` container |
 | Redis accepts only TLS connections that present an AUTH token; the token is generated like the database password and delivered through Secrets Manager | `main.tf`, `aws_elasticache_replication_group.redis` |
 | CI deploys through OIDC with no stored keys, only from `main`, only to two services | `iam-github.tf` |
 | Containers run with read-only root filesystems | `compute.tf`, `readonlyRootFilesystem = true` |

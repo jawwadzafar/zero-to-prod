@@ -131,7 +131,7 @@ resource "aws_ecs_service" "api" {
 }
 ```
 
-Every idea from Parts [9](../containers/what-a-container-is.mdx)–[11](../shipping/how-software-ships.mdx) is here under different names: the image, readiness through the load balancer's health check on snip's `/readyz`, rolling deploys that never drop below full capacity, automatic rollback, secrets injected at start-up, and logs to a CloudWatch log group kept for 14 days. The task definitions even run snip on **ARM** processors (`cpu_architecture = "ARM64"`), which are cheaper on AWS; that works because snip's image is built for both architectures ([chapter 9.4](../containers/images-in-production.mdx)).
+Every idea from Parts [9](../containers/what-a-container-is.mdx)–[11](../shipping/how-software-ships.mdx) is here under different names: the image, readiness through the load balancer's health check on snip's `/readyz`, rolling deploys that never drop below full capacity, automatic rollback, secrets injected at start-up, and logs to a CloudWatch log group kept for 14 days. The task definitions even run snip on **ARM** processors (`cpu_architecture = "ARM64"`), which are cheaper on AWS; that works because snip's image is built for both architectures ([chapter 9.4](../containers/images-in-production.mdx)). And the API's task definition holds two containers: `migrate` runs `snip migrate` with the database owner's login and exits, and `api` starts only if it succeeded (`dependsOn` with `condition = "SUCCESS"`). That is ECS's version of a Kubernetes init container, and it keeps the owner's login out of the API ([chapter 7.4](../security/authorization-multi-tenancy.mdx)).
 
 **Database: RDS for Postgres**, from `snip/infra/aws/main.tf` (excerpt):
 

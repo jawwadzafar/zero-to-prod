@@ -115,7 +115,7 @@ An application running in the cloud gets its permissions from **where it runs**,
 | Kubernetes on EKS | **EKS Pod Identity** or IRSA: each service account maps to a role |
 | GKE / AKS | **Workload Identity** (GKE) / Microsoft Entra Workload ID (AKS) |
 
-The cloud SDKs find these credentials automatically. snip's Go code never contains a secret key, and there's nothing to leak or rotate by hand. snip's tasks don't call AWS APIs at all, so they don't even have a task role: only the **execution role** ECS uses on their behalf to pull the image, write logs and inject the database URL.
+The cloud SDKs find these credentials automatically. snip's Go code never contains a secret key, and there's nothing to leak or rotate by hand. snip's tasks don't call AWS APIs at all, so they don't even have a task role: only the **execution role** ECS uses on their behalf to pull the image, write logs and inject the database URLs.
 
 That execution role's permission to read snip's secrets is the narrow policy from earlier, written in Terraform (`snip/infra/aws/compute.tf`), listing each secret by name:
 
@@ -125,13 +125,14 @@ data "aws_iam_policy_document" "read_secrets" {
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
       aws_secretsmanager_secret.db_url.arn,
+      aws_secretsmanager_secret.db_owner_url.arn, # injected into the migrate container only
       aws_secretsmanager_secret.redis_auth.arn,
     ]
   }
 }
 ```
 
-Two secrets (the database URL and Redis's token), and no others: a new secret means a deliberate change to this list.
+Three secrets (the app's database URL, the database owner's URL for migrations, and Redis's token), and no others: a new secret means a deliberate change to this list.
 
 ### CI without keys: OIDC federation
 
