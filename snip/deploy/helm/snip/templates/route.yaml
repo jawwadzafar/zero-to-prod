@@ -1,0 +1,30 @@
+{{- if .Values.route.enabled }}
+# One origin for the browser through a Gateway (chapter 10.3), like
+# deploy/k8s/gateway/gateway.yaml. A longer PathPrefix wins whatever the rule
+# order, and it compares whole segments: /app and /app/x go to the web UI,
+# /apple stays a short link. snip reserves the slug "app".
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "snip.fullname" . }}
+  labels: {{- include "snip.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.route.gateway }}
+  {{- with .Values.route.hostnames }}
+  hostnames: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- if .Values.web.enabled }}
+    - matches:
+        - path: { type: PathPrefix, value: /app }
+      backendRefs:
+        - name: {{ include "snip.fullname" . }}-web
+          port: 80
+    {{- end }}
+    - matches:
+        - path: { type: PathPrefix, value: / }
+      backendRefs:
+        - name: {{ include "snip.fullname" . }}-api
+          port: 80
+{{- end }}

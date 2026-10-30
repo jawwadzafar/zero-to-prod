@@ -1,0 +1,55 @@
+{{- if .Values.web.enabled }}
+{{- $name := printf "%s-web" (include "snip.fullname" .) }}
+# The web UI (chapter 16.6): the same Deployment and Service as
+# deploy/k8s/base/web.yaml, with the image, replicas and resources from values.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: {{- include "snip.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels: {{- include "snip.selector" (dict "root" . "component" "web") | nindent 6 }}
+  strategy:
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      labels: {{- include "snip.selector" (dict "root" . "component" "web") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false   # never calls the Kubernetes API, so no token (chapter 7.11)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101                      # the nginx-unprivileged image's "nginx" user
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: {{ .Values.web.image.repository }}:{{ .Values.web.image.tag | default .Chart.AppVersion }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - { name: http, containerPort: 8080 }
+          livenessProbe:
+            httpGet: { path: /app/, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /app/, port: http }
+            periodSeconds: 5
+          resources: {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext: {{- include "snip.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }  # nginx's pid file and temporary files: the only writable place
+      volumes:
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels: {{- include "snip.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "snip.selector" (dict "root" . "component" "web") | nindent 4 }}
+  ports:
+    - { name: http, port: 80, targetPort: http }
+{{- end }}

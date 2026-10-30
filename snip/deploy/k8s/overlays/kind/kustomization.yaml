@@ -1,6 +1,7 @@
-# Use an image you built and loaded into kind yourself:
+# Use images you built and loaded into kind yourself:
 #   docker build -t snip:dev .
-#   kind load docker-image snip:dev --name z2p
+#   docker build -t snip-web:dev ../web
+#   kind load docker-image snip:dev snip-web:dev --name z2p
 #   kubectl apply -k deploy/k8s/overlays/kind
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -9,4 +10,7 @@ resources:
 images:
   - name: ghcr.io/jawwadzafar/snip
     newName: snip
+    newTag: dev
+  - name: ghcr.io/jawwadzafar/snip-web
+    newName: snip-web
     newTag: dev

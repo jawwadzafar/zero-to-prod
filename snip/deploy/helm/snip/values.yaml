@@ -24,6 +24,25 @@ worker:
     requests: { cpu: 50m, memory: 32Mi }
     limits: { memory: 128Mi }
 
+# The web UI (chapter 16.6): nginx serving the static files at /app/ and
+# nothing else. Built from web/Dockerfile and published next to snip's image.
+web:
+  enabled: true
+  image:
+    repository: ghcr.io/jawwadzafar/snip-web
+    tag: ""               # empty = the chart's appVersion, the same tag as snip's image
+  replicas: 2
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+# An HTTPRoute on an existing Gateway (chapter 10.3): /app to the web UI,
+# every other path to the API, so the browser sees one origin.
+route:
+  enabled: false
+  gateway: snip           # the Gateway's name, in this release's namespace
+  hostnames: [snip.localhost]
+
 # snip's settings (chapter 7.6). They become SNIP_* environment variables.
 config:
   baseURL: http://localhost:8080

@@ -31,11 +31,22 @@ spec:
     - name: snip
   hostnames:
     - snip.localhost
+  # The most specific match wins, whatever the order of the rules: a longer
+  # PathPrefix beats a shorter one. PathPrefix compares whole path segments,
+  # so /app matches /app, /app/ and /app/assets/x.js, but not /apple, which
+  # stays a short link. snip reserves the slug "app", so no link is hidden.
   rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /app
+      backendRefs:
+        - name: web                     # the web UI (chapter 16.6)
+          port: 80
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: api
+        - name: api                     # everything else: short links and the API
           port: 80

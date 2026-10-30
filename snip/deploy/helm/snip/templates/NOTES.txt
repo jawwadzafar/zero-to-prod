@@ -4,6 +4,17 @@ Try it:
   kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "snip.fullname" . }}-api
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "snip.fullname" . }}-api 8080:80
   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "snip.fullname" . }}-api -- snip keys create me
+{{- if .Values.web.enabled }}
+
+The web UI runs as {{ include "snip.fullname" . }}-web and serves /app/.
+{{- if .Values.route.enabled }}
+The HTTPRoute sends /app to it and everything else to the API: open /app/
+through the Gateway "{{ .Values.route.gateway }}".
+{{- else }}
+It calls the API on its own origin, so put both behind one address: set
+route.enabled=true to route them through a Gateway (chapter 10.3).
+{{- end }}
+{{- end }}
 {{- if .Values.postgres.enabled }}
 
 This release runs its own Postgres with a development password. For anything

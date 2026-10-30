@@ -1,0 +1,68 @@
+# snip's web UI (chapter 16.6): nginx serving the built static files at /app/
+# and nothing else. The Gateway (deploy/k8s/gateway/gateway.yaml) sends /app
+# here and every other path to the API, so the browser sees one origin.
+# The image is built from web/Dockerfile; how it serves /app/ (gzip, caching,
+# security headers) is web/nginx/app.conf, the same file compose's nginx uses.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0                     # keep both copies serving during a rollout
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: web
+    spec:
+      automountServiceAccountToken: false   # never calls the Kubernetes API, so no token (chapter 7.11)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101                      # the nginx-unprivileged image's "nginx" user
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: snip-web                   # replaced by kustomize's images: section
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:                    # nginx answers at all? if not, restart it
+            httpGet: { path: /app/, port: http }
+            periodSeconds: 10
+          readinessProbe:                   # the page is there: send traffic
+            httpGet: { path: /app/, port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }       # one nginx worker per node CPU, a few MiB each
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp                     # nginx's pid file and temporary files: the only writable place
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector:
+    app.kubernetes.io/name: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

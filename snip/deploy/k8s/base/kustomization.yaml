@@ -1,7 +1,8 @@
 # snip on Kubernetes (Part 10). Apply everything with:
 #   kubectl apply -k deploy/k8s/base
-# The image is the one CI publishes (chapter 9.4). To use an image you built
-# yourself in a kind cluster, apply overlays/kind instead.
+# The images are the ones CI publishes (chapter 9.4): snip, and snip-web for
+# the web UI. To use images you built yourself in a kind cluster, apply
+# overlays/kind instead.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: snip
@@ -15,6 +16,7 @@ resources:
   - config.yaml
   - api.yaml
   - worker.yaml
+  - web.yaml
   - pdb.yaml
   - hpa.yaml
   - networkpolicy.yaml
@@ -22,3 +24,6 @@ images:
   - name: snip
     newName: ghcr.io/jawwadzafar/snip
     newTag: main
+  - name: snip-web
+    newName: ghcr.io/jawwadzafar/snip-web
+    newTag: main                            # same tag as snip: both are published from the same commit

@@ -23,6 +23,21 @@ spec:
     - ports:
         - port: 8080
 ---
+# The web UI's nginx accepts HTTP from anywhere too: the Gateway's proxy runs
+# in another namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-from-anywhere
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: web
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - port: 8080
+---
 # Postgres and Redis accept connections only from snip's own API and worker.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
