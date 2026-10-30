@@ -260,7 +260,7 @@ snip is the URL shortener this handbook builds: an API where owners create short
 | An owner reads or deletes another owner's link | E, I | Every query scoped by owner: `DELETE … WHERE slug = $1 AND owner_id = $2` in `internal/store/postgres/postgres.go`; `Service.Get` answers not-found for others' links | mitigated |
 | Short links to `javascript:` URLs, or disguised `https://bank@evil` links | T | `NormalizeURL` in `internal/links/link.go` accepts only `http`/`https` with a host and no user info ([chapter 7.5](./web-attacks.mdx)) | mitigated |
 | Anyone who can reach Redis rewrites `snip:url:<slug>` and redirects a popular link elsewhere | T | Network isolation only; cache entries expire after `SNIP_CACHE_TTL` | **partial** |
-| An owner denies deleting a link | R | Request logs carry a request ID, route and status | **open:** logs don't record which key made the call |
+| An owner denies deleting a link | R | Request logs carry a request ID, route, status and the caller's owner ID | **partly open:** logs can be rotated away; no append-only audit table |
 | `/metrics` visible to the internet | I | nginx denies it (`deploy/nginx/nginx.conf`) | **open on Kubernetes:** the Gateway forwards every path ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)) |
 
 The Redis row is a good example of what the method finds. snip's code is careful about input from the internet. But the cache is a second copy of "where each slug points", and anything inside the network can write to it. An attacker who gets a foothold in *any* container that can reach Redis could repoint snip's most-clicked link to a phishing page, without touching Postgres or the API. Nobody would find that by reviewing handlers; you find it by asking STRIDE's T question about a data store.
@@ -308,7 +308,7 @@ On paper or in a text editor, free. About an hour.
    cd ~/code/zero-to-prod/snip
    grep -n 'owner_id = \$2' internal/store/postgres/postgres.go   # T3: deletes are scoped by owner
    grep -n 'u.User != nil' internal/links/link.go                  # T5: user-info URLs refused
-   grep -n '"path"' internal/httpapi/middleware.go                  # T9: what the request log records (no owner)
+   grep -n 'owner_id' internal/httpapi/middleware.go                 # T9: the request log records who called (since 13.7)
    ```
    Then find one threat the file *doesn't* list. Hints: what does `GET /readyz` do on every call, and who can call it? What happens to a custom slug like `login` or `paypal`? Write your threat as a new row with a STRIDE letter, a defence or a status of open, and a likelihood × impact rating.
 

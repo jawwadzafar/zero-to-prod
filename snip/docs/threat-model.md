@@ -82,7 +82,7 @@ service, Elevation of privilege) applied to each element above. **Status:**
 | T6 | snip is used to hide phishing and malware links | T (abuse) | Creation needs an API key and is rate limited per key (`internal/ratelimit`, `createLink` in `internal/httpapi/server.go`) | **partial:** no threat-list check, report button or takedown flow |
 | T7 | Anyone who can reach Redis rewrites `snip:url:<slug>` and redirects a popular link to a site of their choosing | T | Redis reachable only from snip's pods (`deploy/k8s/base/networkpolicy.yaml`) and the private network; cache entries expire (`SNIP_CACHE_TTL`, default 1h) | **partial:** no Redis password or TLS; anything inside the network is trusted |
 | T8 | Forged events on the click stream inflate counts | T | Same network isolation as T7 | **partial:** counts are informational, so accepted |
-| T9 | An owner denies deleting a link; we can't tell which key did what | R | Request logs with `request_id`, route and status (`observe` in `internal/httpapi/middleware.go`) | **open:** logs don't record the owner ID for management calls |
+| T9 | An owner denies deleting a link; we can't tell which key did what | R | Request logs carry `request_id`, route, status and, for authenticated calls, `owner_id` (never the key) (`observe` in `internal/httpapi/middleware.go`; added during the [13.7](https://jawwadzafar.github.io/zero-to-prod/learn/observability/security-incident-response) drill) | **partly open:** logs can be rotated away; no append-only audit table |
 | T10 | Forged `X-Request-ID` headers inject fake log lines | T, R | `validRequestID` accepts only short, plain IDs (`internal/httpapi/middleware.go`) | mitigated |
 | T11 | Error responses leak internals (SQL errors, stack traces) | I | `writeDomainError` sends a generic message for unexpected errors and logs the detail (`internal/httpapi/errors.go`); panics recovered in `observe` | mitigated |
 | T12 | `/metrics` reveals routes, traffic and error rates to the internet | I | nginx denies `/metrics` (`deploy/nginx/nginx.conf`) | **open on Kubernetes:** the Gateway's route forwards every path, including `/metrics` (chapter 10.3) |
@@ -106,7 +106,7 @@ Rated by likelihood × impact on a three-point scale (low, medium, high).
 | 1 | T6: phishing links on a public instance | high | high | Check new URLs against a threat list (for example Google Safe Browsing), add a report endpoint and a way to disable a link |
 | 2 | T7: cache poisoning from inside the network | low | high | Turn on Redis authentication (ACL user per service) and TLS; on AWS, `transit_encryption_enabled` on ElastiCache |
 | 3 | T12: `/metrics` public through the Kubernetes Gateway | high | low | Serve metrics on a separate port that no Service or route exposes |
-| 4 | T9: no record of which key changed what | medium | medium | Log `owner_id` on management requests; keep an append-only audit table for key and link deletions |
+| 4 | T9: no lasting record of which key changed what | medium | low | `owner_id` is now logged on authenticated requests; still to do: an append-only audit table for key and link deletions |
 | 5 | T14: redirect floods and key guessing aren't rate limited | medium | medium | Per-IP limit at the front door (nginx `limit_req`, Gateway policies) |
 | 6 | T16: stale redirect after delete during a Redis blip | low | low | Accept; the TTL bounds it |
 
