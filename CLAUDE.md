@@ -155,5 +155,5 @@ that introduces it.
 - An optional fully in-browser model (WebLLM) so Ask's AI answers work with no
   key at all (search by meaning already runs in the browser: src/lib/semantic.ts).
 - More step-through diagrams (`<StepThrough>`, first used in 1.5) for other journeys; Go playground embeds.
-- Printable/PDF edition; i18n (translations) via Docusaurus i18n.
+- A whole-book PDF edition (every chapter already prints cleanly: step-throughs as lists, quiz answer keys, self-check answers opened); i18n (translations) via Docusaurus i18n.
 - More tracks: Mobile (Frontend, Data Engineering and Security exist).

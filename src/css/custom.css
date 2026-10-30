@@ -48,3 +48,14 @@ main :is(p, li, td) a:not(.button, .table-of-contents__link, .menu__link) { text
 /* Mermaid's dark theme puts light grey edge labels on mid grey (4.4:1). */
 [data-theme='dark'] .docusaurus-mermaid-container :is(.labelBkg, .edgeLabel, .edgeLabel p) { background-color: #3a3a3a !important; }
 [data-theme='dark'] .docusaurus-mermaid-container .edgeLabel rect { fill: #3a3a3a !important; }
+/* Printing a chapter (or saving it as a PDF). Components add their own:
+   step-throughs list every step, quizzes print an answer key. */
+@media print {
+  .pagination-nav, .theme-edit-this-page, .theme-last-updated, .theme-doc-footer { display: none !important; }
+  /* Self-check answers: Root opens every <details> before printing. */
+  details > div { display: block !important; height: auto !important; overflow: visible !important; }
+  /* Paper can't be clicked: show where external links go. */
+  .theme-doc-markdown a[href^='http']::after { content: ' (' attr(href) ')'; font-size: .85em; word-break: break-all; }
+  pre, table, .docusaurus-mermaid-container, .admonition { break-inside: avoid; }
+  h2, h3 { break-after: avoid; }
+}

@@ -95,6 +95,16 @@ export default function StepThrough({title, nodes, steps}: {title: string; nodes
           </button>
         )}
       </div>
+
+      {/* On paper there are no buttons: every step, as a numbered list. */}
+      <ol className={styles.printSteps}>
+        {steps.map((st, n) => (
+          <li key={n}>
+            <strong>{st.title}.</strong> {st.from && st.to ? `(${label(st.from)} → ${label(st.to)}) ` : ''}
+            <Rich text={st.text} />
+          </li>
+        ))}
+      </ol>
     </figure>
   );
 }

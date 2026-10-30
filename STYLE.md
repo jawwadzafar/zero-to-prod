@@ -329,6 +329,9 @@ box means:
 - For a **sequence of hops** a beginner must follow in order (a request's
   journey, a deploy, a failover), prefer `<StepThrough>`: one hop per step, each
   with a sentence, instead of one crowded sequence diagram. See 1.5's page load.
+  Each step's text must make sense on its own (on paper the steps print as a
+  numbered list), and box labels should be short words: on a phone the boxes
+  wrap into rows, and a long single word breaks mid-word.
 - After a diagram, name the **one or two things** in it that matter —
   never leave the reader to decode it alone.
 - ASCII trees/annotations in ` ```text ` blocks are great for filesystems

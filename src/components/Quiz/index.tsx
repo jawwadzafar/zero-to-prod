@@ -108,6 +108,14 @@ export default function Quiz({id, questions, title = 'Quick check'}: {id: string
           </div>
         );
       })}
+      <div className={styles.printKey}>
+        <strong>Answers.</strong>{' '}
+        {questions.map((item, qi) => (
+          <span key={qi}>
+            {qi + 1}. {String.fromCharCode(65 + orders[qi].indexOf(item.answer))}: {item.explain}{' '}
+          </span>
+        ))}
+      </div>
       {answered === questions.length && (
         <button type="button" className={clsx('button button--sm button--secondary', styles.retry)} onClick={() => setPicked(questions.map(() => null))}>
           Try again
