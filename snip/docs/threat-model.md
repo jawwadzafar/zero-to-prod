@@ -58,7 +58,10 @@ flowchart LR
    `transit_encryption_enabled` in `infra/aws/main.tf`); inside Compose and the
    cluster the traffic is plain, protected by the private network.
 4. **API and worker → Postgres.** Credentials from the environment
-   (`SNIP_DATABASE_URL`); TLS is required on AWS (`sslmode=require` in
+   (`SNIP_DATABASE_URL`), for `snip_app`: a login that reads and writes rows
+   but owns nothing. Migrations run separately as the schema owner
+   (`SNIP_MIGRATE_DATABASE_URL`), and only that step gets the owner's
+   credentials. TLS is required on AWS (`sslmode=require` in
    `infra/aws/main.tf`) but off in the local setups.
 5. **Operator → the API's container.** API keys are created and revoked with
    the `snip keys` command, so whoever can run commands in the container can
@@ -86,7 +89,7 @@ service, Elevation of privilege) applied to each element above. **Status:**
 | T6 | snip is used to hide phishing and malware links | T (abuse) | Creation needs an API key and is rate limited per key (`internal/ratelimit`, `createLink` in `internal/httpapi/server.go`) | **partial:** no threat-list check, report button or takedown flow |
 | T7 | Anyone who can reach Redis rewrites `snip:url:<slug>` and redirects a popular link to a site of their choosing | T | Redis reachable only from snip's pods (`deploy/k8s/base/networkpolicy.yaml`) and the private network; Redis requires a password (`SNIP_REDIS_PASSWORD`, from a Secret or Secrets Manager); on AWS only TLS with an AUTH token (`infra/aws/main.tf`, `SNIP_REDIS_TLS`); cache entries expire (`SNIP_CACHE_TTL`, default 1h) | **mitigated:** one password shared by API and worker with every command allowed (no per-service ACL users); rotation is manual; no TLS inside Compose or the cluster |
 | T8 | Forged events on the click stream inflate counts | T | Same network isolation and Redis password as T7 | mitigated (counts are informational) |
-| T9 | An owner denies deleting a link; we can't tell which key did what | R | Request logs carry `request_id`, route, status and, for authenticated calls, `owner_id` (never the key) (`observe` in `internal/httpapi/middleware.go`; added during the [13.7](https://jawwadzafar.github.io/zero-to-prod/learn/observability/security-incident-response) drill). An append-only audit table, `audit_events` (`internal/store/postgres/migrations/0002_audit_events.sql`), records every key created, rotated or revoked and every link created or deleted, with `owner_id`, `request_id` and the link's URL (never a key or its hash), written in the same transaction as the change (`record` in `internal/store/postgres/postgres.go`); a trigger refuses `UPDATE`, `DELETE` and `TRUNCATE` on it; `snip audit OWNER_ID` reads it | **mitigated:** snip's own role owns the table, so it (or a superuser) can drop the trigger first; events aren't copied off the database to write-once storage; key events record the owner, not which operator ran `snip keys` |
+| T9 | An owner denies deleting a link; we can't tell which key did what | R | Request logs carry `request_id`, route, status and, for authenticated calls, `owner_id` (never the key) (`observe` in `internal/httpapi/middleware.go`; added during the [13.7](https://jawwadzafar.github.io/zero-to-prod/learn/observability/security-incident-response) drill). An append-only audit table, `audit_events` (`internal/store/postgres/migrations/0002_audit_events.sql`), records every key created, rotated or revoked and every link created or deleted, with `owner_id`, `request_id` and the link's URL (never a key or its hash), written in the same transaction as the change (`record` in `internal/store/postgres/postgres.go`); a trigger refuses `UPDATE`, `DELETE` and `TRUNCATE` on it; `snip audit OWNER_ID` reads it. The API and worker sign in as `snip_app`, which owns nothing and may only `INSERT` and `SELECT` on `audit_events`, so neither a bug nor an injected query can drop the trigger or rewrite a row (`internal/store/postgres/migrations/0003_least_privilege.sql`); the schema owner's login reaches only the migration step (`SNIP_MIGRATE_DATABASE_URL`: the `migrate` service in Compose, an init container on Kubernetes, the `migrate` container on Terraform and ECS); `TestAppLoginIsLeastPrivilege` proves it against real Postgres | **mitigated:** whoever holds the owner's login (the migration step, and anyone who can read its Secret) or a superuser (Compose's and Kubernetes' `POSTGRES_USER`; RDS's master user is close to one) can still drop the trigger first; events aren't copied off the database to write-once storage; key events record the owner, not which operator ran `snip keys` |
 | T10 | Forged `X-Request-ID` headers inject fake log lines | T, R | `validRequestID` accepts only short, plain IDs (`internal/httpapi/middleware.go`) | mitigated |
 | T11 | Error responses leak internals (SQL errors, stack traces) | I | `writeDomainError` sends a generic message for unexpected errors and logs the detail (`internal/httpapi/errors.go`); panics recovered in `observe` | mitigated |
 | T12 | `/metrics` reveals routes, traffic and error rates to the internet | I | nginx denies `/metrics` (`deploy/nginx/nginx.conf`) | **open on Kubernetes:** the Gateway's route forwards every path, including `/metrics` (chapter 10.3) |
@@ -111,7 +114,7 @@ Rated by likelihood × impact on a three-point scale (low, medium, high).
 | 2 | T12: `/metrics` public through the Kubernetes Gateway | high | low | Serve metrics on a separate port that no Service or route exposes |
 | 3 | T14: redirect floods and key guessing aren't rate limited | medium | medium | Per-IP limit at the front door (nginx `limit_req`, Gateway policies) |
 | 4 | T7: what remains after the Redis password | low | medium | Rotate the password on a schedule (Secrets Manager rotation and `auth_token_wo_version` on AWS); a Redis ACL user per service (API: cache, limiter, `XADD`; worker: stream reads only) |
-| 5 | T9: what remains after the audit table | low | low | A separate migration role owns `audit_events` and snip's role gets only `INSERT` and `SELECT`; ship events to write-once storage (for example S3 Object Lock) on a public instance |
+| 5 | T9: what remains after the audit table and the app login | low | low | Ship events to write-once storage (for example S3 Object Lock) on a public instance; log DDL (`log_statement = 'ddl'`) and alert on `DROP TRIGGER`; keep the owner's and the master user's credentials for the migration step and break-glass use only |
 | 6 | T16: stale redirect after delete during a Redis blip | low | low | Accept; the TTL bounds it |
 
 Closed: T7 cache poisoning was ranked 2. Redis now requires a password in
@@ -119,7 +122,10 @@ every deployment and TLS on AWS; what is left of it is rank 4.
 
 Closed: T9 "no lasting record of which key changed what" was ranked 3. The
 append-only `audit_events` table now records every key and link change in
-the same transaction as the change; what is left of it is rank 5.
+the same transaction as the change; what is left of it is rank 5. Rank 5
+shrank too: snip's own login could drop the audit trigger until the API and
+worker moved to `snip_app` (migration 0003), so now only the owner's login or
+a superuser can.
 
 ---
 
@@ -134,7 +140,11 @@ the same transaction as the change; what is left of it is rank 5.
   and their request IDs in `internal/store/memory/memory_test.go` and
   `TestLinkChangesAreAuditedWithRequestID`; against real Postgres,
   `TestAuditTrailIsWritten`, `TestDeleteWithoutAuditRowRollsBack` and
-  `TestAuditTrailIsAppendOnly` in `internal/store/postgres/postgres_test.go`.
+  `TestAuditTrailIsAppendOnly` in `internal/store/postgres/postgres_test.go`;
+  that the app's login can't drop the trigger, change the schema or rewrite
+  the trail, while doing all of snip's work, `TestAppLoginIsLeastPrivilege` in
+  `internal/store/postgres/logins_test.go`, and CI repeats the check with
+  `psql` on the Compose and kind stacks.
 - Fuzz tests (`internal/links/fuzz_test.go`) check the properties of URL and
   slug validation on generated inputs (T5, T20); run them with `-fuzz` nightly.
 - Gap: owner scoping is tested on the service, not end to end over HTTP with
