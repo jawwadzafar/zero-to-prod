@@ -2,7 +2,7 @@
 # The improved Dockerfile (chapter 9.2): multi-stage, cache-friendly, non-root.
 
 # ---- build stage: has the Go toolchain ----
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod ./
 # (With dependencies you'd COPY go.sum too and RUN go mod download here,
