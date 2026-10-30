@@ -28,6 +28,11 @@ func TestNormalizeURL(t *testing.T) {
 		// 2,020 bytes in, but each "é" is percent-encoded to 6 bytes: 6,020 out,
 		// too long for the database. Found by FuzzNormalizeURL (fuzz_test.go).
 		{in: "https://example.com/" + strings.Repeat("é", 1000), wantErr: true},
+		// A raw space inside the URL. Found by the nightly fuzz job: it used to
+		// come out as "http://x? " (space kept), then "http://x?" on a second pass.
+		{in: "http://x? #", wantErr: true},
+		{in: "https://example.com/a b", wantErr: true},
+		{in: "https://example.com/a%20b", want: "https://example.com/a%20b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

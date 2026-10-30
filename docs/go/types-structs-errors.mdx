@@ -292,18 +292,30 @@ Here is snip's URL validation, also from `internal/links/link.go` — every cons
 // goes to evil.example, a classic disguise for phishing links.
 func NormalizeURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || len(raw) > maxURLLength {
+	// A URL may not contain spaces (clients percent-encode them as %20).
+	// Without this check "http://x? #" came out as "http://x? ", with a raw
+	// space that would end up in a redirect's Location header. The nightly
+	// fuzz job found it (chapter 7.13).
+	if raw == "" || len(raw) > maxURLLength || strings.ContainsFunc(raw, unicode.IsSpace) {
 		return "", ErrInvalidURL
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 		return "", ErrInvalidURL
 	}
-	return u.String(), nil
+	// Check the length again after normalising: u.String() percent-encodes
+	// bytes such as "é" (2 bytes) into "%C3%A9" (6), so a URL that passed the
+	// first check can come out longer than the database column allows. A fuzz
+	// test found this (chapter 7.13).
+	out := u.String()
+	if len(out) > maxURLLength {
+		return "", ErrInvalidURL
+	}
+	return out, nil
 }
 ```
 
-It returns two things — the cleaned URL and an error — and every way it can fail returns the same named error, so the HTTP layer can turn it into a clear `400 Bad Request` ([chapter 5.3](../apis/validation-errors-status-codes.mdx)).
+It returns two things — the cleaned URL and an error — and every way it can fail returns the same named error (`strings.ContainsFunc(raw, unicode.IsSpace)` asks the standard library "does any character in raw count as a space?"), so the HTTP layer can turn it into a clear `400 Bad Request` ([chapter 5.3](../apis/validation-errors-status-codes.mdx)).
 
 ---
 

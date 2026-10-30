@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Link is one shortened URL.
@@ -51,7 +52,11 @@ const maxURLLength = 2048
 // goes to evil.example, a classic disguise for phishing links.
 func NormalizeURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || len(raw) > maxURLLength {
+	// A URL may not contain spaces (clients percent-encode them as %20).
+	// Without this check "http://x? #" came out as "http://x? ", with a raw
+	// space that would end up in a redirect's Location header. The nightly
+	// fuzz job found it (chapter 7.13).
+	if raw == "" || len(raw) > maxURLLength || strings.ContainsFunc(raw, unicode.IsSpace) {
 		return "", ErrInvalidURL
 	}
 	u, err := url.Parse(raw)

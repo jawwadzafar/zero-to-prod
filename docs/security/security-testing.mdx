@@ -396,6 +396,8 @@ It's not a break-in. It is a crash path reachable by any user with a key, an err
 
 Two regression tests lock it in: the fuzzer's own minimised input, committed as `snip/internal/links/testdata/fuzz/FuzzNormalizeURL/af84cb1d62b1c767`, and a readable case in `TestNormalizeURL` (`snip/internal/links/service_test.go`): 1,000 "é" characters after `https://example.com/`, 2,020 bytes in and 6,020 out. Both failed before the fix and pass after. A second 30-second run with the fix, about 4 million inputs, found nothing; a 30-second run of `FuzzValidateSlug` (8 million inputs) found nothing either. "Found nothing in 30 seconds" is weak evidence, which is why fuzzing belongs in a nightly job too.
 
+The fuzzer wasn't finished. On its first run in the nightly job (`.github/workflows/fuzz.yml`), the third property, normalising twice changes nothing, failed after 97 seconds on a 10-byte input it had shrunk itself: `"http://0? #"`. The first pass trimmed the spaces at the ends, dropped the empty `#` fragment and returned `"http://0? "`, with the space from the middle now at the end; the second pass trimmed it. Behind the odd input sits a real rule: a URL may not contain a raw space (clients send `%20`), and this one would have reached a redirect's `Location` header. `NormalizeURL` now rejects any input with whitespace left after trimming, and the input is committed next to the first one (`…/FuzzNormalizeURL/09ef19663e444b55`), with readable cases in `TestNormalizeURL`. Two bugs from one ten-line property test: that is the case for writing properties instead of examples.
+
 ---
 
 ## Lab
