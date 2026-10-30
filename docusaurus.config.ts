@@ -99,6 +99,7 @@ const config: Config = {
             {label: 'Review', to: '/review'},
             {label: 'My progress', to: '/progress'},
             {label: 'Glossary', to: '/learn/glossary'},
+            {label: 'The whole book (PDF)', href: `https://github.com/${GITHUB_USER}/${REPO}/releases/download/book/zero-to-prod.pdf`},
           ],
         },
         {

@@ -8,7 +8,7 @@
 
 Free. Open source. Interactive. No sign-up.
 
-[**Start learning →**](https://jawwadzafar.github.io/zero-to-prod/) · [Roadmap](https://jawwadzafar.github.io/zero-to-prod/roadmap) · [How we write](STYLE.md)
+[**Start learning →**](https://jawwadzafar.github.io/zero-to-prod/) · [Roadmap](https://jawwadzafar.github.io/zero-to-prod/roadmap) · [The whole book (PDF)](https://github.com/jawwadzafar/zero-to-prod/releases/download/book/zero-to-prod.pdf) · [How we write](STYLE.md)
 
 </div>
 

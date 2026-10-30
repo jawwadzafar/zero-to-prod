@@ -11,9 +11,8 @@
 //
 // PW_CHROMIUM=/path/to/chrome uses a browser other than Playwright's own.
 import {createRequire} from 'node:module';
-import fs from 'node:fs';
-import http from 'node:http';
 import path from 'node:path';
+import {serveBuild} from './lib/serve-build.mjs';
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
 const webRequire = createRequire(path.join(root, 'web/package.json'));
@@ -31,18 +30,7 @@ const pages = [
   'learn/shipping/gitops',
 ];
 
-// A static server for build/, the way GitHub Pages serves it under /zero-to-prod/.
-const build = path.join(root, 'build');
-const types = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2'};
-const server = http.createServer((req, res) => {
-  const url = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/zero-to-prod/, '');
-  const base = path.join(build, path.normalize(url));
-  const file = [base, base + '.html', path.join(base, 'index.html')].find((f) => f.startsWith(build) && fs.existsSync(f) && fs.statSync(f).isFile());
-  if (!file) return res.writeHead(404).end();
-  res.writeHead(200, {'Content-Type': types[path.extname(file)] ?? 'application/octet-stream'}).end(fs.readFileSync(file));
-});
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const origin = `http://127.0.0.1:${server.address().port}/zero-to-prod/`;
+const {origin, close} = await serveBuild(root);
 
 const browser = await chromium.launch(process.env.PW_CHROMIUM ? {executablePath: process.env.PW_CHROMIUM} : {});
 const problems = [];
@@ -65,7 +53,7 @@ for (const theme of ['light', 'dark']) {
   await ctx.close();
 }
 await browser.close();
-server.close();
+close();
 
 if (problems.length) {
   console.error(`Accessibility problems (axe, WCAG 2.2 AA):\n${problems.join('\n')}`);

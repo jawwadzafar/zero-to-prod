@@ -80,6 +80,7 @@ chapter.** The owner should never have to repeat what is written here.
 │   ├── build-quiz-bank.mjs   ← builds static/quiz-bank.json from every <Quiz> (for /review)
 │   ├── check-ips.mjs         ← fails on IP addresses that could be real (placeholders only)
 │   ├── check-a11y.mjs        ← axe (WCAG 2.2 AA) on every kind of page, light and dark; needs build/ and web/ deps
+│   ├── build-book.mjs        ← the whole handbook as one PDF (book/); book.yml publishes it as the "book" release
 │   ├── status.mjs            ← prints written/total chapters per part
 │   └── make-social-card.py   ← regenerates static/img/social-card.png
 ├── docs/                     ← the handbook: docs/<partId>/<chapterId>.mdx
@@ -155,5 +156,5 @@ that introduces it.
 - An optional fully in-browser model (WebLLM) so Ask's AI answers work with no
   key at all (search by meaning already runs in the browser: src/lib/semantic.ts).
 - More step-through diagrams (`<StepThrough>`, first used in 1.5) for other journeys; Go playground embeds.
-- A whole-book PDF edition (every chapter already prints cleanly: step-throughs as lists, quiz answer keys, self-check answers opened); i18n (translations) via Docusaurus i18n.
+- i18n (translations) via Docusaurus i18n. (The PDF edition exists: book.yml.)
 - More tracks: Mobile (Frontend, Data Engineering and Security exist).
