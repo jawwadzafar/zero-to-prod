@@ -109,10 +109,11 @@ and don't discuss details in public until it's contained.
    look it up. snip stores only the hash:
    `printf %s "$LEAKED" | sha256sum` (macOS: `shasum -a 256`), then
    `docker compose exec -T postgres psql -U snip -c "SELECT id, name, created_at, revoked_at FROM api_keys WHERE key_hash = '<hash>'"`
-2. **Contain, now:** `docker compose exec api snip keys rotate <id>`. The old key
-   fails from the next request; the owner keeps their links. Send the new key to
-   the owner over a channel the attacker can't read. (`snip keys revoke <id>`
-   instead, if the key shouldn't exist at all.)
+2. **Contain, now:** `docker compose exec api snip keys rotate <id> --operator <you>`.
+   The old key fails from the next request; the owner keeps their links. Send the
+   new key to the owner over a channel the attacker can't read. (`snip keys revoke
+   <id> --operator <you>` instead, if the key shouldn't exist at all.) `--operator`
+   puts your name on the `key.rotated` audit row, so nobody later wonders who did it.
 3. **Preserve evidence before anything restarts:** container logs disappear
    with their containers.
    `docker compose logs api --no-log-prefix > api.jsonl`,
@@ -122,6 +123,9 @@ and don't discuss details in public until it's contained.
    in Postgres (it survives restarts):
    `docker compose exec -T api snip audit <id>` (JSON lines, newest first:
    `link.created`, `link.deleted`, `key.*`, each with its `request_id`).
+   A `key.*` row you didn't make is a second incident: its `detail.operator`
+   says who ran `snip keys`, by their own account (`"unknown"` if they didn't
+   say); check it against who had a shell in the containers.
    Reads too, from the logs: every authenticated request's line carries
    `owner_id`: `jq -c 'select(.msg == "request" and .owner_id == <id>)' api.jsonl`.
    Client addresses are in `nginx.log` (match by time, method and path).

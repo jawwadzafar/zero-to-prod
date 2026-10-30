@@ -34,6 +34,7 @@ go run ./cmd/snip keys create me        # copy the snip_… key it prints (and n
 # later: go run ./cmd/snip keys revoke <owner id>   — the key stops working immediately
 # leaked: go run ./cmd/snip keys rotate <owner id>   — a new key for the same owner; the old one stops at once
 # history: go run ./cmd/snip audit <owner id>     — every key and link change for that owner, newest first (JSON lines)
+# who: add --operator <your name> to any keys command (or export SNIP_OPERATOR) — the audit trail records it; otherwise "unknown"
 go run ./cmd/snip &                     # the API
 go run ./cmd/snip-worker &              # counts clicks from the queue
 
@@ -76,6 +77,7 @@ Errors always look like `{"error": {"code": "invalid_url", "message": "..."}}`.
 | `SNIP_LOG_FORMAT` | `json` | `json` or `text` |
 | `SNIP_WORKER_METRICS_ADDR` | `:9091` | The worker's `/metrics` and `/healthz` address |
 | `SNIP_DEBUG_ADDR` | (off) | The Go profiler (pprof), e.g. `localhost:6060`. Keep it private (chapter 13.6) |
+| `SNIP_OPERATOR` | *(empty → `unknown`, with a warning)* | Who runs `snip keys` commands, recorded in the audit trail; a command's `--operator NAME` wins. A name you state, not a proven identity (chapter 7.4) |
 
 ## Layout
 
