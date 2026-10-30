@@ -307,7 +307,7 @@ The rules that keep it sane:
 
 ## Apply it to snip: three scanners and a fuzzer
 
-snip, the URL shortener this handbook builds, already runs two of these in CI: `govulncheck` blocks any change that reaches a known vulnerability, and Trivy reports on the image (the `security` job in `.github/workflows/ci.yml`). For this chapter it got the rest, and each tool found something.
+snip, the URL shortener this handbook builds, runs four of these on every change (the `security` job in `.github/workflows/ci.yml`): `govulncheck` blocks any change that reaches a known vulnerability; `gosec` blocks new findings in snip's own code (the deliberately unsafe teaching examples are left out); `gitleaks` blocks secrets in the repository's files, with a CI-only config (`.github/gitleaks.toml`) that allows just the handbook's published example values; and Trivy reports on the image. Writing this chapter is how the middle two got there, and each tool found something first.
 
 **gosec** found two issues in snip's own code (outside the teaching examples), both in the click worker (`snip/cmd/snip-worker/main.go`):
 

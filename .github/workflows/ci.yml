@@ -388,6 +388,15 @@ jobs:
           # GOTOOLCHAIN=auto lets go fetch the toolchain snip's go.mod names if setup-go's is older.
           GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           "$(go env GOPATH)/bin/govulncheck" ./...
+      - name: gosec — risky patterns in snip's own code (chapter 7.13)
+        working-directory: snip
+        # examples/ holds deliberately unsafe demos (the XSS and injection labs), so it's left out.
+        run: GOTOOLCHAIN=auto go run github.com/securego/gosec/v2/cmd/gosec@v2.30.0 -quiet -exclude-dir=examples ./...
+      - name: gitleaks — no secrets in the repository's files (chapter 7.13)
+        # The config allows only the handbook's published example values.
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.30.1 \
+            dir /repo --config /repo/.github/gitleaks.toml --redact
       - name: Build the image and save it as a tarball
         run: |
           docker build -t snip:scan snip

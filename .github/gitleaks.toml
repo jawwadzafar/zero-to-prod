@@ -1,0 +1,14 @@
+# gitleaks config for CI only (the job "Vulnerability scans" in ci.yml). It is
+# not at the repository root on purpose: chapter 7.13's lab runs gitleaks
+# without it, so readers see these findings and practise triaging them.
+[extend]
+useDefault = true
+
+# Published example values the chapters show, not secrets:
+[allowlist]
+description = "Worked examples in the handbook"
+regexes = [
+  '''dGhlIHNhbXBsZSBub25jZQ==''',   # 8.7: RFC 6455's sample WebSocket key ("the sample nonce")
+  '''\.signature-here''',           # 7.2: a JWT made up to be decoded by hand
+  '''GEZDGNBVGY3TQOJQ''',           # 7.7: a truncated example TOTP secret
+]
