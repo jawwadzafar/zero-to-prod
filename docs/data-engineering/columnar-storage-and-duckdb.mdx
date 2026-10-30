@@ -221,7 +221,7 @@ Postgres is like a restaurant: a kitchen runs all day, and many diners send it o
 
 Most databases are **servers**: a separate program, always running, that clients connect to over the network ([chapter 6.1](../data/why-databases.mdx)). DuckDB is **in-process**: a library that runs inside your program (the `duckdb` command-line tool, a Python script, a notebook). There's nothing to install on a server, no port, no password. It's often described as "SQLite for analytics": SQLite is the in-process database for transactions; DuckDB is the in-process database for analytical queries.
 
-What makes it fast is the columnar design all the way through: it stores its own tables in columns, it processes data in batches of values rather than row by row (**vectorised execution**, which suits modern CPUs), and it uses all your cores. What makes it handy is what it reads directly: Parquet, CSV and JSON files, folders of them, files over HTTPS or in S3, and even a live Postgres database (you used that in chapter 17.2).
+What makes it fast is the columnar design all the way through: it stores its own tables in columns, it processes data in batches of values rather than row by row (**vectorised execution**, which suits modern CPUs), and it uses all your cores. What makes it handy is what it reads directly: Parquet, CSV and JSON files, folders of them, files over HTTPS or in S3, and even a live Postgres database (you used that in [chapter 17.2](./batch-pipelines.mdx)).
 
 Where it stops being enough:
 
@@ -295,7 +295,7 @@ SELECT * FROM read_parquet('lake/clicks/*/*.parquet', hive_partitioning = true, 
 SELECT count(*) AS rows, count(DISTINCT event_id) AS events FROM clicks;   -- 135681 | 135037
 ```
 
-The 644 extra rows are redelivered duplicates (the stream delivers at least once), so every count below uses `count(DISTINCT event_id)`. The models in chapter 17.4 remove duplicates once, so nobody has to remember.
+The 644 extra rows are redelivered duplicates (the stream delivers at least once), so every count below uses `count(DISTINCT event_id)`. The models in [chapter 17.4](./modeling-for-analytics.mdx) remove duplicates once, so nobody has to remember.
 
 **Top links last week**, with partition pruning doing the work:
 

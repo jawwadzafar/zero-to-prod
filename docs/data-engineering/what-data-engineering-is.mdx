@@ -137,8 +137,8 @@ flowchart LR
 
 1. **Generate.** Applications produce data: rows in a database, events on a queue ([chapter 8.2](../distributed/queues-and-background-work.mdx) showed a Redis Stream of click events), log lines ([chapter 13.1](../observability/logs.mdx)), files from partners. The data engineer usually doesn't own these sources, which is why so much of the job is coping with them.
 2. **Ingest.** Copy the data into the platform: on a schedule (every night, every hour) or continuously. The hard parts are doing it without hurting the source and without losing or duplicating anything when a run fails half-way.
-3. **Store.** Keep it cheaply, for years, in a form that's fast to scan. This is where columnar files and analytical databases come in (chapter 17.3).
-4. **Transform.** Turn raw copies into trustworthy tables: remove duplicates, fix types and time zones, join, and reshape into the tables people query (chapter 17.4).
+3. **Store.** Keep it cheaply, for years, in a form that's fast to scan. This is where columnar files and analytical databases come in ([chapter 17.3](./columnar-storage-and-duckdb.mdx)).
+4. **Transform.** Turn raw copies into trustworthy tables: remove duplicates, fix types and time zones, join, and reshape into the tables people query ([chapter 17.4](./modeling-for-analytics.mdx)).
 5. **Serve.** Put the answers where people use them: a dashboard, a weekly email, a feature for a machine learning model, or an API the product calls.
 
 Running underneath every stage are **scheduling** (what runs when, and what happens when it fails), **data quality** (are these numbers right?) and **governance** (who may see which data, and how long it's kept). Those get their own chapters later in this part.
@@ -165,7 +165,7 @@ ETL is a caterer who cooks in their own kitchen and delivers finished plates; if
 
 **Streaming** processes each event as it arrives, so the answer is seconds old instead of hours. Fraud detection, live dashboards and "you just hit your quota" need it. The price is complexity: events arrive late and out of order, the process runs forever and must survive restarts, and "the count for 14:00" can change after 14:00 has passed.
 
-A bus timetable (batch) is cheap and predictable; an escalator (streaming) is always moving, and costs more to keep running. Teams usually start with batch and add streaming where freshness pays for itself. Many "streaming" systems are really **micro-batch**: small batches every few seconds or minutes, which gets most of the freshness with batch's simplicity. This part builds both: a batch pipeline first (chapter 17.2), and a streaming consumer in the streaming chapter.
+A bus timetable (batch) is cheap and predictable; an escalator (streaming) is always moving, and costs more to keep running. Teams usually start with batch and add streaming where freshness pays for itself. Many "streaming" systems are really **micro-batch**: small batches every few seconds or minutes, which gets most of the freshness with batch's simplicity. This part builds both: a batch pipeline first ([chapter 17.2](./batch-pipelines.mdx)), and a streaming consumer in the streaming chapter.
 
 ---
 
@@ -178,7 +178,7 @@ The tools change every few years; the jobs they do don't. Here are the jobs, wit
 | **Data lake** | Raw and cleaned data kept as files (usually **Parquet**) in cheap storage, organised in folders | Amazon S3, Google Cloud Storage, Azure Data Lake Storage ([chapter 6.10](../data/object-storage.mdx) introduced object storage) |
 | **Data warehouse** | A database built for analytics: columnar, scales to billions of rows, speaks SQL | BigQuery, Snowflake, Amazon Redshift, ClickHouse; DuckDB on one machine |
 | **Lakehouse** | Files in a lake plus a **table format** that adds what a warehouse offers: transactions, schema changes, "time travel" to old versions | Apache Iceberg, Delta Lake, Apache Hudi; engines such as Spark, Trino, Databricks |
-| **Ingestion** | Connectors that copy data from apps and databases into the platform | Fivetran, Airbyte, Debezium (for change data capture, chapter 17.2) |
+| **Ingestion** | Connectors that copy data from apps and databases into the platform | Fivetran, Airbyte, Debezium (for change data capture, [chapter 17.2](./batch-pipelines.mdx)) |
 | **Transformation** | SQL models that turn raw tables into clean ones, with tests and documentation | **dbt** (data build tool), SQLMesh |
 | **Orchestration** | A scheduler that runs the steps in the right order, retries failures, and re-runs past days | Apache Airflow, Dagster, Prefect |
 | **Streaming** | Durable logs of events and processors that read them continuously | Apache Kafka, Redis Streams, Apache Flink |
@@ -220,7 +220,7 @@ Most of the stack has a free, local version. DuckDB is a warehouse that runs ins
 | **Analytics engineer** | Turning raw tables into clean, tested, documented models that everyone uses. The role dbt made common. | SQL, dbt, Git, the warehouse |
 | **Data analyst** | Answering business questions with those models: dashboards, reports, experiments. | SQL, spreadsheets, BI tools, some Python |
 
-Next to them you'll meet **data scientists** (statistics and experiments, sometimes models) and **ML engineers** (putting models into production, Part 14's AI engineering). The lines blur: in a five-person startup one person does all of it; in a large company each role is a team. This track teaches the data engineer's job, with enough analytics engineering (chapter 17.4) to build the tables analysts use.
+Next to them you'll meet **data scientists** (statistics and experiments, sometimes models) and **ML engineers** (putting models into production, [Part 14](../ai/python-for-ai-engineers.mdx)'s AI engineering). The lines blur: in a five-person startup one person does all of it; in a large company each role is a team. This track teaches the data engineer's job, with enough analytics engineering ([chapter 17.4](./modeling-for-analytics.mdx)) to build the tables analysts use.
 
 ---
 
@@ -230,7 +230,7 @@ Pipelines rarely fail loudly. They fail by producing a number that *looks* fine.
 
 :::warning[What can go wrong]
 - **Two definitions, two answers.** Marketing counts a click when the redirect happens; the product team counts it when the page loads. Both dashboards say "clicks", and they disagree. Fix: one definition, written down, in one model everyone uses.
-- **Duplicates.** A copy job retries after a timeout and loads the same hour twice; a stream redelivers an event. The chart shows a spike that never happened. Fix: every event has an ID, and every step can be rerun without double-counting (chapter 17.2).
+- **Duplicates.** A copy job retries after a timeout and loads the same hour twice; a stream redelivers an event. The chart shows a spike that never happened. Fix: every event has an ID, and every step can be rerun without double-counting ([chapter 17.2](./batch-pipelines.mdx)).
 - **Time zones.** "Clicks on 3 October" is a different set of clicks in Tokyo and in New York. Fix: store UTC, and decide explicitly which day boundaries a report uses.
 - **Silent staleness.** A nightly job has failed for a week; the dashboard still shows numbers, just old ones. Fix: monitor freshness, not only failures.
 - **Personal data spreads.** Every copy of a table with emails or IP addresses is one more place to secure and, on request, to delete. Fix: copy only the columns you need.
@@ -315,7 +315,7 @@ Everything runs on your laptop, for free. Step 1 needs only this page; steps 2 a
    EXPLAIN (ANALYZE, BUFFERS) SELECT slug, device FROM clicks WHERE id = 4242424;
    EXPLAIN (ANALYZE, BUFFERS) SELECT device, count(*) FROM clicks GROUP BY device;
    ```
-   Compare the `Buffers:` lines: a handful of pages for the lookup, the whole table for the summary. Clean up with `docker rm -f pg-olap`. You'll run the same summary on the same data in chapter 17.3, stored in columns instead of rows.
+   Compare the `Buffers:` lines: a handful of pages for the lookup, the whole table for the summary. Clean up with `docker rm -f pg-olap`. You'll run the same summary on the same data in [chapter 17.3](./columnar-storage-and-duckdb.mdx), stored in columns instead of rows.
 
 3. **Apply it to snip: find the events nobody keeps.** Start snip's stack (it needs Docker Compose), create a key and a link, click it a few times, and look at the stream:
    ```bash
@@ -328,7 +328,7 @@ Everything runs on your laptop, for free. Step 1 needs only this page; steps 2 a
    docker compose exec redis redis-cli XRANGE snip:clicks - + COUNT 2  # ID, slug and at (Unix ms) of each
    docker compose exec postgres psql -U snip -c "SELECT slug, clicks FROM links"   # the counter: 5
    ```
-   The counter says 5; the stream says *when* each click happened. Write down five questions you'd ask of this data if snip had a million users, and next to each, which of the two you'd need. Leave the stack running if you're continuing to chapter 17.2; otherwise `docker compose down -v`.
+   The counter says 5; the stream says *when* each click happened. Write down five questions you'd ask of this data if snip had a million users, and next to each, which of the two you'd need. Leave the stack running if you're continuing to [chapter 17.2](./batch-pipelines.mdx); otherwise `docker compose down -v`.
 
 ## Self-check
 

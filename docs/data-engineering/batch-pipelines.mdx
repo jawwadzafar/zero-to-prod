@@ -28,7 +28,7 @@ Every pipeline does the same three things:
 
 1. **Extract**: read data from where it lives (a database, an API, files). This touches a system someone else depends on, so it must be gentle and consistent.
 2. **Load**: write it to the analytics store, usually unchanged. This is where failures leave half-written files and duplicates.
-3. **Transform**: turn raw copies into clean tables (chapter 17.4). Because the raw data stays, this step can always be redone.
+3. **Transform**: turn raw copies into clean tables ([chapter 17.4](./modeling-for-analytics.mdx)). Because the raw data stays, this step can always be redone.
 
 ```mermaid
 flowchart LR
@@ -43,7 +43,7 @@ flowchart LR
 
 ## A shop to copy from
 
-To learn the patterns without anything else in the way, you'll copy a shop's `orders` table. You need Docker (for a throwaway Postgres) and **DuckDB**, a small analytical database that runs as a single program, with no server. Here DuckDB is a convenient tool: it can read from Postgres and write **Parquet** files (a file format for tables, compressed and stored column by column). Chapter 17.3 explains both properly.
+To learn the patterns without anything else in the way, you'll copy a shop's `orders` table. You need Docker (for a throwaway Postgres) and **DuckDB**, a small analytical database that runs as a single program, with no server. Here DuckDB is a convenient tool: it can read from Postgres and write **Parquet** files (a file format for tables, compressed and stored column by column). [Chapter 17.3](./columnar-storage-and-duckdb.mdx) explains both properly.
 
 <Tabs>
 <TabItem value="mac" label="macOS">
@@ -171,7 +171,7 @@ Those three moves are the reasons to partition:
 
 - **Rebuild one day.** A bug corrupted Tuesday? Replace `dt=…tuesday` and nothing else.
 - **Retention.** "Keep two years" becomes "delete folders older than two years", with no expensive `DELETE` inside files.
-- **Skipping.** A query for "last week" opens seven folders and ignores the rest (**partition pruning**, chapter 17.3).
+- **Skipping.** A query for "last week" opens seven folders and ignores the rest (**partition pruning**, [chapter 17.3](./columnar-storage-and-duckdb.mdx)).
 
 The question that matters is **which date**. **Event time** is when the thing happened (the order was placed); **processing time** is when your pipeline saw it. Partition by event time, because that's what people ask about. The consequence is **late data**: an order placed at 23:59 on Monday that reaches the pipeline after midnight belongs in Monday's folder, which you thought was finished. Pipelines handle that by re-processing the last few days on every run (a **lookback window**), which is safe precisely because each step is idempotent. Pick partitions that are not too small, too: one folder per day is typical; one per minute creates millions of tiny files that are slow to list and read.
 
@@ -347,7 +347,7 @@ $ uv run snipdata generate --end 2026-10-29
 generated 135,037 clicks (+644 redelivered copies) on 25 links (1 deleted), 2026-09-30 to 2026-10-29, into lake/
 ```
 
-The "redelivered copies" are deliberate: a stream consumer that crashes after writing but before acknowledging delivers the same events again, with the same `event_id`. The lake keeps them (it's the raw copy), and the models in chapter 17.4 remove them. `generate` also refuses to write into a lake that holds extracted data, and `extract` refuses a generated one, so fake rows never mix with real ones.
+The "redelivered copies" are deliberate: a stream consumer that crashes after writing but before acknowledging delivers the same events again, with the same `event_id`. The lake keeps them (it's the raw copy), and the models in [chapter 17.4](./modeling-for-analytics.mdx) remove them. `generate` also refuses to write into a lake that holds extracted data, and `extract` refuses a generated one, so fake rows never mix with real ones.
 
 ---
 

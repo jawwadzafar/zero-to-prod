@@ -1,15 +1,17 @@
 -- fct_clicks: one row per click. Grain: one click event (event_id).
 --
--- Incremental: the first build copies every click; later builds only process
--- the last few days and replace those rows (delete+insert on event_id). The
--- three-day lookback picks up events that arrive late, and replacing instead
--- of appending means a rerun never counts a click twice.
--- `snipdata build --full-refresh` rebuilds it from scratch.
+-- Incremental: the first build copies every click. Later builds replace only
+-- the last three days (delete+insert on click_date): every row of those days
+-- is deleted and rebuilt from the lake. That picks up events that arrived
+-- late, and drops rows that were removed upstream, and a rerun never counts a
+-- click twice: the same habit as replacing a day's partition (chapter 17.2).
+-- Anything older than three days changes only with
+-- `snipdata build --full-refresh`, which rebuilds the table from scratch.
 
 {{
     config(
         materialized = 'incremental',
-        unique_key = 'event_id',
+        unique_key = 'click_date',
         incremental_strategy = 'delete+insert',
         on_schema_change = 'fail'
     )
