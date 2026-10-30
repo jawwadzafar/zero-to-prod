@@ -245,6 +245,8 @@ Because snip looks keys up in the database on every request instead of trusting 
 
 **Gap 3, closed later: the only record was the log.** The drill's evidence of what the key did came from container logs, and step 8 of the lab shows how easily those vanish. snip now also keeps an **audit trail** in Postgres: one row in `audit_events` for every link created or deleted and every key created, rotated or revoked, with the owner, the request ID of the request that did it, and the link's URL. Each row is written in the same transaction as its change, and a trigger refuses any `UPDATE` or `DELETE` on the table, so nobody can quietly edit the history ([chapter 7.4](../security/authorization-multi-tenancy.mdx) explains both). `snip audit OWNER_ID` prints one owner's trail as JSON lines.
 
+**Gap 4, closed later still: who touched the key?** Key commands aren't HTTP requests, so their audit rows had no request ID and no caller: a `key.rotated` row said whose key changed, not who changed it. `snip keys` now takes `--operator NAME` (or `SNIP_OPERATOR`) and records it in the row; without one, the row says `"unknown"`. It's a name the operator typed, not a checked identity ([chapter 7.4](../security/authorization-multi-tenancy.mdx) explains what real systems use instead), but it answers a question the drill couldn't: was that rotation ours?
+
 The steps are now a runbook section, `leaked-api-key` in `snip/docs/runbook.md`, and the lab walks through them.
 
 ---
@@ -261,8 +263,9 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
    ```bash
    cd ~/code/zero-to-prod/snip
    docker compose up -d --build --wait
-   ALICE=$(docker compose exec -T api snip keys create alice | grep -o 'snip_[A-Za-z0-9]*')   # owner id 1: our victim
-   docker compose exec -T api snip keys create bob > /dev/null                                # owner id 2: unaffected
+   ME=--operator="$USER"                                         # your name, for the audit trail (chapter 7.4)
+   ALICE=$(docker compose exec -T api snip keys create alice "$ME" | grep -o 'snip_[A-Za-z0-9]*')   # owner id 1: our victim
+   docker compose exec -T api snip keys create bob "$ME" > /dev/null                                # owner id 2: unaffected
    curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $ALICE" -d '{"url":"https://go.dev","slug":"docs"}'
    curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $ALICE" -d '{"url":"https://example.com/pricing","slug":"pricing"}'
    ```
@@ -288,13 +291,13 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
    ```text
     id | name  |          created_at           | revoked_at
    ----+-------+-------------------------------+------------
-     1 | alice | 2026-10-30 04:36:31.372103+00 |
+     1 | alice | 2026-10-30 11:14:36.224978+00 |
    ```
    Owner 1, still active. Declare a security incident and start the timeline.
 
 4. **Contain: rotate the key.**
    ```bash
-   NEW=$(docker compose exec -T api snip keys rotate 1 | tee /dev/stderr | grep -o 'snip_[A-Za-z0-9]*')
+   NEW=$(docker compose exec -T api snip keys rotate 1 "$ME" | tee /dev/stderr | grep -o 'snip_[A-Za-z0-9]*')
    attacker -H "Authorization: Bearer $ALICE" http://nginx/api/links; echo                   # the attacker's next try
    curl -s localhost:8080/api/links -H "Authorization: Bearer $NEW" | jq -c '.links[] | {slug, url}'
    ```
@@ -313,37 +316,37 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
 6. **Scope: what did the key do, and from where?**
    Start with the audit trail, snip's record of every change:
    ```bash
-   docker compose exec -T api snip audit 1 | jq -r '[.at, .action, .slug, .request_id] | @tsv'
+   docker compose exec -T api snip audit 1 | jq -r '[.at, .action, .slug, .request_id, .detail.operator] | @tsv'
    ```
    ```text
-   2026-10-30T04:36:34.43304Z   key.rotated
-   2026-10-30T04:36:33.916414Z  link.deleted  pricing  6abe424491209851
-   2026-10-30T04:36:33.357912Z  link.created  login    477ef128ccf17942
-   2026-10-30T04:36:31.513689Z  link.created  pricing  ecdd44d7960e80c4
-   2026-10-30T04:36:31.501053Z  link.created  docs     39b51611d17c0464
-   2026-10-30T04:36:31.372103Z  key.created
+   2026-10-30T11:14:38.28491Z   key.rotated                             jawwad
+   2026-10-30T11:14:37.722225Z  link.deleted  pricing  06f446c4b8ec5e91
+   2026-10-30T11:14:37.184469Z  link.created  login    3113087db125a793
+   2026-10-30T11:14:36.38426Z   link.created  pricing  f5ab9cd6e011e0aa
+   2026-10-30T11:14:36.37273Z   link.created  docs     9a967d02ee72cbfc
+   2026-10-30T11:14:36.224978Z  key.created                             jawwad
    ```
-   Newest first: everything that changed Alice's key or links, with the request that did it. It lists changes only. The attacker's first move, a `GET` that showed them all of Alice's links, changed nothing, so it's only in the request log:
+   Newest first: everything that changed Alice's key or links, with the request that did it. Link changes came through the API, so they carry a request ID. Key changes came from `snip keys` in a shell, so instead they carry the name given to `--operator`: here, yours. That column answers a question the request log can't: *did anyone else touch this key?* A `key.rotated` you didn't run, or one marked `unknown`, would mean someone with a shell on your servers, a much bigger incident than a leaked key. The name is only what was typed, so you'd confirm it against who had shell access at that time ([chapter 7.4](../security/authorization-multi-tenancy.mdx)). The audit trail lists changes only. The attacker's first move, a `GET` that showed them all of Alice's links, changed nothing, so it's only in the request log:
    ```bash
    jq -r 'select(.msg == "request" and .owner_id == 1) | [.time, .request_id, .method, .path, .status] | @tsv' "$EVID/api.jsonl"
    grep ' /api/' "$EVID/nginx.log"
    jq -r 'select(.msg == "request" and .status == 401) | [.time, .method, .path] | @tsv' "$EVID/api.jsonl"
    ```
    ```text
-   2026-10-30T04:36:31.505591035Z  39b51611d17c0464  POST    /api/links          201
-   2026-10-30T04:36:31.516207659Z  ecdd44d7960e80c4  POST    /api/links          201
-   2026-10-30T04:36:32.821047101Z  05b10556f7c0ee83  GET     /api/links          200
-   2026-10-30T04:36:33.361454876Z  477ef128ccf17942  POST    /api/links          201
-   2026-10-30T04:36:33.920209998Z  6abe424491209851  DELETE  /api/links/pricing  204
-   2026-10-30T04:36:35.014780284Z  0afc0bf36edec624  GET     /api/links          200
+   2026-10-30T11:14:36.376785795Z  9a967d02ee72cbfc  POST    /api/links          201
+   2026-10-30T11:14:36.386397347Z  f5ab9cd6e011e0aa  POST    /api/links          201
+   2026-10-30T11:14:36.644590427Z  b6470643dc3afa28  GET     /api/links          200
+   2026-10-30T11:14:37.187189344Z  3113087db125a793  POST    /api/links          201
+   2026-10-30T11:14:37.72665335Z   06f446c4b8ec5e91  DELETE  /api/links/pricing  204
+   2026-10-30T11:14:38.856458097Z  bb133c6b2512ecbc  GET     /api/links          200
    ```
    The `owner_id` lines are everything the key did, reads included, and each change's request ID matches its audit row exactly. Which were Alice and which the attacker? Neither record holds client addresses, so match by time, method and path against nginx's log:
    ```text
-   172.21.0.1 - - [30/Oct/2026:04:36:31 +0000] "POST /api/links HTTP/1.1" 201 134 "-" "curl/8.18.0" "-"
-   172.21.0.8 - - [30/Oct/2026:04:36:32 +0000] "GET /api/links HTTP/1.1" 200 299 "-" "curl/8.17.0" "-"
-   172.21.0.8 - - [30/Oct/2026:04:36:33 +0000] "POST /api/links HTTP/1.1" 201 154 "-" "curl/8.17.0" "-"
-   172.21.0.8 - - [30/Oct/2026:04:36:33 +0000] "DELETE /api/links/pricing HTTP/1.1" 204 0 "-" "curl/8.17.0" "-"
-   172.21.0.8 - - [30/Oct/2026:04:36:34 +0000] "GET /api/links HTTP/1.1" 401 73 "-" "curl/8.17.0" "-"
+   172.21.0.1 - - [30/Oct/2026:11:14:36 +0000] "POST /api/links HTTP/1.1" 201 134 "-" "curl/8.18.0" "-"
+   172.21.0.8 - - [30/Oct/2026:11:14:36 +0000] "GET /api/links HTTP/1.1" 200 299 "-" "curl/8.17.0" "-"
+   172.21.0.8 - - [30/Oct/2026:11:14:37 +0000] "POST /api/links HTTP/1.1" 201 154 "-" "curl/8.17.0" "-"
+   172.21.0.8 - - [30/Oct/2026:11:14:37 +0000] "DELETE /api/links/pricing HTTP/1.1" 204 0 "-" "curl/8.17.0" "-"
+   172.21.0.8 - - [30/Oct/2026:11:14:38 +0000] "GET /api/links HTTP/1.1" 401 73 "-" "curl/8.17.0" "-"
    ```
    (An excerpt; your addresses and versions will differ.) A second address and a different client did a GET, a POST and a DELETE, then got a `401` after the rotation. Notice the weak spot: nginx's log has one-second precision and no request ID, so the match is by time. A request ID shared by both logs would make it exact; that's an action item.
 
@@ -355,7 +358,7 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
    ```
    Where did the deleted link's URL come from? Not from snip's logs: they don't record request bodies. From the audit trail, whose `link.deleted` row keeps the URL the link pointed to:
    ```bash
-   docker compose exec -T api snip audit 1 | jq -r 'select(.action == "link.deleted") | .detail.url'   # https://example.com/pricing
+   docker compose exec -T api snip audit 1 | jq -r 'select(.action == "link.deleted") | .detail.url'   # newest first: the login link you just deleted, then https://example.com/pricing
    ```
    Without that row, you'd have to ask Alice, or restore a database backup taken before the incident.
 
