@@ -90,7 +90,7 @@ jobs:
           timeout 120 sh -c 'until curl -s localhost:8081/status | grep -q running; do sleep 2; done'
           # Bundle once now, so the app's first launch is served from Metro's
           # cache; a cold bundle can take minutes on a CI runner.
-          curl -sf --max-time 900 -o /dev/null "localhost:8081/node_modules/expo-router/entry.bundle?platform=android&dev=true&minify=false"
+          curl -sf --max-time 900 -o /dev/null "localhost:8081/.expo/.virtual-metro-entry.bundle?platform=android&dev=true&lazy=true&minify=false"
 
       - name: Install Maestro
         run: |
@@ -180,7 +180,10 @@ jobs:
           scheme=$(basename "$workspace" .xcworkspace)
           xcodebuild -workspace "$workspace" -scheme "$scheme" -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO -quiet
+            -derivedDataPath build CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= -quiet
+          # Signed "ad hoc" (identity "-"), the way Xcode signs simulator
+          # builds: an unsigned app gets no Keychain, and Secure Store
+          # (chapter 18.4) can't save the key.
           app=$(find build/Build/Products/Debug-iphonesimulator -maxdepth 1 -name '*.app' | head -1)
           echo "APP_PATH=$PWD/$app" >> "$GITHUB_ENV"
           echo "APP_ID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")" >> "$GITHUB_ENV"
@@ -195,7 +198,7 @@ jobs:
           curl -s localhost:8081/status | grep -q running
           # Bundle once now (it took three minutes cold on a macOS runner), so
           # the app's first launch is served from Metro's cache.
-          curl -sf --max-time 900 -o /dev/null "localhost:8081/node_modules/expo-router/entry.bundle?platform=ios&dev=true&minify=false"
+          curl -sf --max-time 900 -o /dev/null "localhost:8081/.expo/.virtual-metro-entry.bundle?platform=ios&dev=true&lazy=true&minify=false"
 
       - name: Boot an iPhone simulator and install the app
         run: |
