@@ -85,5 +85,19 @@ services:
     profiles: ["observability"]
     ports: ["16686:16686"]
 
+  analytics:                                # click events into the data lake as Parquet (chapter 17.6)
+    build: ../data/stream
+    profiles: ["analytics"]                 # start with: docker compose --profile analytics up -d
+    user: "${LAKE_UID:-1000}:${LAKE_GID:-1000}"   # your user, so the files in ../data/lake are yours
+    environment:
+      SNIP_REDIS_ADDR: redis:6379
+      SNIP_REDIS_PASSWORD: ${SNIP_REDIS_PASSWORD:-snip-dev-only}  # local development only
+      CLICKSTREAM_CONSUMER: analytics-1     # a fixed name: a restarted container picks up its own pending events
+      CLICKSTREAM_CRASH_AFTER_WRITE: ${CLICKSTREAM_CRASH_AFTER_WRITE:-}   # lab: 1 = die before XACK
+    volumes:
+      - ../data/lake:/lake
+    depends_on:
+      redis: { condition: service_healthy }
+
 volumes:
   pgdata:

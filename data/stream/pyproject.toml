@@ -1,0 +1,45 @@
+[project]
+name = "clickstream"
+version = "0.1.0"
+description = "Chapter 17.6: an analytics consumer that reads snip's click events from a Redis stream and writes them to the lake as Parquet."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "pyarrow>=26.0",   # writes Parquet (chapter 17.3)
+    "redis>=8.1",      # redis-py: reads the snip:clicks stream with a consumer group
+]
+
+[project.scripts]
+clickstream = "clickstream.__main__:main"
+
+[dependency-groups]
+dev = [
+    "duckdb>=2.0",      # the tests read the lake back the way an analyst would
+    "mypy>=2.4",
+    "pyarrow-stubs>=20.0.0.20260819",
+    "pytest>=9.2",
+    "ruff>=0.17",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]   # errors, pyflakes, imports, bugbear, pyupgrade, simplify
+
+[tool.mypy]
+strict = true
+packages = ["clickstream"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["duckdb.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
