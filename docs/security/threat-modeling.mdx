@@ -253,7 +253,7 @@ snip is the URL shortener this handbook builds: an API where owners create short
 - **API → Redis.** In snip's Compose and Kubernetes setups, Redis has no password and no TLS. The only thing protecting it is that it's reachable only from snip's own pods (a Kubernetes NetworkPolicy, `deploy/k8s/base/networkpolicy.yaml`).
 - **Operator → the API's container.** API keys are created with the `snip keys create` command, so whoever can run commands inside the container can mint keys. That's a boundary made of shell access, and it belongs on the diagram.
 
-**What can go wrong, and what are we doing about it?** Nineteen STRIDE threats, each with the defence in snip's code and a status. A few rows:
+**What can go wrong, and what are we doing about it?** Twenty STRIDE threats, each with the defence in snip's code and a status. A few rows:
 
 | Threat | STRIDE | Defence in snip | Status |
 |---|---|---|---|
@@ -378,7 +378,7 @@ On paper or in a text editor, free. About an hour.
 <details>
 <summary>A teammate says: "We don't need threat modeling, we run security scanners in CI." What does each catch that the other misses?</summary>
 
-Scanners find **known kinds of mistakes in code that exists**: a vulnerable library, an injectable query, a leaked key. They can't see **design** problems, because those aren't mistakes in any one line: share links that never expire, a cache anyone on the network can rewrite, a feature that's perfect for spammers, a missing audit trail. Those are found by asking "what can go wrong?" about the design, ideally before the code is written, when fixing them is cheap. Threat modeling, in turn, won't find the typo that makes one query injectable. You want both: the model to decide what to build, the scanners to check what you built.
+Scanners ([chapter 7.13](./security-testing.mdx)) find **known kinds of mistakes in code that exists**: a vulnerable library, an injectable query, a leaked key. They can't see **design** problems, because those aren't mistakes in any one line: share links that never expire, a cache anyone on the network can rewrite, a feature that's perfect for spammers, a missing audit trail. Those are found by asking "what can go wrong?" about the design, ideally before the code is written, when fixing them is cheap. Threat modeling, in turn, won't find the typo that makes one query injectable. You want both: the model to decide what to build, the scanners to check what you built.
 
 </details>
 

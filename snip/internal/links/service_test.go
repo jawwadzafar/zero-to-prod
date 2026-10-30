@@ -3,6 +3,7 @@ package links_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jawwadzafar/zero-to-prod/snip/internal/links"
@@ -24,6 +25,9 @@ func TestNormalizeURL(t *testing.T) {
 		{in: "https://", wantErr: true},                                // no host
 		{in: "https://bank.example@evil.example/login", wantErr: true}, // really goes to evil.example
 		{in: "https://user:pass@example.com/", wantErr: true},          // credentials in a shared link
+		// 2,020 bytes in, but each "é" is percent-encoded to 6 bytes: 6,020 out,
+		// too long for the database. Found by FuzzNormalizeURL (fuzz_test.go).
+		{in: "https://example.com/" + strings.Repeat("é", 1000), wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

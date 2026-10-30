@@ -58,7 +58,15 @@ func NormalizeURL(raw string) (string, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 		return "", ErrInvalidURL
 	}
-	return u.String(), nil
+	// Check the length again after normalising: u.String() percent-encodes
+	// bytes such as "é" (2 bytes) into "%C3%A9" (6), so a URL that passed the
+	// first check can come out longer than the database column allows. A fuzz
+	// test found this (chapter 7.13).
+	out := u.String()
+	if len(out) > maxURLLength {
+		return "", ErrInvalidURL
+	}
+	return out, nil
 }
 
 var slugPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)

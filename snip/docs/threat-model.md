@@ -93,6 +93,7 @@ service, Elevation of privilege) applied to each element above. **Status:**
 | T17 | Database credentials leak from config or images | I | Read from the environment (`internal/config/config.go`); on AWS, generated at apply time and kept in Secrets Manager (`infra/aws/main.tf`) | mitigated (local passwords are dev-only by design) |
 | T18 | A compromised container gets root on the node | E | Non-root user, read-only root filesystem, all capabilities dropped (`deploy/k8s/base/api.yaml`); distroless image (`Dockerfile`) | mitigated |
 | T19 | A vulnerable dependency or Go release | E, D | `govulncheck` in CI fails on reachable vulnerabilities; Dependabot updates weekly (`.github/`, chapter 7.13) | mitigated |
+| T20 | A URL that grows past 2,048 bytes when normalised makes link creation fail with a 500 | D | `NormalizeURL` checks the length of its output, not only its input (`internal/links/link.go`); `FuzzNormalizeURL` in `internal/links/fuzz_test.go` found the original bug | mitigated |
 
 ---
 
@@ -119,6 +120,8 @@ Rated by likelihood × impact on a three-point scale (low, medium, high).
   validation (T5) in `internal/links/service_test.go`; missing and revoked keys
   (T1) and the error shape (T11) in `internal/httpapi/server_test.go`;
   request-ID filtering (T10) in the same file.
+- Fuzz tests (`internal/links/fuzz_test.go`) check the properties of URL and
+  slug validation on generated inputs (T5, T20); run them with `-fuzz` nightly.
 - Gap: owner scoping is tested on the service, not end to end over HTTP with
   two real keys. Add that test before the next change to the handlers.
 - Each open risk has a next step above. When one is fixed, change
