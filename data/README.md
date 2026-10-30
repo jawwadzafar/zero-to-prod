@@ -16,12 +16,13 @@ uv run snipdata query "SELECT * FROM wh.link_clicks_daily ORDER BY clicks DESC L
 uv run pytest && uv run ruff check . && uv run mypy   # tests, lint, types
 ```
 
-With snip's compose stack running (`cd ../snip && docker compose up -d --build --wait`),
-copy its real data instead (into a fresh lake folder; `extract` won't mix real rows with generated ones):
+To copy a real snip's data instead, start snip's compose stack with its Postgres
+published on 127.0.0.1:15432 (snip's own compose file publishes only nginx), and
+extract into a separate lake folder (`extract` won't mix real rows with generated ones):
 
 ```bash
-SNIP_DATABASE_URL=postgres://snip:snip@localhost:5432/snip?sslmode=disable \
-  uv run snipdata --lake lake-real extract
+(cd ../snip && docker compose -f docker-compose.yml -f ../data/snip-db-port.yml up -d --build --wait)
+uv run snipdata --lake lake-snip extract   # or set SNIP_DATABASE_URL / --dsn for another database
 ```
 
 ## The lake

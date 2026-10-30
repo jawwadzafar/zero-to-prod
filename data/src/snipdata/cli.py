@@ -25,7 +25,8 @@ from snipdata import extract as ex
 from snipdata import generate as gen
 from snipdata import lake as lk
 
-DEFAULT_DSN = "postgres://snip:snip@localhost:5432/snip?sslmode=disable"
+# snip's compose Postgres, published on your laptop by snip-db-port.yml (chapter 17.2).
+DEFAULT_DSN = "postgres://snip:snip@localhost:15432/snip?sslmode=disable"
 
 
 def default_warehouse() -> Path:

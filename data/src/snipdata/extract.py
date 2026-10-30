@@ -34,6 +34,8 @@ from snipdata import lake as lk
 # run. A sequence hands out ids when rows are inserted, not when they commit,
 # so a slow transaction can commit id 41 after id 42 is already visible. If we
 # copied 42 and moved the watermark past 41, row 41 would be skipped forever.
+# `at` is when the inserting transaction started, so this covers transactions
+# shorter than the settle time; snip's audit inserts take milliseconds.
 DEFAULT_SETTLE_SECONDS = 5
 
 LINKS_SQL = """

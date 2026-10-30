@@ -1,0 +1,11 @@
+# A Compose override for the data labs (chapter 17.2): publishes snip's
+# Postgres on your laptop only (127.0.0.1), so `snipdata extract` can read it.
+# snip's own docker-compose.yml deliberately publishes nothing but nginx.
+#
+#   cd snip && docker compose -f docker-compose.yml -f ../data/snip-db-port.yml up -d --build --wait
+#
+# Port 15432, not 5432, so it doesn't collide with a Postgres you may already run.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:15432:5432"
