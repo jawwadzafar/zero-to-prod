@@ -1,6 +1,7 @@
 # The whole snip stack on your laptop (chapter 9.3):
 #   docker compose up --build
 # Then: docker compose exec api snip keys create me
+# The web UI is at http://localhost:8080/app/ (chapter 16.6).
 name: snip
 
 services:
@@ -53,7 +54,7 @@ services:
       api: { condition: service_started }  # the API runs migrations first
 
   nginx:
-    image: nginx:1.30-alpine
+    build: ../web                     # nginx:1.30-alpine plus the web UI's static files at /app/ (chapter 16.6)
     ports:
       - "8080:80"                     # your browser talks to nginx, nginx to the api copies
     volumes:

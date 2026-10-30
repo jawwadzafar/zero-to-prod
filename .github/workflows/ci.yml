@@ -115,6 +115,25 @@ jobs:
           curl -s "localhost:6060/debug/pprof/goroutine?debug=1" | head -3
           kill "$SNIP_PID"
 
+  web:
+    name: web (TypeScript + React) — types, tests, build (chapter 16.6)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci                           # exactly the lockfile's versions (chapter 16.4)
+      - run: npm run lint                     # tsc --noEmit: the type check
+      - run: npm test
+      - run: npm run build
+
   ai:
     name: ai (Python) — lint, types, tests, live against snip
     runs-on: ubuntu-latest
@@ -427,7 +446,7 @@ jobs:
         working-directory: snip
     steps:
       - uses: actions/checkout@v7
-      - name: Start postgres, redis, 2 × api, worker, nginx
+      - name: Start postgres, redis, 2 × api, worker, nginx (with the web UI built in)
         run: docker compose up -d --build --wait
       - name: Smoke test through nginx
         run: |
@@ -459,6 +478,16 @@ jobs:
             [ "$N" = 5 ] && exit 0; sleep 1
           done
           echo "clicks = $N, want 5"; docker compose logs worker; exit 1
+      - name: nginx serves the web UI at /app/, with its assets and headers (chapter 16.6)
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' localhost:8080/app)" = "301 http://localhost:8080/app/"
+          curl -fsS localhost:8080/app/ | grep -q '<div id="root">'
+          curl -fsSI localhost:8080/app/ | grep -qi '^content-security-policy:'
+          ASSET=$(curl -fsS localhost:8080/app/ | grep -o '/app/assets/[^"]*\.js' | head -n1)
+          curl -fsSI "localhost:8080$ASSET" | grep -qi '^cache-control: public, max-age=31536000, immutable'
+          KEY=$(docker compose exec -T api snip keys create ci-web | grep -o 'snip_[A-Za-z0-9]*')
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8080/api/links -H "Authorization: Bearer $KEY" -d '{"url":"https://go.dev","slug":"app"}')
+          echo "creating the slug 'app': HTTP $CODE"; test "$CODE" = 400
       - name: Chapter 9.3 lab — look inside postgres and redis; prometheus finds the api copies
         run: |
           docker compose exec -T postgres psql -U snip -c "SELECT slug, clicks FROM links ORDER BY slug" | tee /dev/stderr | grep -q counted

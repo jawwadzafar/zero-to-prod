@@ -285,12 +285,35 @@ server {
     location = /metrics {       # metrics are for Prometheus inside the network, not the internet
         deny all;
     }
+
+    # The web UI (chapter 16.6): static files built from web/ and copied into
+    # this nginx image. Same origin as the API, so the browser needs no CORS.
+    # The slug "app" is reserved in snip, so no short link can hide behind it.
+    location = /app {
+        absolute_redirect off;  # "Location: /app/", not a URL with nginx's own port 80
+        return 301 /app/;
+    }
+
+    location /app/ {
+        root /usr/share/nginx/html;
+        try_files $uri /app/index.html;
+        add_header Cache-Control "no-cache";   # always check for a new index.html
+        add_header Content-Security-Policy "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'" always;
+        add_header X-Content-Type-Options nosniff always;
+    }
+
+    location /app/assets/ {     # file names carry a content hash, so they never change
+        root /usr/share/nginx/html;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header X-Content-Type-Options nosniff always;
+    }
 }
 ```
 
 What's specific to snip:
 
 - **`location = /metrics { deny all; }`**: snip's Prometheus metrics ([chapter 13.2](../observability/metrics.mdx)) are for monitoring inside the network. The front door refuses them with `403`; Prometheus scrapes the copies directly.
+- **The `/app/` locations** serve a different kind of thing: files from nginx's own disk, the web UI built in [chapter 16.6](../frontend/a-ui-for-snip.mdx). nginx is a web server as well as a proxy; `location /app/` is more specific than `location /`, so those paths never reach snip. snip refuses the slug `app` so no short link can hide behind them.
 - **`proxy_read_timeout 15s`** matches snip's own `WriteTimeout` of 15 seconds (`snip/cmd/snip/main.go`, [chapter 5.4](../apis/structuring-a-real-service.mdx)): nginx waits as long as snip may take to answer, and no longer.
 - **Round robin is safe** because snip's copies are stateless: links, keys and counters live in Postgres and Redis.
 - **`/readyz` and `/healthz`** are separate in snip for exactly the reasons above: `/readyz` fails when a copy can't reach its database, so an active health checker (a cloud load balancer, Kubernetes) takes it out of rotation, while `/healthz` stays green so it isn't restarted for someone else's outage.
