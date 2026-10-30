@@ -727,7 +727,10 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: other.example' localhost:8888/healthz)" = 404
       - name: The Gateway sends /app to the web UI and everything else to snip (chapter 16.6)
         run: |
-          H="Host: snip.localhost"; GW=localhost:8888
+          SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=snip -o name)
+          kubectl -n envoy-gateway-system port-forward "$SVC" 8890:80 > /dev/null 2>&1 &
+          H="Host: snip.localhost"; GW=localhost:8890
+          for _ in $(seq 1 15); do curl -fsS -o /dev/null -H "$H" $GW/app/ && break; sleep 2; done
           test "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -H "$H" $GW/app)" = "301 http://$GW/app/"
           curl -fsS -D /tmp/app.h -o /tmp/app.html -H "$H" $GW/app/
           grep -q '<div id="root">' /tmp/app.html
