@@ -7,7 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
+	"math/rand/v2" // nosemgrep: math-random-used -- only for retry jitter, never for secrets (chapter 7.13)
 	"net/http"
 	"os"
 	"os/signal"
@@ -75,7 +75,9 @@ func run() error {
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Warn("metrics server did not shut down cleanly", "err", err)
+		}
 	}()
 
 	log.Info("worker started", "stream", clicks.StreamKey, "group", clicks.Group, "metrics_addr", cfg.WorkerMetricsAddr)
@@ -87,6 +89,7 @@ func run() error {
 			if ctx.Err() != nil {
 				break
 			}
+			// #nosec G404 -- a predictable delay is harmless; secrets use crypto/rand (chapter 7.13)
 			// Jitter (chapter 8.1): wait a random time between half and all of the
 			// backoff, so workers that failed together don't retry in lockstep.
 			wait := backoff/2 + rand.N(backoff/2+1)

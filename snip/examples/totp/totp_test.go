@@ -59,7 +59,7 @@ func TestVerifierAcceptsDriftAndRefusesReplay(t *testing.T) {
 
 func TestURIIsWhatAppsExpect(t *testing.T) {
 	got := URI(rfcSecret, "snip", "ada@example.com")
-	want := "otpauth://totp/snip:ada@example.com?digits=6&issuer=snip&period=30&secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"
+	want := "otpauth://totp/snip:ada@example.com?digits=6&issuer=snip&period=30&secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ" // gitleaks:allow: RFC 6238's public test secret, not a real one
 	if got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
