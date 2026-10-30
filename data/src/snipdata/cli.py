@@ -8,6 +8,7 @@
     uv run snipdata run                  # the orchestrated daily run, for yesterday (UTC)
     uv run snipdata backfill --start 2026-10-01 --end 2026-10-28
     uv run snipdata runs                 # the run log: each day's latest run
+    uv run snipdata check                # the clicks contract, on every file in the lake
 
 Run it from the data/ folder. Paths come from flags or environment variables:
 SNIPDATA_LAKE (default ./lake), SNIPDATA_WAREHOUSE (default ./warehouse/snip.duckdb),
@@ -24,6 +25,7 @@ from pathlib import Path
 
 import duckdb
 
+from snipdata import contract as ct
 from snipdata import extract as ex
 from snipdata import generate as gen
 from snipdata import lake as lk
@@ -81,6 +83,7 @@ def orc_config(args: argparse.Namespace) -> orc.Config:
         grace=timedelta(minutes=args.grace_minutes),
         wait=timedelta(minutes=args.wait_minutes),
         retries=args.retries,
+        quarantine=args.quarantine,
     )
 
 
@@ -100,6 +103,21 @@ def cmd_backfill(args: argparse.Namespace) -> int:
     if failed:
         print("failed: " + " ".join(d.isoformat() for d in failed), file=sys.stderr)
     return 1 if failed else 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    found = ct.check_lake(args.lake, args.day)
+    for x in found:
+        print(x)
+    errors = [x for x in found if x.severity == "error"]
+    checked = len(ct.files(args.lake, args.day))
+    if errors and args.quarantine:
+        for dest in ct.quarantine(args.lake, errors):
+            print(f"quarantined -> {dest}")
+        return 0
+    bad = len({x.path for x in errors})
+    print(f"{checked} file(s) checked, {bad} break the contract")
+    return 1 if errors else 0
 
 
 def cmd_runs(args: argparse.Namespace) -> int:
@@ -206,6 +224,15 @@ def parser() -> argparse.ArgumentParser:
         sp.add_argument(
             "--wait-minutes", type=float, default=0, help="how long the sensor keeps checking"
         )
+        sp.add_argument(
+            "--quarantine",
+            action="store_true",
+            help="move files that break the clicks contract aside instead of stopping",
+        )
+
+    c = sub.add_parser("check", help="check every clicks file in the lake against the contract")
+    c.add_argument("--day", type=date.fromisoformat, default=None, help="only this day")
+    c.add_argument("--quarantine", action="store_true", help="move bad files to lake/_quarantine/")
 
     q = sub.add_parser("query", help="run SQL over the lake; the warehouse is attached as wh")
     q.add_argument("sql")
@@ -232,6 +259,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_backfill(args)
         if args.command == "runs":
             return cmd_runs(args)
+        if args.command == "check":
+            return cmd_check(args)
         return cmd_query(args)
     except (RuntimeError, ValueError, duckdb.Error) as err:
         print(f"snipdata: {err}", file=sys.stderr)

@@ -34,6 +34,19 @@ same rows, and the same fingerprint in the run log. A nightly crontab line:
 30 1 * * *  cd /path/to/data && uv run snipdata run >> warehouse/cron.log 2>&1
 ```
 
+Data quality (chapter 17.7) is checked at three layers:
+
+```bash
+uv run snipdata check                      # the clicks contract, file by file (--quarantine moves bad files aside)
+uv run snipdata build                      # dbt tests: not_null, unique, relationships, grain, reconciliation,
+                                           #   and warnings for redeliveries, missing days and odd volumes
+uv run snipdata dbt source freshness       # how old the newest click is (warn after 6 hours, error after 30)
+```
+
+`snipdata run` checks the contract before dbt reads anything, and stops on a
+violation unless you pass `--quarantine`. Quarantined files go to
+`lake/_quarantine/`, each with a `.why.json` note.
+
 With snip's compose stack running (`cd ../snip && docker compose up -d --build --wait`),
 copy its real data instead (into a fresh lake folder; `extract` won't mix real rows with generated ones):
 
@@ -63,3 +76,4 @@ Nothing in `lake/`, `warehouse/` or `dbt/target/` is ever committed.
 | `snipdata query` | SQL over the lake with DuckDB | 17.3 |
 | `dbt/` | Staging models, `dim_links`, `fct_clicks`, `link_clicks_daily`, and tests | 17.4 |
 | `snipdata.orchestrate` | Daily runs, a sensor, retries with backoff, backfills, the run log | 17.5 |
+| `snipdata.contract`, `dbt/tests/` | The clicks contract, quarantine, and the data quality tests | 17.7 |

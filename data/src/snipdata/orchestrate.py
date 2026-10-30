@@ -7,10 +7,13 @@
 
 A run processes exactly one UTC day, `day`, through these steps:
 
-    wait_for_clicks -> extract -> transform -> verify
+    wait_for_clicks -> check_contract -> extract -> transform -> verify
 
 - wait_for_clicks is a sensor: the day must be over (plus a grace period for
   late events) and its clicks/dt=<day>/ partition must hold files.
+- check_contract checks those files against the clicks contract (chapter
+  17.7) and stops the run on a violation, or with --quarantine moves the bad
+  files aside and carries on.
 - extract snapshots snip's Postgres, but only for today or yesterday: a
   snapshot shows the database *now*, so it can't be taken for a past day.
 - transform runs `dbt build` with start_date = end_date = day, so
@@ -41,6 +44,7 @@ from typing import Any
 import duckdb
 import psycopg
 
+from snipdata import contract as ct
 from snipdata import extract as ex
 from snipdata import lake as lk
 from snipdata.transform import run_dbt
@@ -67,6 +71,7 @@ class Config:
     grace: timedelta = timedelta(hours=1)  # how late an event may arrive and still count
     wait: timedelta = timedelta(0)  # how long the sensor keeps checking before giving up
     poke: timedelta = timedelta(seconds=30)  # how often it checks
+    quarantine: bool = False  # move files that break the contract aside, instead of stopping
     retries: int = 2  # extra attempts after the first, for Retryable failures
     backoff: float = 2.0  # seconds before the first retry; doubles each time
     max_backoff: float = 60.0
@@ -106,6 +111,22 @@ def wait_for_clicks(cfg: Config, day: date) -> str:
         if now() + cfg.poke > deadline:
             raise NotReady(reason)
         sleep(cfg.poke.total_seconds())
+
+
+def check_contract(cfg: Config, day: date) -> str:
+    """Block (or quarantine) files that break the clicks contract, before anything reads them."""
+    found = ct.check_lake(cfg.lake, day)
+    errors = [x for x in found if x.severity == "error"]
+    warns = f", {len(found) - len(errors)} warning(s)" if len(found) > len(errors) else ""
+    if not errors:
+        return f"{len(ct.files(cfg.lake, day))} file(s) keep the contract{warns}"
+    if not cfg.quarantine:
+        raise Failed("; ".join(f"{x.path.name}: [{x.rule}] {x.detail}" for x in errors))
+    moved = ct.quarantine(cfg.lake, errors)
+    if not ct.files(cfg.lake, day):
+        raise Failed(f"quarantined all {len(moved)} file(s); nothing left for {day}")
+    names = ", ".join(p.name for p in moved)
+    return f"quarantined {len(moved)} file(s) that break the contract: {names}{warns}"
 
 
 def extract(cfg: Config, day: date) -> str:
@@ -159,6 +180,7 @@ def verify(cfg: Config, day: date) -> str:
 
 STEPS: list[tuple[str, Step]] = [
     ("wait_for_clicks", wait_for_clicks),
+    ("check_contract", check_contract),
     ("extract", extract),
     ("transform", transform),
     ("verify", verify),

@@ -246,7 +246,7 @@ def _prepare(lake: Path) -> None:
                 f"{lake} holds data that wasn't generated (no {lk.GENERATED_MARKER}); "
                 "pick another folder with --lake"
             )
-        for t in lk.TABLES:  # same seed, fewer days: no stale partitions left behind
+        for t in [*lk.TABLES, "_quarantine"]:  # same seed, fewer days: nothing stale left
             shutil.rmtree(lake / t, ignore_errors=True)
     lake.mkdir(parents=True, exist_ok=True)
 
