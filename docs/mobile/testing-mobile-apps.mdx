@@ -147,7 +147,7 @@ Screen tests are fast because they skip the phone. So everything the phone does 
 
 An **end-to-end (e2e) test** installs the built app on an emulator, a simulator or a phone, and taps through it like a person, against a real (test) server. Two tools are common for React Native:
 
-- **Maestro** (open source, from mobile.dev): you describe a **flow** in YAML, and it finds elements by their visible text or accessibility label and waits for the screen to settle on its own. A sketch of a flow for a link app, *not* in snip's repository:
+- **Maestro** (open source, from mobile.dev): you describe a **flow** in YAML, and it finds elements by their visible text or accessibility label and waits for the screen to settle on its own. The idea, in a few lines (snip's real flow is in "Apply it to snip" below):
 
   ```yaml
   appId: com.example.snip        # the app's package name
@@ -282,7 +282,7 @@ function fieldFor(err: unknown): Field {
 
 Delete `|| err.code === 'slug_taken'` and the message moves to the bottom of the form, the slug field loses its red border, and **all the tests still pass**. That's not a disaster (the person still reads the message), but it's exactly the "name promises more than it checks" trap, and you'll prove it in the lab. Placement is hard to assert in Node with no layout; a test could instead check the slug field's invalid style, or the order of elements, and an e2e screenshot could check the look.
 
-**No end-to-end tests yet, and why.** The app is four screens that talk only to snip's API, with no native code of its own; the screen tests already drive those screens through real navigation with real request and error handling. An e2e suite would add an emulator (minutes per CI run on Linux, and macOS runners for iOS), a running snip, and a release build. It becomes worth it when the app gains native code or a flow that only a device can check, such as opening a short link from another app ([chapter 18.5](./device-features.mdx)). Until then, the release checklist covers the device by hand.
+**One end-to-end flow, in its own workflow.** `mobile/e2e/snip.yaml` is a Maestro flow that does what a person would: open the app with nothing saved, paste an API key, create a link with the slug `e2e-godoc`, wait for it in the list, delete it through Android's real confirmation dialog, and forget the key. `.github/workflows/mobile-e2e.yml` runs it: it starts snip with Docker Compose, generates the Android project with `npx expo prebuild`, builds a debug app for the emulator's CPU type only, starts Metro (a debug build loads its JavaScript from it), boots an Android emulator and runs the flow. That takes about a quarter of an hour, so it runs in its own workflow when `mobile/` or `snip/` changes and once a week, not on every push. It catches what the screen tests can't: the app really draws on Android, really reaches snip at `10.0.2.2` ([chapter 18.4](./a-mobile-client-for-snip.mdx)), and the native dialog's Delete button really deletes. Its first run failed before the app even started, while packaging the APK, because building native code for all four CPU types filled the runner; building only `x86_64` fixed it and cut the build from 17 minutes to 6. There's no iOS flow: it would need macOS runners, which cost more, and the app has no iOS-only code yet.
 
 **The CI job.** Every push runs the `mobile` job in `.github/workflows/ci.yml` ([chapter 11.2](../shipping/ci-with-github-actions.mdx) explains workflows):
 
@@ -350,7 +350,7 @@ On your laptop, free. Node 22 or later; no phone or server needed.
 
 First reproduce it where it happens: an Android device or emulator, ideally the same Android version, with the same build (a release build if they have one). Watch the logs (`npx expo start` prints the JavaScript console; Android Studio's Logcat shows native errors) while pressing Delete.
 
-The tests can't catch it because the part that differs is exactly what they fake. In Jest, `Alert.alert` is replaced with a function that presses "Delete" immediately, so the native dialog, its buttons and their order on Android are never exercised. Likewise the network: a phone on the Wi-Fi may be unable to reach the address saved in the app, which a fake `fetch` never shows. The rule: **when a bug appears only on one platform, look first at the code the tests replace with stand-ins: native dialogs, storage, the network, permissions.** If it was a real gap, it's a candidate for one end-to-end flow on Android.
+The screen tests can't catch it because the part that differs is exactly what they fake. In Jest, `Alert.alert` is replaced with a function that presses "Delete" immediately, so the native dialog, its buttons and their order on Android are never exercised. Likewise the network: a phone on the Wi-Fi may be unable to reach the address saved in the app, which a fake `fetch` never shows. The rule: **when a bug appears only on one platform, look first at the code the tests replace with stand-ins: native dialogs, storage, the network, permissions.** snip's end-to-end flow exists for this kind of gap: it presses the real dialog's Delete on an Android emulator. It still runs one Android version on one emulator image, so the tester's own phone can show what CI doesn't; that's why you reproduce on their version first.
 
 </details>
 
