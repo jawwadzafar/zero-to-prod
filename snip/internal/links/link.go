@@ -78,8 +78,9 @@ func NormalizeURL(raw string) (string, error) {
 
 var slugPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{3,32}$`)
 
-// reserved are slugs that would collide with snip's own routes.
-var reserved = map[string]bool{"api": true, "healthz": true, "readyz": true, "metrics": true}
+// reserved are slugs that would collide with snip's own routes, or with
+// the web UI that nginx serves at /app/ (chapter 16.6).
+var reserved = map[string]bool{"api": true, "app": true, "healthz": true, "readyz": true, "metrics": true}
 
 // ValidateSlug checks a custom slug chosen by a user.
 func ValidateSlug(s string) error {

@@ -17,6 +17,7 @@ from snipai.slugs import InvalidSlugError, is_valid_slug, validate_slug
         ("emoji🙂", False),  # characters outside the allowed set
         ("api", False),  # reserved
         ("Healthz", False),  # reserved, whatever the case
+        ("App", False),  # reserved for the web UI at /app/
         ("x/y", False),
     ],
 )

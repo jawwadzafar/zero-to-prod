@@ -338,7 +338,7 @@ snip's image contains two programs ([chapter 9.2](./writing-dockerfiles.mdx)). *
 
 ```yaml
   nginx:
-    image: nginx:1.30-alpine
+    build: ../web                     # nginx:1.30-alpine plus the web UI's static files at /app/ (chapter 16.6)
     ports:
       - "8080:80"                     # your browser talks to nginx, nginx to the api copies
     volumes:
@@ -362,7 +362,7 @@ volumes:
   pgdata:
 ```
 
-nginx is the hello stack's `proxy`, with a fuller config (`snip/deploy/nginx/nginx.conf`) that adds timeouts and forwarded headers. Prometheus, Grafana and Jaeger sit behind the `observability` profile ([chapter 13.2](../observability/metrics.mdx)). Prometheus finds every API copy the same way nginx does, by looking up the service name `api` (its config uses `dns_sd_configs` with `names: [api]`).
+nginx is the hello stack's `proxy`, with a fuller config (`snip/deploy/nginx/nginx.conf`) that adds timeouts and forwarded headers. Instead of `image:` it has **`build: ../web`**: Compose builds a small image from `web/Dockerfile`, nginx plus the web UI's static files ([chapter 16.6](../frontend/a-ui-for-snip.mdx)), so `docker compose up --build` rebuilds the UI too. Prometheus, Grafana and Jaeger sit behind the `observability` profile ([chapter 13.2](../observability/metrics.mdx)). Prometheus finds every API copy the same way nginx does, by looking up the service name `api` (its config uses `dns_sd_configs` with `names: [api]`).
 
 ---
 
