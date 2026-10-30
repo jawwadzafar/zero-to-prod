@@ -12,10 +12,20 @@
 appId: ${APP_ID}
 ---
 - launchApp:
-    clearState: true # no saved key: start on the setup screen
+    clearState: true # no saved data: start on the setup screen...
+- extendedWaitUntil:
+    visible: "Connect to snip|Your links"
+    timeout: 180000 # the first launch waits for Metro to bundle the app
+# ...except on iOS, where the Keychain outlives the app's other data, so a
+# key from an earlier run can still be saved. Forget it, like a person would.
+- runFlow:
+    when:
+      visible: "Forget key"
+    commands:
+      - tapOn: "Forget key"
 - extendedWaitUntil:
     visible: "Connect to snip"
-    timeout: 180000 # the first launch waits for Metro to bundle the app
+    timeout: 15000
 
 # The address field already holds where snip listens: http://10.0.2.2:8080
 # on the Android emulator (its name for the computer running it), and
@@ -28,6 +38,12 @@ appId: ${APP_ID}
 - extendedWaitUntil:
     visible: "Your links"
     timeout: 30000
+# iOS may offer to save the key in Passwords; say no, like a person would.
+- runFlow:
+    when:
+      visible: "Save Password\\?"
+    commands:
+      - tapOn: "Not Now"
 
 # Create a link with a known slug.
 - tapOn: "New short link"

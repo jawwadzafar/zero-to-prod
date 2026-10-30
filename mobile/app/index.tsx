@@ -68,6 +68,9 @@ export default function SetupScreen() {
           value={apiKey}
           onChangeText={setApiKey}
           secureTextEntry // shows dots, and keeps the key out of the keyboard's suggestions
+          // An API key isn't a website password: ask iOS not to offer to save it in Passwords.
+          textContentType="none"
+          autoComplete="off"
           autoCapitalize="none"
           autoCorrect={false}
           placeholder="snip_…"
