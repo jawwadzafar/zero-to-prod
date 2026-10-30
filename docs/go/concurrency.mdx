@@ -295,7 +295,9 @@ If you know JavaScript's `async`/`await`, Go feels different: there's no colouri
 
 ```go
 // Store is safe for concurrent use: many requests may hit it at once, so
-// every access holds the mutex (chapter 4.5).
+// every access holds the mutex (chapter 4.5). Each change appends to events,
+// the in-memory audit trail, while still holding the lock, so a change and
+// its event happen together, like the Postgres store's transaction.
 type Store struct {
 	mu     sync.RWMutex
 	links  map[string]links.Link

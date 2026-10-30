@@ -200,7 +200,9 @@ Real systems need people who can see across tenants: support engineers, administ
 snip, the URL shortener this handbook builds, is multi-tenant in a small way: each API key's links are its own. It doesn't fetch a link and *then* check its owner in scattered handler code. The ownership condition is **part of the query**, or checked in the one shared service method every endpoint uses. Deleting (`snip/internal/store/postgres/postgres.go`):
 
 ```go
-tag, err := s.pool.Exec(ctx, `DELETE FROM links WHERE slug = $1 AND owner_id = $2`, slug, ownerID)
+err := tx.QueryRow(ctx,
+	`DELETE FROM links WHERE slug = $1 AND owner_id = $2 RETURNING url`, slug, ownerID,
+).Scan(&url)
 ```
 
 Reading (`snip/internal/links/service.go`):
@@ -223,7 +225,25 @@ Listing: `SELECT … WHERE owner_id = $1`. And `ownerID` always comes from the *
 
 Both rules from the fix above are visible: someone else's link gets the same `ErrNotFound` (a `404`) as a missing one, and the owner comes from the key. snip's HTTP tests check the "user B tries user A's link" path ([chapter 4.4](../go/testing.mdx)); step 3 of the lab lets you try it by hand.
 
-A team version of snip, with workspaces shared by several people, would be a natural fit for the row-level security below: a `workspace_id` on every row, and a policy that makes the database enforce it.
+A team version of snip, with workspaces shared by several people, would be a natural fit for the row-level security above: a `workspace_id` on every row, and a policy that makes the database enforce it.
+
+### An audit trail nobody can edit
+
+Authorization decides who *may* change a link; an **audit trail** records who *did*. snip writes one row to an `audit_events` table for every link created or deleted and every API key created, rotated or revoked: the owner, the action, the slug, the request ID from the request's log line, and details such as the URL a deleted link pointed to. Never the key. Each row is written in the same transaction as the change it records, so there's no change without its row ([chapter 6.5](../data/transactions.mdx)).
+
+A record you can quietly edit isn't evidence, so the table is **append-only**: rows can be added, never changed or removed. snip can't enforce that with permissions alone, because its database role created the table and so owns it, and an owner can grant itself any permission back. Instead, the migration (`snip/internal/store/postgres/migrations/0002_audit_events.sql`) adds a **trigger**, a function the database runs automatically before certain statements, and this one refuses them all:
+
+```sql
+CREATE TRIGGER audit_events_append_only
+    BEFORE UPDATE OR DELETE OR TRUNCATE ON audit_events
+    FOR EACH STATEMENT EXECUTE FUNCTION audit_events_append_only();
+```
+
+Any `UPDATE`, `DELETE` or `TRUNCATE` on the table now fails with `audit_events is append-only`, whoever sends it: a bug, an injected query, an engineer in a hurry. `snip audit OWNER_ID` prints one owner's trail; [chapter 13.7](../observability/security-incident-response.mdx) uses it to investigate a leaked key.
+
+:::info[In the real world]
+A trigger stops mistakes, not a determined insider. Whoever owns the table (here, snip's own role) or a database superuser can drop the trigger first. Stricter setups give the application a role that may only `INSERT` and `SELECT` on the audit table, with a separate migration role owning it. Systems that must stand up to their own administrators also copy every event off the database to **write-once storage**, which nobody can alter or delete for a set period (S3 Object Lock, a separate log-archive account, [chapter 12.8](../cloud/cloud-security.mdx)).
+:::
 
 ---
 
@@ -257,7 +277,12 @@ Free. Steps 1–2 use the playgrounds above; step 3 uses snip.
    curl -s localhost:8080/api/links -H "Authorization: Bearer $KEY_B" | jq '.links | length'     # 0
    curl -si localhost:8080/api/links/alices -H "Authorization: Bearer $KEY_A" | head -1          # 200 for Alice
    ```
-   Notice Bob can't even tell whether `alices` exists. (Following the short link `localhost:8080/alices` works for anyone — redirects are public by design.)
+   Notice Bob can't even tell whether `alices` exists. (Following the short link `localhost:8080/alices` works for anyone — redirects are public by design.) Then read Alice's audit trail:
+   ```bash
+   ALICE_ID=1                                                        # the "owner id" that keys create printed for alice
+   go run ./cmd/snip audit $ALICE_ID | jq -c '{at, action, slug}'    # link.created, key.created (newest first)
+   ```
+   Bob's refused delete changed nothing, so it left no row.
 
 ## Self-check
 

@@ -218,7 +218,7 @@ SELECT pg_advisory_unlock(42);     -- release it
 
 ## Apply it to snip
 
-snip meets all three kinds of concurrency problem, and uses one technique from this chapter for each. Every snippet is from `snip/internal/store/postgres/postgres.go`.
+snip meets all three kinds of concurrency problem and uses one technique from this chapter for each, then uses a plain transaction for the first problem, the half-done change. Every snippet is from `snip/internal/store/postgres/postgres.go`.
 
 **Clicks: an atomic update.** Every redirect records a click, and a background worker adds them to the count in batches. Instead of reading the count into Go, snip lets Postgres do the arithmetic:
 
@@ -251,6 +251,32 @@ defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(7412)`) //nolin
 ```
 
 The waiting form, `pg_advisory_lock`, is the right one here: the second copy *should* wait, then find every migration already recorded and start serving. `Acquire` matters because the lock belongs to one connection, so all the migration work runs on that same connection. And each migration runs inside its own transaction, so a failing one leaves no half-created tables behind.
+
+**Deletes: the change and its record, all or nothing.** snip keeps an **audit trail**: a table, `audit_events`, with one row for every link created or deleted and every API key created, rotated or revoked, saying whose it was, when, and which request did it. Imagine an owner says "I never deleted that link". The audit row is the answer, but only if there can never be a deleted link *without* its row. So `Delete` does both inside one transaction:
+
+```go
+// Delete removes the link and records who deleted it in one transaction: if
+// the audit row can't be written, the link isn't deleted either (chapter 6.5).
+func (s *Store) Delete(ctx context.Context, slug string, ownerID int64) error {
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var url string
+		err := tx.QueryRow(ctx,
+			`DELETE FROM links WHERE slug = $1 AND owner_id = $2 RETURNING url`, slug, ownerID,
+		).Scan(&url)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return links.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return record(ctx, tx, ownerID, audit.LinkDeleted, slug, map[string]string{"url": url})
+	})
+}
+```
+
+`pgx.BeginFunc` is `BEGIN`, then the function, then `COMMIT` if it returns no error or `ROLLBACK` if it does. `record` inserts the audit row through the same `tx`, so if that insert fails, the delete is rolled back too and the owner gets an error instead of a silent, unrecorded change. A test (`TestDeleteWithoutAuditRowRollsBack`) makes the insert fail on purpose and checks that the link is still there.
+
+snip chose the same rule for every audited change, creations included. An audit row is one small insert into the same database, so when it fails, the change it describes is in trouble too, and refusing one request is cheaper than a history with holes in it. A system that writes its audit events to a *different* store (a log service, a queue) can't share a transaction with it; it has the dual-write problem that the **outbox** pattern solves ([chapter 8.2](../distributed/queues-and-background-work.mdx)).
 
 ---
 

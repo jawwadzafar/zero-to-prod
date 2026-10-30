@@ -118,12 +118,16 @@ and don't discuss details in public until it's contained.
    `docker compose logs api --no-log-prefix > api.jsonl`,
    `docker compose logs nginx --no-log-prefix > nginx.log`, then
    `sha256sum api.jsonl nginx.log > SHA256SUMS`. Note who saved them, when, and where.
-4. **What did the key do?** Every authenticated request's log line carries
+4. **What did the key do?** Changes first, from the append-only audit trail
+   in Postgres (it survives restarts):
+   `docker compose exec -T api snip audit <id>` (JSON lines, newest first:
+   `link.created`, `link.deleted`, `key.*`, each with its `request_id`).
+   Reads too, from the logs: every authenticated request's line carries
    `owner_id`: `jq -c 'select(.msg == "request" and .owner_id == <id>)' api.jsonl`.
-   Changes are the `POST` and `DELETE` lines. Client addresses are in `nginx.log`
-   (match by time, method and path).
+   Client addresses are in `nginx.log` (match by time, method and path).
 5. **Undo the damage:** delete links the attacker created (check where they
-   point), restore deleted ones from the owner or a backup.
+   point); recreate deleted ones from the URL in their `link.deleted` audit
+   rows (`snip audit <id> | jq 'select(.action == "link.deleted")'`).
 6. **Rotate whatever leaked alongside the key** (a `.env` file often holds the
    database URL too), and watch for `401`s on `/api/` from the old key:
    `jq -c 'select(.status == 401)' api.jsonl`.

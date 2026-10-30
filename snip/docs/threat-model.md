@@ -34,7 +34,7 @@ flowchart LR
     api["snip API<br/>cmd/snip"]
     worker["click worker<br/>cmd/snip-worker"]
     redis[("Redis<br/>cache, click stream,<br/>rate-limit counters")]
-    pg[("Postgres<br/>links, API key hashes")]
+    pg[("Postgres<br/>links, API key hashes,<br/>audit trail")]
   end
   visitor -- "GET /{slug}" --> proxy
   owner -- "POST/GET/DELETE /api/links<br/>Authorization: Bearer snip_…" --> proxy
@@ -65,6 +65,7 @@ flowchart LR
    mint keys.
 
 **Assets:** the link table (where every short link points), API keys, the
+audit trail (`audit_events`: who changed which key or link, and when), the
 service's availability (redirects are the product), and click counts.
 
 ---
@@ -85,7 +86,7 @@ service, Elevation of privilege) applied to each element above. **Status:**
 | T6 | snip is used to hide phishing and malware links | T (abuse) | Creation needs an API key and is rate limited per key (`internal/ratelimit`, `createLink` in `internal/httpapi/server.go`) | **partial:** no threat-list check, report button or takedown flow |
 | T7 | Anyone who can reach Redis rewrites `snip:url:<slug>` and redirects a popular link to a site of their choosing | T | Redis reachable only from snip's pods (`deploy/k8s/base/networkpolicy.yaml`) and the private network; Redis requires a password (`SNIP_REDIS_PASSWORD`, from a Secret or Secrets Manager); on AWS only TLS with an AUTH token (`infra/aws/main.tf`, `SNIP_REDIS_TLS`); cache entries expire (`SNIP_CACHE_TTL`, default 1h) | **mitigated:** one password shared by API and worker with every command allowed (no per-service ACL users); rotation is manual; no TLS inside Compose or the cluster |
 | T8 | Forged events on the click stream inflate counts | T | Same network isolation and Redis password as T7 | mitigated (counts are informational) |
-| T9 | An owner denies deleting a link; we can't tell which key did what | R | Request logs carry `request_id`, route, status and, for authenticated calls, `owner_id` (never the key) (`observe` in `internal/httpapi/middleware.go`; added during the [13.7](https://jawwadzafar.github.io/zero-to-prod/learn/observability/security-incident-response) drill) | **partly open:** logs can be rotated away; no append-only audit table |
+| T9 | An owner denies deleting a link; we can't tell which key did what | R | Request logs carry `request_id`, route, status and, for authenticated calls, `owner_id` (never the key) (`observe` in `internal/httpapi/middleware.go`; added during the [13.7](https://jawwadzafar.github.io/zero-to-prod/learn/observability/security-incident-response) drill). An append-only audit table, `audit_events` (`internal/store/postgres/migrations/0002_audit_events.sql`), records every key created, rotated or revoked and every link created or deleted, with `owner_id`, `request_id` and the link's URL (never a key or its hash), written in the same transaction as the change (`record` in `internal/store/postgres/postgres.go`); a trigger refuses `UPDATE`, `DELETE` and `TRUNCATE` on it; `snip audit OWNER_ID` reads it | **mitigated:** snip's own role owns the table, so it (or a superuser) can drop the trigger first; events aren't copied off the database to write-once storage; key events record the owner, not which operator ran `snip keys` |
 | T10 | Forged `X-Request-ID` headers inject fake log lines | T, R | `validRequestID` accepts only short, plain IDs (`internal/httpapi/middleware.go`) | mitigated |
 | T11 | Error responses leak internals (SQL errors, stack traces) | I | `writeDomainError` sends a generic message for unexpected errors and logs the detail (`internal/httpapi/errors.go`); panics recovered in `observe` | mitigated |
 | T12 | `/metrics` reveals routes, traffic and error rates to the internet | I | nginx denies `/metrics` (`deploy/nginx/nginx.conf`) | **open on Kubernetes:** the Gateway's route forwards every path, including `/metrics` (chapter 10.3) |
@@ -108,13 +109,17 @@ Rated by likelihood × impact on a three-point scale (low, medium, high).
 |---|---|---|---|---|
 | 1 | T6: phishing links on a public instance | high | high | Check new URLs against a threat list (for example Google Safe Browsing), add a report endpoint and a way to disable a link |
 | 2 | T12: `/metrics` public through the Kubernetes Gateway | high | low | Serve metrics on a separate port that no Service or route exposes |
-| 3 | T9: no lasting record of which key changed what | medium | low | `owner_id` is now logged on authenticated requests; still to do: an append-only audit table for key and link deletions |
-| 4 | T14: redirect floods and key guessing aren't rate limited | medium | medium | Per-IP limit at the front door (nginx `limit_req`, Gateway policies) |
-| 5 | T7: what remains after the Redis password | low | medium | Rotate the password on a schedule (Secrets Manager rotation and `auth_token_wo_version` on AWS); a Redis ACL user per service (API: cache, limiter, `XADD`; worker: stream reads only) |
+| 3 | T14: redirect floods and key guessing aren't rate limited | medium | medium | Per-IP limit at the front door (nginx `limit_req`, Gateway policies) |
+| 4 | T7: what remains after the Redis password | low | medium | Rotate the password on a schedule (Secrets Manager rotation and `auth_token_wo_version` on AWS); a Redis ACL user per service (API: cache, limiter, `XADD`; worker: stream reads only) |
+| 5 | T9: what remains after the audit table | low | low | A separate migration role owns `audit_events` and snip's role gets only `INSERT` and `SELECT`; ship events to write-once storage (for example S3 Object Lock) on a public instance |
 | 6 | T16: stale redirect after delete during a Redis blip | low | low | Accept; the TTL bounds it |
 
 Closed: T7 cache poisoning was ranked 2. Redis now requires a password in
-every deployment and TLS on AWS; what is left of it is rank 5.
+every deployment and TLS on AWS; what is left of it is rank 4.
+
+Closed: T9 "no lasting record of which key changed what" was ranked 3. The
+append-only `audit_events` table now records every key and link change in
+the same transaction as the change; what is left of it is rank 5.
 
 ---
 
@@ -125,7 +130,11 @@ every deployment and TLS on AWS; what is left of it is rank 5.
 - Tests cover the defences that are code: owner scoping (T3) and URL and slug
   validation (T5) in `internal/links/service_test.go`; missing and revoked keys
   (T1) and the error shape (T11) in `internal/httpapi/server_test.go`;
-  request-ID filtering (T10) in the same file.
+  request-ID filtering (T10) in the same file. The audit trail (T9): events
+  and their request IDs in `internal/store/memory/memory_test.go` and
+  `TestLinkChangesAreAuditedWithRequestID`; against real Postgres,
+  `TestAuditTrailIsWritten`, `TestDeleteWithoutAuditRowRollsBack` and
+  `TestAuditTrailIsAppendOnly` in `internal/store/postgres/postgres_test.go`.
 - Fuzz tests (`internal/links/fuzz_test.go`) check the properties of URL and
   slug validation on generated inputs (T5, T20); run them with `-fuzz` nightly.
 - Gap: owner scoping is tested on the service, not end to end over HTTP with

@@ -388,7 +388,7 @@ func (s *Server) observe(next http.Handler) http.Handler {
 			id = newRequestID()
 		}
 		w.Header().Set("X-Request-ID", id)
-		ctx := context.WithValue(r.Context(), requestIDKey, id)
+		ctx := audit.WithRequestID(r.Context(), id) // stores copy it into audit rows
 		r = r.WithContext(ctx)
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 
@@ -413,7 +413,7 @@ It logs the **route pattern** (`GET /{slug}`), not just the path (`/k7Qz2a`): pa
 mux.HandleFunc("POST /api/links", s.requireKey(s.createLink))
 ```
 
-The context then flows handler → `links.Service` → `postgres.Store` → pgx, so a query for a client who has disconnected is abandoned.
+The context then flows handler → `links.Service` → `postgres.Store` → pgx, so a query for a client who has disconnected is abandoned. It carries the request ID too: `audit.WithRequestID` (from `internal/audit`) is the `context.WithValue` pattern above, and the Postgres store reads the ID back to stamp it on each row of snip's audit trail ([chapter 7.4](../security/authorization-multi-tenancy.mdx)).
 
 ### snip's configuration and logs
 

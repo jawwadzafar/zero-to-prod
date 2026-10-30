@@ -33,6 +33,7 @@ go run ./cmd/snip migrate
 go run ./cmd/snip keys create me        # copy the snip_… key it prints (and note the owner id)
 # later: go run ./cmd/snip keys revoke <owner id>   — the key stops working immediately
 # leaked: go run ./cmd/snip keys rotate <owner id>   — a new key for the same owner; the old one stops at once
+# history: go run ./cmd/snip audit <owner id>     — every key and link change for that owner, newest first (JSON lines)
 go run ./cmd/snip &                     # the API
 go run ./cmd/snip-worker &              # counts clicks from the queue
 
@@ -85,6 +86,7 @@ internal/cache/      Redis read-through cache
 internal/clicks/     Redis Streams queue: Recorder (API) and Consumer (worker)
 internal/ratelimit/  fixed-window limiter (Redis and in-memory)
 internal/auth/       API keys: generate, hash, authenticate
+internal/audit/      the audit trail's vocabulary: actions, events, request IDs
 internal/httpapi/    routes, handlers, middleware, error mapping
 internal/config/     SNIP_* environment variables
 internal/metrics/    Prometheus metrics

@@ -302,7 +302,8 @@ snip, the link shortener you build in this handbook ([chapter 0.3](../start/meet
 ### The pool
 
 ```go
-// Store wraps a pgx connection pool.
+// Store wraps a pgx connection pool. Every change it makes to links or keys
+// also appends an audit_events row in the same transaction (see record).
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -344,19 +345,28 @@ func (s *Store) Get(ctx context.Context, slug string) (links.Link, error) {
 ### Ownership inside the query
 
 ```go
+// Delete removes the link and records who deleted it in one transaction: if
+// the audit row can't be written, the link isn't deleted either (chapter 6.5).
 func (s *Store) Delete(ctx context.Context, slug string, ownerID int64) error {
-	tag, err := s.pool.Exec(ctx, `DELETE FROM links WHERE slug = $1 AND owner_id = $2`, slug, ownerID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return links.ErrNotFound
-	}
-	return nil
+	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		var url string
+		err := tx.QueryRow(ctx,
+			`DELETE FROM links WHERE slug = $1 AND owner_id = $2 RETURNING url`, slug, ownerID,
+		).Scan(&url)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return links.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return record(ctx, tx, ownerID, audit.LinkDeleted, slug, map[string]string{"url": url})
+	})
 }
 ```
 
-`AND owner_id = $2` puts the **ownership check inside the statement**. Deleting someone else's link affects zero rows and returns `ErrNotFound`: the "404, not 403" rule from [chapter 5.2](../apis/designing-rest-apis.mdx), enforced in one atomic statement with no gap between checking and deleting.
+`AND owner_id = $2` puts the **ownership check inside the statement**. Deleting someone else's link matches no row, so `RETURNING url` returns nothing, and `Delete` returns `ErrNotFound`: the "404, not 403" rule from [chapter 5.2](../apis/designing-rest-apis.mdx), enforced in one atomic statement with no gap between checking and deleting.
+
+The rest is snip's **audit trail**, a table that records every change to links and keys. `pgx.BeginFunc` starts a transaction, runs the function inside it, and commits if the function returns `nil` or rolls back if it returns an error. `record` inserts the `audit_events` row (who, what, which request, and the URL the link pointed to) through the same `tx`. So the delete and its record commit together or not at all ([chapter 6.5](./transactions.mdx)).
 
 ### Duplicate slugs
 
@@ -365,12 +375,18 @@ func (s *Store) Delete(ctx context.Context, slug string, ownerID int64) error {
 const uniqueViolation = "23505"
 
 func (s *Store) Create(ctx context.Context, l links.Link) (links.Link, error) {
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO links (slug, url, owner_id, created_at)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING clicks, created_at`,
-		l.Slug, l.URL, l.OwnerID, l.CreatedAt,
-	).Scan(&l.Clicks, &l.CreatedAt)
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx,
+			`INSERT INTO links (slug, url, owner_id, created_at)
+			 VALUES ($1, $2, $3, $4)
+			 RETURNING clicks, created_at`,
+			l.Slug, l.URL, l.OwnerID, l.CreatedAt,
+		).Scan(&l.Clicks, &l.CreatedAt)
+		if err != nil {
+			return err
+		}
+		return record(ctx, tx, l.OwnerID, audit.LinkCreated, l.Slug, map[string]string{"url": l.URL})
+	})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
 		return links.Link{}, links.ErrSlugTaken
@@ -379,7 +395,7 @@ func (s *Store) Create(ctx context.Context, l links.Link) (links.Link, error) {
 }
 ```
 
-The notes app's `Add`, with a different table. `ErrSlugTaken` then means two things higher up: the HTTP layer answers **`409 Conflict`** for a custom slug, and the `Service` quietly retries with a new random slug when it generated one itself ([chapter 4.2](../go/types-structs-errors.mdx)).
+The notes app's `Add`, with a different table, plus the same audit write as `Delete`. A duplicate slug fails the `INSERT`, the function returns that error, `BeginFunc` rolls back and hands it on, and no audit row is written for a link that was never created. `ErrSlugTaken` then means two things higher up: the HTTP layer answers **`409 Conflict`** for a custom slug, and the `Service` quietly retries with a new random slug when it generated one itself ([chapter 4.2](../go/types-structs-errors.mdx)).
 
 ### Embedded migrations, behind a lock
 
@@ -442,7 +458,7 @@ Free, on your own computer, using Docker ([chapter 0.2](../start/set-up-your-mac
 4. **Apply it to snip: links that survive a restart.** snip uses the same database (its tables don't clash with `notes`):
    ```bash
    export SNIP_DATABASE_URL="$DATABASE_URL"
-   go run ./cmd/snip migrate            # "migrations applied" versions=[1]
+   go run ./cmd/snip migrate            # "migrations applied" versions=[1,2]
    go run ./cmd/snip migrate            # again: versions=[] — nothing left to do
    go run ./cmd/snip keys create me     # prints your snip_… key — copy it
    export KEY=snip_paste_it_here
@@ -532,9 +548,9 @@ Free, on your own computer, using Docker ([chapter 0.2](../start/set-up-your-mac
 
 1. The `requireKey` middleware authenticates the key and puts the owner (say ID 7) into the request context ([chapter 5.4](../apis/structuring-a-real-service.mdx)).
 2. The handler calls `Service.Delete(ctx, 7, "godoc")`.
-3. The Postgres store borrows a connection from the pool and runs `DELETE FROM links WHERE slug = $1 AND owner_id = $2` with `godoc` and `7`.
-4. The row belongs to another owner, so **zero rows** match; `RowsAffected()` is 0.
-5. The store returns `links.ErrNotFound`; the HTTP layer answers `404 not_found`.
+3. The Postgres store borrows a connection from the pool, begins a transaction and runs `DELETE FROM links WHERE slug = $1 AND owner_id = $2 RETURNING url` with `godoc` and `7`.
+4. The row belongs to another owner, so **zero rows** match and `RETURNING` gives nothing back: `Scan` reports `pgx.ErrNoRows`.
+5. The store returns `links.ErrNotFound`, so the transaction rolls back with no audit row written; the HTTP layer answers `404 not_found`.
 
 The ownership check and the delete are one atomic statement, so there's no moment where someone else could slip in, and the response reveals nothing about whether `godoc` exists.
 

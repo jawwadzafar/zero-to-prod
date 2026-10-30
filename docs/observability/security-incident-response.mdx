@@ -193,7 +193,7 @@ The postmortem is still **blameless** ([chapter 13.5](./incidents-and-postmortem
 
 snip, the URL shortener this handbook builds, authenticates API callers with keys such as `snip_9fQ…` ([chapter 7.2](../security/authentication.mdx)). It stores only each key's SHA-256 hash, against an **owner** id, and every link belongs to an owner. A leaked key lets whoever holds it list, create and delete its owner's links, which for a link shortener means turning trusted short links into phishing links. Imagine a customer pastes their key into a public code snippet by mistake. What can you find out, and how fast can you stop it?
 
-Running this drill while writing the chapter exposed two gaps in snip, both now fixed.
+Running this drill while writing the chapter exposed two gaps in snip, both now fixed, and pointed at a third, fixed later.
 
 **Gap 1: the logs couldn't say whose key made a request.** snip writes one JSON line per request ([chapter 13.1](./logs.mdx)), but the line had no owner, so there was no way to list everything a key did. Now the authentication middleware notes the owner's id, never the key, for the request's log line (`snip/internal/httpapi/middleware.go`):
 
@@ -235,13 +235,15 @@ func RotateKey(ctx context.Context, ks KeyStore, id int64) (string, error) {
 }
 ```
 
-In Postgres that's one statement (`snip/internal/store/postgres/postgres.go`), so there's no moment when both keys work, or neither:
+In Postgres the swap is one statement (`snip/internal/store/postgres/postgres.go`), so there's no moment when both keys work, or neither:
 
 ```sql
 UPDATE api_keys SET key_hash = $2 WHERE id = $1 AND revoked_at IS NULL
 ```
 
 Because snip looks keys up in the database on every request instead of trusting a self-contained token, the old key fails from the very next request.
+
+**Gap 3, closed later: the only record was the log.** The drill's evidence of what the key did came from container logs, and step 8 of the lab shows how easily those vanish. snip now also keeps an **audit trail** in Postgres: one row in `audit_events` for every link created or deleted and every key created, rotated or revoked, with the owner, the request ID of the request that did it, and the link's URL. Each row is written in the same transaction as its change, and a trigger refuses any `UPDATE` or `DELETE` on the table, so nobody can quietly edit the history ([chapter 7.4](../security/authorization-multi-tenancy.mdx) explains both). `snip audit OWNER_ID` prints one owner's trail as JSON lines.
 
 The steps are now a runbook section, `leaked-api-key` in `snip/docs/runbook.md`, and the lab walks through them.
 
@@ -286,7 +288,7 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
    ```text
     id | name  |          created_at           | revoked_at
    ----+-------+-------------------------------+------------
-     1 | alice | 2026-10-30 02:37:56.493212+00 |
+     1 | alice | 2026-10-30 04:36:31.372103+00 |
    ```
    Owner 1, still active. Declare a security incident and start the timeline.
 
@@ -303,32 +305,45 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
    EVID=~/incident-drill && mkdir -p "$EVID"
    docker compose logs api --no-log-prefix > "$EVID/api.jsonl"        # snip's JSON request log
    docker compose logs nginx --no-log-prefix > "$EVID/nginx.log"      # client addresses
-   docker compose exec -T postgres pg_dump -U snip --data-only -t api_keys -t links snip > "$EVID/db.sql"
+   docker compose exec -T postgres pg_dump -U snip --data-only -t api_keys -t links -t audit_events snip > "$EVID/db.sql"
    (cd "$EVID" && sha256sum api.jsonl nginx.log db.sql > SHA256SUMS && cat SHA256SUMS)   # macOS: shasum -a 256
    ```
-   Note in your timeline who collected these, when, and where they are: that's your chain of custody.
+   Note in your timeline who collected these, when, and where they are: that's your chain of custody. The dump includes the audit trail too: it can't be edited inside the database, but a copy outside it, with a hash, is evidence you control.
 
 6. **Scope: what did the key do, and from where?**
+   Start with the audit trail, snip's record of every change:
    ```bash
-   jq -r 'select(.msg == "request" and .owner_id == 1) | [.time, .method, .path, .status] | @tsv' "$EVID/api.jsonl"
+   docker compose exec -T api snip audit 1 | jq -r '[.at, .action, .slug, .request_id] | @tsv'
+   ```
+   ```text
+   2026-10-30T04:36:34.43304Z   key.rotated
+   2026-10-30T04:36:33.916414Z  link.deleted  pricing  6abe424491209851
+   2026-10-30T04:36:33.357912Z  link.created  login    477ef128ccf17942
+   2026-10-30T04:36:31.513689Z  link.created  pricing  ecdd44d7960e80c4
+   2026-10-30T04:36:31.501053Z  link.created  docs     39b51611d17c0464
+   2026-10-30T04:36:31.372103Z  key.created
+   ```
+   Newest first: everything that changed Alice's key or links, with the request that did it. It lists changes only. The attacker's first move, a `GET` that showed them all of Alice's links, changed nothing, so it's only in the request log:
+   ```bash
+   jq -r 'select(.msg == "request" and .owner_id == 1) | [.time, .request_id, .method, .path, .status] | @tsv' "$EVID/api.jsonl"
    grep ' /api/' "$EVID/nginx.log"
    jq -r 'select(.msg == "request" and .status == 401) | [.time, .method, .path] | @tsv' "$EVID/api.jsonl"
    ```
    ```text
-   2026-10-30T02:37:56.646279173Z  POST    /api/links          201
-   2026-10-30T02:37:56.661496883Z  POST    /api/links          201
-   2026-10-30T02:37:57.004377378Z  GET     /api/links          200
-   2026-10-30T02:37:57.697084348Z  POST    /api/links          201
-   2026-10-30T02:37:58.498301705Z  DELETE  /api/links/pricing  204
-   2026-10-30T02:38:00.384834563Z  GET     /api/links          200
+   2026-10-30T04:36:31.505591035Z  39b51611d17c0464  POST    /api/links          201
+   2026-10-30T04:36:31.516207659Z  ecdd44d7960e80c4  POST    /api/links          201
+   2026-10-30T04:36:32.821047101Z  05b10556f7c0ee83  GET     /api/links          200
+   2026-10-30T04:36:33.361454876Z  477ef128ccf17942  POST    /api/links          201
+   2026-10-30T04:36:33.920209998Z  6abe424491209851  DELETE  /api/links/pricing  204
+   2026-10-30T04:36:35.014780284Z  0afc0bf36edec624  GET     /api/links          200
    ```
-   The `owner_id` lines are everything the key did. Which were Alice and which the attacker? snip's log doesn't record client addresses, so match by time, method and path against nginx's log:
+   The `owner_id` lines are everything the key did, reads included, and each change's request ID matches its audit row exactly. Which were Alice and which the attacker? Neither record holds client addresses, so match by time, method and path against nginx's log:
    ```text
-   172.22.0.1 - - [30/Oct/2026:02:37:56 +0000] "POST /api/links HTTP/1.1" 201 134 "-" "curl/8.18.0" "-"
-   172.22.0.8 - - [30/Oct/2026:02:37:57 +0000] "GET /api/links HTTP/1.1" 200 299 "-" "curl/8.17.0" "-"
-   172.22.0.8 - - [30/Oct/2026:02:37:57 +0000] "POST /api/links HTTP/1.1" 201 154 "-" "curl/8.17.0" "-"
-   172.22.0.8 - - [30/Oct/2026:02:37:58 +0000] "DELETE /api/links/pricing HTTP/1.1" 204 0 "-" "curl/8.17.0" "-"
-   172.22.0.8 - - [30/Oct/2026:02:37:59 +0000] "GET /api/links HTTP/1.1" 401 73 "-" "curl/8.17.0" "-"
+   172.21.0.1 - - [30/Oct/2026:04:36:31 +0000] "POST /api/links HTTP/1.1" 201 134 "-" "curl/8.18.0" "-"
+   172.21.0.8 - - [30/Oct/2026:04:36:32 +0000] "GET /api/links HTTP/1.1" 200 299 "-" "curl/8.17.0" "-"
+   172.21.0.8 - - [30/Oct/2026:04:36:33 +0000] "POST /api/links HTTP/1.1" 201 154 "-" "curl/8.17.0" "-"
+   172.21.0.8 - - [30/Oct/2026:04:36:33 +0000] "DELETE /api/links/pricing HTTP/1.1" 204 0 "-" "curl/8.17.0" "-"
+   172.21.0.8 - - [30/Oct/2026:04:36:34 +0000] "GET /api/links HTTP/1.1" 401 73 "-" "curl/8.17.0" "-"
    ```
    (An excerpt; your addresses and versions will differ.) A second address and a different client did a GET, a POST and a DELETE, then got a `401` after the rotation. Notice the weak spot: nginx's log has one-second precision and no request ID, so the match is by time. A request ID shared by both logs would make it exact; that's an action item.
 
@@ -338,7 +353,11 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
    curl -s -X POST localhost:8080/api/links -H "Authorization: Bearer $NEW" \
      -d '{"url":"https://example.com/pricing","slug":"pricing"}'                                                    # back again
    ```
-   Where did you get the deleted link's URL from? Not from snip's logs (they don't record request bodies), and not from your `db.sql` (taken after the delete). From Alice. In production it would come from a database backup taken before the incident.
+   Where did the deleted link's URL come from? Not from snip's logs: they don't record request bodies. From the audit trail, whose `link.deleted` row keeps the URL the link pointed to:
+   ```bash
+   docker compose exec -T api snip audit 1 | jq -r 'select(.action == "link.deleted") | .detail.url'   # https://example.com/pricing
+   ```
+   Without that row, you'd have to ask Alice, or restore a database backup taken before the incident.
 
 8. **Rotate what leaked alongside it.** Suppose the snippet Alice leaked was her whole `.env` file, with the database URL in it. Change the database password, then give the new one to snip:
    ```bash
@@ -351,10 +370,11 @@ If another program holds port 8080 on your machine, `curl localhost:8080` reache
    docker run --rm --network snip_default -e PGPASSWORD=snip postgres:18-alpine \
      psql -h postgres -U snip -c 'SELECT 1'                                                          # old password: refused
    docker compose logs api --no-log-prefix | jq -c 'select(.owner_id == 1)' | wc -l
+   docker compose exec -T api snip audit 1 | wc -l
    ```
-   The last command prints `1`, the request you made a moment ago. Every earlier line is gone: the API containers were recreated, and **their logs went with them**. If you'd skipped step 5, the evidence would now be gone. (If requests start failing with `502`, run `docker compose restart nginx`: it looked up the API containers' addresses when it started.)
+   The log count is `1`, the request you made a moment ago. Every earlier line is gone: the API containers were recreated, and **their logs went with them**. If you'd skipped step 5, the evidence of the attacker's reads would now be gone. The audit trail still has all `8` events, because it lives in the database, not in a container. (If requests start failing with `502`, run `docker compose restart nginx`: it looked up the API containers' addresses when it started.)
 
-9. **Write it up.** Turn your timeline into a postmortem with [chapter 13.5](./incidents-and-postmortems.mdx)'s template and the four questions above. Include, at least: impact (one customer; one link deleted, one phishing link live for about two minutes), how long the key was exposed, the contributing factors, and action items, such as a request ID in nginx's log, shipping logs off the containers ([chapter 13.1](./logs.mdx)), an alert on unusual key activity, and backups you've tested restoring.
+9. **Write it up.** Turn your timeline into a postmortem with [chapter 13.5](./incidents-and-postmortems.mdx)'s template and the four questions above. Include, at least: impact (one customer; one link deleted, one phishing link live for about two minutes), how long the key was exposed, the contributing factors, and action items, such as a request ID in nginx's log, shipping logs and audit events off the machines that produce them ([chapter 13.1](./logs.mdx)), an alert on unusual key activity, and backups you've tested restoring.
 
 10. **Clean up.** The database volume now has the new password, so remove both together:
     ```bash

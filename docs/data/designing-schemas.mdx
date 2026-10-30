@@ -340,7 +340,7 @@ Slower, yes, but no moment exists where running code and the database disagree.
 
 ## Apply it to snip
 
-snip, the link shortener you build in this handbook ([chapter 0.3](../start/meet-snip.mdx)), has a two-table schema: API keys, which identify who is calling, and the links they create. Its first migration, `snip/internal/store/postgres/migrations/0001_init.sql`, reads like a summary of this chapter:
+snip, the link shortener you build in this handbook ([chapter 0.3](../start/meet-snip.mdx)), has a two-table schema at its core: API keys, which identify who is calling, and the links they create. (A later migration, `0002_audit_events.sql`, adds a log of who changed what; [chapter 7.4](../security/authorization-multi-tenancy.mdx) covers it.) Its first migration, `snip/internal/store/postgres/migrations/0001_init.sql`, reads like a summary of this chapter:
 
 ```sql
 CREATE TABLE api_keys (
@@ -385,7 +385,7 @@ CREATE TABLE link_tags (
 );
 ```
 
-This would ship as a new file, `0002_tags.sql`, never as an edit to `0001_init.sql`. The playground has snip's two tables plus these two:
+This would ship as a new file, `0003_tags.sql`, never as an edit to `0001_init.sql`. The playground has snip's two tables plus these two:
 
 <SqlPlayground setup={tagsSetup} sql={`-- Every link with its tags
 SELECT l.slug, string_agg(t.name, ', ' ORDER BY t.name) AS tags
@@ -407,7 +407,7 @@ Free. Steps 1–2 run in the page; step 3 reads snip's real migration.
 
 2. **Probe the constraints.** Run each "should refuse" statement from the constraints section and match every error message to the constraint that caused it. Then press **Reset**, run `DELETE FROM orders WHERE id = 1;`, and follow it with `SELECT * FROM order_items;`. Order 1's items are gone: `ON DELETE CASCADE` at work. Now try deleting Ada again. Does it work this time? (Not yet: she still has order 2.)
 
-3. **Apply it to snip.** In the tags playground, write a query for links that have **both** the `docs` and `go` tags. Then delete the owner `ada` (`DELETE FROM api_keys WHERE name = 'ada';`) and check what happened to her links and their tags: `ON DELETE CASCADE`, twice over. Finally, open `snip/internal/store/postgres/migrations/0001_init.sql` and, for every line, name the rule it enforces and the bug it prevents. Would adding `0002_tags.sql` be safe during a live deployment? (Yes: it only *adds* tables, which no running code uses yet. That's the easy half of expand/contract.)
+3. **Apply it to snip.** In the tags playground, write a query for links that have **both** the `docs` and `go` tags. Then delete the owner `ada` (`DELETE FROM api_keys WHERE name = 'ada';`) and check what happened to her links and their tags: `ON DELETE CASCADE`, twice over. Finally, open `snip/internal/store/postgres/migrations/0001_init.sql` and, for every line, name the rule it enforces and the bug it prevents. Would adding `0003_tags.sql` be safe during a live deployment? (Yes: it only *adds* tables, which no running code uses yet. That's the easy half of expand/contract.)
 
 <details>
 <summary>Answers</summary>

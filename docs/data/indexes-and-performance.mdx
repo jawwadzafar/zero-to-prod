@@ -246,6 +246,12 @@ CREATE INDEX links_owner_created_idx ON links (owner_id, created_at DESC);
 
 That's the index you measured in the second playground, and the query it serves is snip's `ListByOwner` ([chapter 6.6](./postgres-from-go.mdx)): `WHERE owner_id = $1 ORDER BY created_at DESC LIMIT $2`, equality column first, sort column second. Because it starts with `owner_id`, it also covers the foreign key from `links` to `api_keys`, so deleting a key (which cascades to its links) doesn't scan the table.
 
+A rarer fourth query arrived with snip's audit trail ([chapter 7.4](../security/authorization-multi-tenancy.mdx)): `snip audit OWNER_ID` lists one owner's changes, newest first. Same shape, same kind of index, in `0002_audit_events.sql`:
+
+```sql
+CREATE INDEX audit_events_owner_at_idx ON audit_events (owner_id, at DESC);
+```
+
 Nothing in snip searches by `url` or filters by `clicks`, so there are no indexes there. Each would only slow down every insert, and every click-count update, for no query's benefit. The day a feature needs such a query, `EXPLAIN ANALYZE` decides.
 
 ---
