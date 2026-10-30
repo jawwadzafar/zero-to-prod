@@ -10,6 +10,14 @@ resource "random_password" "db" {
   special = false
 }
 
+# snip_app, the login the API and the worker use, gets its own: it can read and
+# write rows but not change the schema or the audit trail (chapter 7.4). The
+# first password is the schema owner's, used only by the migrate container.
+resource "random_password" "db_app" {
+  length  = 24
+  special = false
+}
+
 # Redis gets one too, so only snip's containers can read or rewrite the cache
 # and the click queue (chapter 7.6).
 resource "random_password" "redis" {
@@ -76,13 +84,35 @@ resource "docker_container" "redis" {
 }
 
 locals {
+  db_address = "${docker_container.postgres.name}:5432/snip?sslmode=disable"
   snip_env = [
-    "SNIP_DATABASE_URL=postgres://snip:${random_password.db.result}@${docker_container.postgres.name}:5432/snip?sslmode=disable",
+    "SNIP_DATABASE_URL=postgres://snip_app:${random_password.db_app.result}@${local.db_address}",
     "SNIP_REDIS_ADDR=${docker_container.redis.name}:6379",
     "SNIP_REDIS_PASSWORD=${random_password.redis.result}",
     "SNIP_BASE_URL=http://localhost:${var.api_port}",
     "SNIP_LOG_LEVEL=${var.log_level}",
   ]
+}
+
+# A one-off container: `snip migrate` as the schema's owner (Postgres's
+# superuser here), which also creates snip_app's login from SNIP_DATABASE_URL.
+# Terraform waits for it to exit, and apply fails unless it exited cleanly.
+resource "docker_container" "migrate" {
+  name     = "snip-tf-migrate"
+  image    = docker_image.snip.image_id
+  command  = ["migrate"]
+  env      = concat(local.snip_env, ["SNIP_MIGRATE_DATABASE_URL=postgres://snip:${random_password.db.result}@${local.db_address}"])
+  attach   = true  # wait until it exits
+  must_run = false # exited is its finished state, not drift
+  networks_advanced {
+    name = docker_network.snip.id
+  }
+  lifecycle {
+    postcondition {
+      condition     = self.exit_code == 0
+      error_message = "snip migrate failed: see docker logs snip-tf-migrate."
+    }
+  }
 }
 
 resource "docker_container" "api" {
@@ -96,6 +126,7 @@ resource "docker_container" "api" {
     internal = 8080
     external = var.api_port
   }
+  depends_on = [docker_container.migrate] # the schema and snip_app's login exist first
 }
 
 resource "docker_container" "worker" {
@@ -107,5 +138,5 @@ resource "docker_container" "worker" {
   networks_advanced {
     name = docker_network.snip.id
   }
-  depends_on = [docker_container.api] # the API runs the migrations first
+  depends_on = [docker_container.migrate] # the schema and snip_app's login exist first
 }

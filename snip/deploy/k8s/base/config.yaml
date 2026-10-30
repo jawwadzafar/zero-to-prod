@@ -1,5 +1,5 @@
 # snip's configuration, split by sensitivity (chapter 10.4):
-# ordinary settings in a ConfigMap, the database connection string and the
+# ordinary settings in a ConfigMap, the database connection strings and the
 # Redis password in Secrets.
 apiVersion: v1
 kind: ConfigMap
@@ -10,13 +10,25 @@ data:
   SNIP_BASE_URL: http://localhost:8080
   SNIP_LOG_LEVEL: info
 ---
+# The app's own login, snip_app: it reads and writes rows but can't change the
+# schema or the audit trail (chapter 7.4). The API and the worker get only this.
 apiVersion: v1
 kind: Secret
 metadata:
   name: snip-db
 type: Opaque
 stringData:
-  SNIP_DATABASE_URL: postgres://snip:snip-dev-only@postgres:5432/snip?sslmode=disable
+  SNIP_DATABASE_URL: postgres://snip_app:snip-app-dev-only@postgres:5432/snip?sslmode=disable
+---
+# The schema owner's login, for the API Pods' migrate init container only
+# (api.yaml). It is the Postgres superuser from postgres.yaml.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: snip-db-migrate
+type: Opaque
+stringData:
+  SNIP_MIGRATE_DATABASE_URL: postgres://snip:snip-dev-only@postgres:5432/snip?sslmode=disable
 ---
 # Redis requires this password (redis.yaml), so a Pod that gets past the
 # NetworkPolicy still can't rewrite the cache or the click queue (chapter 7.6).

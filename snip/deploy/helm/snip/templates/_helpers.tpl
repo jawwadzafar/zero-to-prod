@@ -28,6 +28,15 @@ app.kubernetes.io/name: {{ .component }}
 {{- .Values.database.existingSecret | default (printf "%s-db" (include "snip.fullname" .)) -}}
 {{- end -}}
 
+{{/* The schema owner's login for migrations; empty = the API migrates with its own. */}}
+{{- define "snip.migrateSecret" -}}
+{{- if .Values.database.existingMigrateSecret -}}
+{{- .Values.database.existingMigrateSecret -}}
+{{- else if and (not .Values.database.existingSecret) .Values.postgres.enabled -}}
+{{- printf "%s-db-migrate" (include "snip.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "snip.redisSecret" -}}
 {{- .Values.redis.existingSecret | default (printf "%s-redis" (include "snip.fullname" .)) -}}
 {{- end -}}

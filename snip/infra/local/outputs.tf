@@ -9,9 +9,15 @@ output "create_key" {
 }
 
 output "database_password" {
-  description = "The generated Postgres password."
+  description = "The generated password of Postgres's owner login, snip."
   value       = random_password.db.result
   sensitive   = true # hidden in plan/apply output; still stored in the state file
+}
+
+output "app_database_password" {
+  description = "The generated password of snip_app, the login the API and worker use."
+  value       = random_password.db_app.result
+  sensitive   = true
 }
 
 output "redis_password" {

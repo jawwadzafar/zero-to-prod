@@ -49,17 +49,24 @@ config:
   logLevel: info
   rateLimit: 60
 
-# Where the database connection string comes from:
-#  - existingSecret: the name of a Secret you created (key SNIP_DATABASE_URL),
-#    e.g. by the External Secrets Operator (chapter 10.4). Recommended.
-#  - otherwise, with postgres.enabled, the chart builds one for its own Postgres.
+# Where the database connection strings come from (chapter 7.4 explains the two logins):
+#  - existingSecret: a Secret you created with key SNIP_DATABASE_URL, the app's
+#    own login (snip_app), e.g. by the External Secrets Operator (chapter 10.4).
+#  - existingMigrateSecret: a Secret with key SNIP_MIGRATE_DATABASE_URL, the
+#    schema owner's login. The API Pods' migrate init container uses it to
+#    apply migrations and set snip_app's password; the API never sees it.
+#    Leave it empty and the API migrates with SNIP_DATABASE_URL itself, as
+#    before chapter 7.4 (then that login must own the schema).
+#  - otherwise, with postgres.enabled, the chart builds both for its own Postgres.
 database:
   existingSecret: ""
+  existingMigrateSecret: ""
 
 postgres:
   enabled: true           # an in-cluster Postgres for learning; use a managed database in production
   image: postgres:18-alpine
-  password: snip-dev-only # development only: never put a real password in values files
+  password: snip-dev-only # the owner's (superuser's) password; development only: never put a real password in values files
+  appPassword: snip-app-dev-only # snip_app's password, set by the migrate init container; development only
   storage: 1Gi
 
 # Redis requires a password (chapter 7.6). Like the database URL, it comes from:

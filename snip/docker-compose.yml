@@ -8,7 +8,7 @@ services:
   postgres:
     image: postgres:18-alpine
     environment:
-      POSTGRES_USER: snip
+      POSTGRES_USER: snip              # owns the schema; only the migrate service signs in as it (chapter 7.4)
       POSTGRES_PASSWORD: snip          # local development only — never a real password
       POSTGRES_DB: snip
     volumes:
@@ -30,10 +30,23 @@ services:
       interval: 3s
       retries: 20
 
+  # Runs once, then exits: applies migrations as the schema's owner and creates
+  # the logins the other services use (chapter 7.4). The api and worker only
+  # ever get snip_app's URL, so they can't change the schema or the audit trail.
+  migrate:
+    build: .
+    command: ["migrate"]
+    environment:
+      SNIP_MIGRATE_DATABASE_URL: postgres://snip:snip@postgres:5432/snip?sslmode=disable
+      SNIP_DATABASE_URL: postgres://snip_app:snip-app-dev-only@postgres:5432/snip?sslmode=disable          # local development only
+      SNIP_READONLY_DATABASE_URL: postgres://snip_readonly:snip-readonly-dev-only@postgres:5432/snip?sslmode=disable  # for the data labs (chapter 17.2)
+    depends_on:
+      postgres: { condition: service_healthy }
+
   api:
     build: .
     environment: &snip-env
-      SNIP_DATABASE_URL: postgres://snip:snip@postgres:5432/snip?sslmode=disable
+      SNIP_DATABASE_URL: postgres://snip_app:snip-app-dev-only@postgres:5432/snip?sslmode=disable  # local development only
       SNIP_REDIS_ADDR: redis:6379
       SNIP_REDIS_PASSWORD: ${SNIP_REDIS_PASSWORD:-snip-dev-only}  # local development only
       SNIP_BASE_URL: http://localhost:8080
@@ -41,7 +54,7 @@ services:
       #   OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     depends_on:
-      postgres: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     deploy:
       replicas: 2                     # two copies behind nginx (chapter 8.3)
@@ -51,7 +64,8 @@ services:
     entrypoint: ["/usr/local/bin/snip-worker"]
     environment: *snip-env
     depends_on:
-      api: { condition: service_started }  # the API runs migrations first
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
 
   nginx:
     build: ../web                     # nginx (unprivileged, 1.30-alpine) plus the web UI at /app/ (chapter 16.6)

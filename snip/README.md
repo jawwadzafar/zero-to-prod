@@ -65,6 +65,8 @@ Errors always look like `{"error": {"code": "invalid_url", "message": "..."}}`.
 | `SNIP_HTTP_ADDR` | `:8080` | Address to listen on |
 | `SNIP_BASE_URL` | `http://localhost:8080` | Used to build `short_url` |
 | `SNIP_DATABASE_URL` | *(empty → memory)* | Postgres connection string |
+| `SNIP_MIGRATE_DATABASE_URL` | *(empty → `SNIP_DATABASE_URL` migrates too)* | The schema owner's login, used only to migrate. `snip migrate` then creates `SNIP_DATABASE_URL`'s login as `snip_app`, which can't change the schema or the audit trail (chapter 7.4). Never logged |
+| `SNIP_READONLY_DATABASE_URL` | *(empty)* | With `SNIP_MIGRATE_DATABASE_URL`: a read-only login `snip migrate` creates for analytics (`snip_readonly`, chapter 17.2) |
 | `SNIP_REDIS_ADDR` | *(empty → no cache/queue)* | Redis `host:port` |
 | `SNIP_REDIS_PASSWORD` | *(empty → no password)* | Redis password (`requirepass` / ElastiCache AUTH token). Never logged |
 | `SNIP_REDIS_TLS` | `false` | `true` = connect to Redis over TLS and verify its certificate (minimum TLS 1.2); managed Redis in the cloud |

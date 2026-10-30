@@ -16,3 +16,23 @@ terraform plan  -var-file=envs/staging.tfvars
 terraform apply -var-file=envs/staging.tfvars
 terraform destroy -var-file=envs/staging.tfvars
 ```
+
+## Two database logins (chapter 7.4)
+
+RDS's master user, `snip`, owns the schema. Its connection string lives in the
+`…/database-owner-url` secret and goes to one place only: the `migrate`
+container in the API's task definition, which runs `snip migrate` and exits
+before the `api` container starts (`dependsOn … SUCCESS`, ECS's init
+container). People use the master user to break glass, not day to day.
+
+The API and the worker sign in as `snip_app`, which can read and write rows but
+can't change the schema or the audit trail. Terraform generates its password
+into the `…/database-url` secret but can't create the login itself: the
+database sits in private subnets that Terraform, running on your laptop or in
+CI, can't reach. The `migrate` container creates the login (or resets its
+password) from that secret every time an API task starts.
+
+If you applied this configuration before the `snip_app` login existed, bump
+`password_wo_version` and both database secrets' `secret_string_wo_version` to
+2 in one apply: that resets the master password and writes both connection
+strings from the same apply's passwords.

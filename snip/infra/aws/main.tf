@@ -137,8 +137,29 @@ resource "aws_db_instance" "postgres" {
   performance_insights_enabled = true
 }
 
-# The full connection string snip reads, stored in Secrets Manager — also
-# written write-only, so it never appears in state.
+# Two logins, two connection strings in Secrets Manager, both written
+# write-only so they never appear in state (chapter 7.4):
+#  - the master user, snip, owns the schema. Only the migrate container (in
+#    compute.tf) gets it; people use it to break glass, never day to day.
+#  - snip_app is what the API and worker sign in as. Terraform can't reach a
+#    database in a private subnet, so it doesn't create this login: it only
+#    generates the password. The migrate container creates the login with it.
+resource "aws_secretsmanager_secret" "db_owner_url" {
+  name                    = "${local.name}/database-owner-url"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "db_owner_url" {
+  secret_id                = aws_secretsmanager_secret.db_owner_url.id
+  secret_string_wo         = "postgres://snip:${ephemeral.random_password.db.result}@${aws_db_instance.postgres.endpoint}/snip?sslmode=require"
+  secret_string_wo_version = 1 # bump together with password_wo_version
+}
+
+ephemeral "random_password" "db_app" {
+  length  = 32
+  special = false
+}
+
 resource "aws_secretsmanager_secret" "db_url" {
   name                    = "${local.name}/database-url"
   recovery_window_in_days = 0
@@ -146,8 +167,8 @@ resource "aws_secretsmanager_secret" "db_url" {
 
 resource "aws_secretsmanager_secret_version" "db_url" {
   secret_id                = aws_secretsmanager_secret.db_url.id
-  secret_string_wo         = "postgres://snip:${ephemeral.random_password.db.result}@${aws_db_instance.postgres.endpoint}/snip?sslmode=require"
-  secret_string_wo_version = 1
+  secret_string_wo         = "postgres://snip_app:${ephemeral.random_password.db_app.result}@${aws_db_instance.postgres.endpoint}/snip?sslmode=require"
+  secret_string_wo_version = 1 # bump to rotate; the next migrate container applies it
 }
 
 resource "aws_elasticache_subnet_group" "this" {

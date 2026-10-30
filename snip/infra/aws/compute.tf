@@ -10,8 +10,8 @@ resource "aws_ecs_cluster" "this" {
   name = local.name
 }
 
-# The execution role lets ECS pull the image, write logs, and read exactly
-# one secret on the task's behalf — nothing else (chapter 12.4).
+# The execution role lets ECS pull the image, write logs, and read snip's
+# three secrets on the task's behalf — nothing else (chapter 12.4).
 data "aws_iam_policy_document" "ecs_assume" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -37,6 +37,7 @@ data "aws_iam_policy_document" "read_secrets" {
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
       aws_secretsmanager_secret.db_url.arn,
+      aws_secretsmanager_secret.db_owner_url.arn, # injected into the migrate container only
       aws_secretsmanager_secret.redis_auth.arn,
     ]
   }
@@ -79,16 +80,34 @@ resource "aws_ecs_task_definition" "api" {
     operating_system_family = "LINUX"
     cpu_architecture        = "ARM64" # snip's image is multi-arch (chapter 9.4); ARM is cheaper
   }
-  container_definitions = jsonencode([{
-    name                   = "api"
-    image                  = var.snip_image
-    essential              = true
-    readonlyRootFilesystem = true
-    portMappings           = [{ containerPort = 8080 }]
-    environment            = local.snip_environment
-    secrets                = local.snip_secrets
-    logConfiguration       = local.log_config
-  }])
+  # ECS's version of a Kubernetes init container (chapter 7.4): "migrate" runs
+  # `snip migrate` as the master user and exits; the api container starts only
+  # if it succeeded, and never sees the master user's connection string.
+  container_definitions = jsonencode([
+    {
+      name                   = "migrate"
+      image                  = var.snip_image
+      essential              = false # it is meant to exit
+      readonlyRootFilesystem = true
+      command                = ["migrate"]
+      secrets = [
+        { name = "SNIP_MIGRATE_DATABASE_URL", valueFrom = aws_secretsmanager_secret.db_owner_url.arn },
+        { name = "SNIP_DATABASE_URL", valueFrom = aws_secretsmanager_secret.db_url.arn }, # the login it creates
+      ]
+      logConfiguration = local.log_config
+    },
+    {
+      name                   = "api"
+      image                  = var.snip_image
+      essential              = true
+      readonlyRootFilesystem = true
+      portMappings           = [{ containerPort = 8080 }]
+      environment            = local.snip_environment
+      secrets                = local.snip_secrets
+      logConfiguration       = local.log_config
+      dependsOn              = [{ containerName = "migrate", condition = "SUCCESS" }]
+    },
+  ])
 }
 
 resource "aws_ecs_task_definition" "worker" {

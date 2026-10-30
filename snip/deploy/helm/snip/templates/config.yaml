@@ -19,7 +19,16 @@ metadata:
   labels: {{- include "snip.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  SNIP_DATABASE_URL: postgres://snip:{{ .Values.postgres.password }}@{{ include "snip.fullname" . }}-postgres:5432/snip?sslmode=disable
+  SNIP_DATABASE_URL: postgres://snip_app:{{ .Values.postgres.appPassword }}@{{ include "snip.fullname" . }}-postgres:5432/snip?sslmode=disable
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "snip.migrateSecret" . }}
+  labels: {{- include "snip.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  SNIP_MIGRATE_DATABASE_URL: postgres://snip:{{ .Values.postgres.password }}@{{ include "snip.fullname" . }}-postgres:5432/snip?sslmode=disable
 {{- end }}
 {{- if and .Values.redis.enabled (not .Values.redis.existingSecret) }}
 ---

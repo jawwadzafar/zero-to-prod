@@ -4,8 +4,13 @@ output "url" {
 }
 
 output "database_url_secret" {
-  description = "Secrets Manager secret holding the database URL."
+  description = "Secrets Manager secret holding the app's database URL (snip_app)."
   value       = aws_secretsmanager_secret.db_url.name
+}
+
+output "database_owner_url_secret" {
+  description = "Secrets Manager secret holding the master user's database URL (migrations and break-glass access)."
+  value       = aws_secretsmanager_secret.db_owner_url.name
 }
 
 output "redis_auth_secret" {

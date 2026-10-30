@@ -26,6 +26,27 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      # Runs to completion before the api container starts (chapter 7.4):
+      # applies migrations as the schema's owner and sets snip_app's password
+      # from snip-db. Pods starting together take turns (an advisory lock), and
+      # the api container never sees the owner's login.
+      initContainers:
+        - name: migrate
+          image: snip                       # replaced by kustomize's images: section
+          args: ["migrate"]
+          envFrom:
+            - secretRef:
+                name: snip-db-migrate
+            - secretRef:
+                name: snip-db
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: api
           image: snip                       # replaced by kustomize's images: section
@@ -39,7 +60,7 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-          startupProbe:                     # give migrations time on first start
+          startupProbe:                     # give a slow first start time before liveness counts
             httpGet: { path: /healthz, port: http }
             periodSeconds: 2
             failureThreshold: 30

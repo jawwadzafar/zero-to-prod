@@ -22,6 +22,22 @@ spec:
       automountServiceAccountToken: false   # never calls the Kubernetes API, so no token (chapter 7.11)
       terminationGracePeriodSeconds: 30
       securityContext: {{- include "snip.podSecurity" . | nindent 8 }}
+      {{- with include "snip.migrateSecret" . }}
+      # Migrations as the schema's owner, before the API starts; it also sets
+      # snip_app's password from the database Secret (chapter 7.4).
+      initContainers:
+        - name: migrate
+          image: {{ include "snip.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          args: ["migrate"]
+          envFrom:
+            - secretRef: { name: {{ . }} }
+            - secretRef: { name: {{ include "snip.dbSecret" $ }} }
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          securityContext: {{- include "snip.containerSecurity" $ | nindent 12 }}
+      {{- end }}
       containers:
         - name: api
           image: {{ include "snip.image" . }}
