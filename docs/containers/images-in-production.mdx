@@ -190,17 +190,23 @@ Some tools legitimately need them (CI runners, some monitoring agents). Use them
 
 ## Apply it to snip: the publishing pipeline
 
-Putting it together, `.github/workflows/image.yml` runs on every push to `main` that touches `snip/`:
+Putting it together, `.github/workflows/image.yml` runs on every push to `main` that touches `snip/` or `web/`. One job definition builds two images from a **matrix**: snip itself, and `snip-web`, the nginx image that serves its web UI ([chapter 16.6](../frontend/a-ui-for-snip.mdx)). Both get the same tags from the same commit, so `sha-<commit>` always names a matching pair:
 
 ```yaml title=".github/workflows/image.yml (the important part)"
 permissions:
   contents: read
   packages: write        # push to ghcr.io — nothing else
 
+    strategy:
+      matrix:
+        include:                         # same steps, two images
+          - { image: snip, context: snip, check: /healthz }
+          - { image: snip-web, context: web, check: /app/ }
+
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository_owner }}/snip
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
           tags: |
             type=sha,prefix=sha-
             type=ref,event=branch
@@ -209,21 +215,21 @@ permissions:
       - id: build
         uses: docker/build-push-action@v7
         with:
-          context: snip
+          context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           sbom: true
           provenance: mode=max
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 ```
 
 - **Least-privilege token**: `packages: write` and read-only source access, nothing more.
 - **Tags**: `sha-<commit>` and `main` on every push; `1.2.3` and `1.2` when someone pushes a git tag `snip-v1.2.3`.
 - **Two architectures** in one build, cross-compiled.
 - **SBOM and provenance** attached to the image.
-- **Build cache** stored in GitHub Actions' cache, so unchanged layers aren't rebuilt.
+- **Build cache** stored in GitHub Actions' cache, so unchanged layers aren't rebuilt; each image keeps its own `scope`, so the two don't evict each other.
 
 The result is public. Anyone can inspect it, and pull it without logging in:
 

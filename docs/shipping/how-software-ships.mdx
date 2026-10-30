@@ -120,7 +120,7 @@ This handbook's own repository, which also holds snip (the link shortener you bu
 | Workflow | Runs on | Does |
 |---|---|---|
 | `ci.yml` | Every push to `main` and every PR | Typechecks and builds the site (PRs); vets and tests snip against real Postgres and Redis; builds snip's image and checks it starts; lints the OpenAPI contract; runs the whole Compose stack end to end; deploys snip to a Kubernetes cluster (kind) and runs every [Part 10](../kubernetes/why-orchestration.mdx) lab; scans for vulnerabilities |
-| `image.yml` | Pushes to `main` touching `snip/`, and `snip-v*` tags | Builds snip's image for two CPU architectures and publishes it to `ghcr.io` with an SBOM and provenance ([chapter 9.4](../containers/images-in-production.mdx)) |
+| `image.yml` | Pushes to `main` touching `snip/` or `web/`, and `snip-v*` tags | Builds snip's image and its web UI's (`snip-web`) for two CPU architectures and publishes them to `ghcr.io` with an SBOM and provenance ([chapter 9.4](../containers/images-in-production.mdx)) |
 | `deploy.yml` | Every push to `main` | Builds the handbook and deploys it to GitHub Pages (continuous deployment) |
 
 The CI jobs run **in parallel**: each is independent, so a run finishes in the time of the slowest job (a few minutes) rather than the sum of them.

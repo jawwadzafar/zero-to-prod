@@ -225,46 +225,43 @@ The UI's client calls `fetch('/api/links')`, a path with no host, so the browser
 
 ### nginx serves the files at /app/
 
-nginx was snip's reverse proxy ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)); it's also a fast static file server. These blocks in `snip/deploy/nginx/nginx.conf` serve the UI:
+nginx was snip's reverse proxy ([chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx)); it's also a fast static file server. These blocks in `web/nginx/app.conf` serve the UI. The file ships inside the web image, and snip's compose config (`snip/deploy/nginx/nginx.conf`) pulls it into its `server` block with one line, `include /etc/nginx/snippets/app.conf;`:
 
-```nginx title="snip/deploy/nginx/nginx.conf (excerpt)"
-    # The web UI (chapter 16.6): static files built from web/ and copied into
-    # this nginx image. Same origin as the API, so the browser needs no CORS.
-    # The slug "app" is reserved in snip, so no short link can hide behind it.
-    location = /app {
-        absolute_redirect off;  # "Location: /app/", not a URL with nginx's own port 80
-        return 301 /app/;
-    }
+```nginx title="web/nginx/app.conf (excerpt)"
+location = /app {
+    absolute_redirect off;  # "Location: /app/", not a URL with nginx's own host and port
+    return 301 /app/;
+}
 
-    location /app/ {
-        root /usr/share/nginx/html;
-        try_files $uri /app/index.html;
-        add_header Cache-Control "no-cache";   # always check for a new index.html
-        # Security headers for the page (chapter 16.10). An add_header inside a
-        # location replaces every add_header from outside it, so all of them
-        # live here together. "always" adds them to error pages too.
-        add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'" always;
-        add_header Referrer-Policy no-referrer always;
-        add_header X-Content-Type-Options nosniff always;
-        add_header Cross-Origin-Opener-Policy same-origin always;
-        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    }
+location /app/ {
+    root /usr/share/nginx/html;
+    try_files $uri /app/index.html;
+    add_header Cache-Control "no-cache";   # always check for a new index.html
+    # Security headers for the page (chapter 16.10). An add_header inside a
+    # location replaces every add_header from outside it, so all of them
+    # live here together. "always" adds them to error pages too.
+    add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'" always;
+    add_header Referrer-Policy no-referrer always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Cross-Origin-Opener-Policy same-origin always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+}
 
-    location /app/assets/ {     # file names carry a content hash, so they never change
-        root /usr/share/nginx/html;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-        add_header X-Content-Type-Options nosniff always;
-    }
+location /app/assets/ {     # file names carry a content hash, so they never change
+    root /usr/share/nginx/html;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Content-Type-Options nosniff always;
+}
 ```
 
-- nginx picks the **longest matching prefix**, so `/app/…` goes to the files and everything else still reaches snip through `location /`.
+- nginx picks the **longest matching prefix**, so `/app/…` goes to the files and everything else still reaches snip through the compose config's `location /`.
 - `try_files $uri /app/index.html` serves the file if it exists and the app's page otherwise, which is what a single-page app with its own routes needs later.
 - **Caching follows the file names** ([chapter 16.4](./typescript-and-tooling.mdx)): `index.html` is re-checked on every visit (`no-cache` means "check before using", not "never store"), and the hashed assets are cached for a year. A deploy changes `index.html`, which points at new asset names.
-- `absolute_redirect off` fixes a classic: behind Docker's port mapping, nginx thinks it's on port 80 and would redirect `/app` to `http://localhost/app/`, a port that isn't there.
+- `absolute_redirect off` fixes a classic: behind Docker's port mapping, nginx thinks it's on port 80 and would redirect `/app` to `http://localhost/app/`, a port that isn't there. A relative `Location: /app/` is right behind any proxy.
 
 ### Why /app/, and the slug that had to be reserved
 
-snip's redirects own `GET /{slug}`: any one-segment path is a potential short link. Putting the UI at `/` would collide with all of them; putting it at `/app/` collides with exactly one, the slug `app`. Without a fix, someone could create the short link `/app`, and nginx would quietly never send anyone to it. So snip refuses that slug, the same way it already refused its own route names:
+snip's redirects own `GET /{slug}`: any one-segment path is a potential short link. Putting the UI at `/` would collide with all of them; putting it at `/app/` collides with exactly one, the slug `app`. Without a fix, someone could create the short link `/app`, and nginx would quietly never send anyone to it. (The same holds on Kubernetes, where a Gateway route sends `/app` to the UI.) So snip refuses that slug, the same way it already refused its own route names:
 
 ```go title="snip/internal/links/link.go (excerpt)"
 // reserved are slugs that would collide with snip's own routes, or with
@@ -276,10 +273,13 @@ with `"App"` added to the invalid cases in `snip/internal/links/service_test.go`
 
 ### Built by Docker, served by nginx
 
-`web/Dockerfile` has two stages, like snip's own ([chapter 9.2](../containers/writing-dockerfiles.mdx)): Node builds the files, then only `dist/` is copied into the nginx image. No Node, no `node_modules`, in what runs.
+`web/Dockerfile` has two stages, like snip's own ([chapter 9.2](../containers/writing-dockerfiles.mdx)): Node builds the files, then only `dist/` is copied into the nginx image, with the two nginx files. No Node, no `node_modules`, in what runs.
 
 ```dockerfile title="web/Dockerfile (excerpt)"
-FROM node:26-slim AS build
+# ---- build stage ----
+# The output is plain files that run in any browser, so build on the machine's
+# own platform even when the image is for another (chapter 9.4's arm64 build).
+FROM --platform=$BUILDPLATFORM node:26-slim AS build
 WORKDIR /web
 # Dependencies first, in their own layer: cached until the lockfile changes.
 COPY package.json package-lock.json ./
@@ -288,9 +288,16 @@ COPY . .
 RUN npm run build
 
 # ---- runtime stage ----
-# nginx's config is not baked in: docker-compose.yml mounts
-# snip/deploy/nginx/nginx.conf, so the routing stays in one file you can read.
-FROM nginx:1.30-alpine
+# nginx's own unprivileged image: it runs as user 101, not root, and keeps its
+# pid and temporary files in /tmp, so the rest of the filesystem can be
+# read-only (chapter 9.4).
+FROM nginxinc/nginx-unprivileged:1.30-alpine
+# How /app/ is served, shared by every front door (nginx/app.conf), and a
+# server that serves only the UI (nginx/default.conf, used on Kubernetes).
+# The compose stack mounts snip/deploy/nginx/nginx.conf over default.conf to
+# add the proxy to snip's API; it includes the same app.conf.
+COPY nginx/app.conf /etc/nginx/snippets/app.conf
+COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /web/dist /usr/share/nginx/html/app
 ```
 
@@ -298,10 +305,12 @@ And in `snip/docker-compose.yml` ([chapter 9.3](../containers/docker-compose.mdx
 
 ```yaml title="snip/docker-compose.yml (excerpt)"
   nginx:
-    build: ../web                     # nginx:1.30-alpine plus the web UI's static files at /app/ (chapter 16.6)
+    build: ../web                     # nginx (unprivileged, 1.30-alpine) plus the web UI at /app/ (chapter 16.6)
 ```
 
-CI checks all of it: a `web` job runs `npm ci`, the type check, the tests and the build, and the full-stack compose job checks that `/app` redirects, `/app/` serves the page with its CSP, the assets carry the long cache header, and creating the slug `app` returns `400`.
+On Kubernetes, the same image runs as its own small Deployment, `web`, with the server in `web/nginx/default.conf`: it listens on 8080, serves `/app/` with the same `app.conf`, and answers `404` for anything else. The Gateway sends `/app` to it and every other path to the API ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)), so the browser still sees one origin. CI publishes the image as `ghcr.io/jawwadzafar/snip-web` next to snip's ([chapter 9.4](../containers/images-in-production.mdx)), and the Helm chart has it too (`web.enabled`).
+
+CI checks all of it: a `web` job runs `npm ci`, the type check, the tests and the build, and the full-stack compose job checks that `/app` redirects, `/app/` serves the page with its CSP, the assets carry the long cache header, and creating the slug `app` returns `400`. The Kubernetes job checks the same things through the Gateway, plus that `/apple` is still a short link.
 
 :::warning[What can go wrong]
 - **A forgotten state.** No empty state (a blank box), no error state (a spinner forever), or an error state with no way out. Walk through all four for every screen.

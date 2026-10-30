@@ -217,6 +217,8 @@ snip/deploy/helm/snip/
     ├── config.yaml          # ConfigMap (+ database Secret, if the chart runs Postgres)
     ├── api.yaml             # Deployment, Service, HPA, PodDisruptionBudget
     ├── worker.yaml
+    ├── web.yaml             # the web UI's nginx (chapter 16.6), only if web.enabled
+    ├── route.yaml           # an HTTPRoute (chapter 10.3), only if route.enabled
     ├── postgres.yaml        # only if postgres.enabled
     ├── redis.yaml           # only if redis.enabled
     ├── networkpolicy.yaml
@@ -236,6 +238,17 @@ api:
     enabled: true
     minReplicas: 2
     maxReplicas: 6
+
+web:
+  enabled: true
+  image:
+    repository: ghcr.io/jawwadzafar/snip-web
+    tag: ""               # empty = the chart's appVersion, the same tag as snip's image
+  replicas: 2
+
+route:
+  enabled: false
+  gateway: snip           # the Gateway's name, in this release's namespace
 
 config:
   logLevel: info
@@ -335,7 +348,8 @@ Free, on your kind cluster from [chapter 10.1](./why-orchestration.mdx). Steps 1
    helm template snip deploy/helm/snip --set postgres.enabled=false --set database.existingSecret=prod-db | grep -E "^kind:"
    helm template snip deploy/helm/snip --set redis.enabled=false        # the chart's own error message
    helm install snip deploy/helm/snip -n snip-helm --create-namespace \
-     --set image.repository=snip --set image.tag=dev --wait
+     --set image.repository=snip --set image.tag=dev \
+     --set web.image.repository=snip-web --set web.image.tag=dev --wait   # the images you loaded in chapter 10.2
    kubectl -n snip-helm get pods
    ```
    Read the printed notes, then follow them to port-forward, create a key and run `./scripts/smoke.sh` against it.

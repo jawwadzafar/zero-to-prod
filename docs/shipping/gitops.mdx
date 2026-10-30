@@ -186,7 +186,7 @@ spec:
         - /spec/replicas
 ```
 
-- **The path is a kustomize directory** ([chapter 10.2](../kubernetes/core-objects.mdx)), so Argo CD renders it the way `kubectl apply -k` would. Plain manifests (guestbook), kustomize and Helm charts all work the same way.
+- **The path is a kustomize directory** ([chapter 10.2](../kubernetes/core-objects.mdx)), so Argo CD renders it the way `kubectl apply -k` would. Plain manifests (guestbook), kustomize and Helm charts all work the same way. Everything in that directory comes along, the web UI's `web` Deployment ([chapter 16.6](../frontend/a-ui-for-snip.mdx)) included, so the Application is Healthy only when the UI's Pods are ready too.
 - **`ignoreDifferences` settles the autoscaler-vs-Git fight** from "What can go wrong": snip's HorizontalPodAutoscaler changes the API's `replicas` with load, and Argo CD is told not to treat that as drift.
 
 Its base manifests still contain development-only database and Redis passwords, so the labs work anywhere. A real deployment would replace the Secrets in `config.yaml` with `ExternalSecret`s ([chapter 10.4](../kubernetes/config-secrets-storage.mdx)).

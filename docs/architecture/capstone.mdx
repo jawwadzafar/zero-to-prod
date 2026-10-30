@@ -72,7 +72,8 @@ Build the image, load it into a local cluster, and apply snip's manifests (chapt
 ```bash
 kind create cluster --name z2p
 docker build -t snip:dev .
-kind load docker-image snip:dev --name z2p
+docker build -t snip-web:dev ../web
+kind load docker-image snip:dev snip-web:dev --name z2p
 kubectl apply -k deploy/k8s/overlays/kind
 kubectl -n snip get pods -w            # until everything is Running and READY
 kubectl -n snip port-forward svc/api 8080:80 &

@@ -259,7 +259,7 @@ In the cloud, you usually don't run the outermost load balancer yourself: the pr
 
 snip, the URL shortener you build in this handbook, runs two copies of its API behind nginx in its Docker Compose stack. Its config, `snip/deploy/nginx/nginx.conf`, is the `lb` config with real names:
 
-```nginx
+```nginx title="snip/deploy/nginx/nginx.conf"
 # nginx as snip's front door (chapter 8.3): one public port, requests spread
 # across every api copy. Docker's DNS returns all copies for the name "api".
 upstream snip_api {
@@ -268,7 +268,8 @@ upstream snip_api {
 }
 
 server {
-    listen 80;
+    listen 80;                  # nginx runs as uid 101, not root; Docker lets any user in a
+                                # container claim ports below 1024 (Kubernetes uses 8080)
 
     location / {
         proxy_pass http://snip_api;
@@ -288,38 +289,17 @@ server {
 
     # The web UI (chapter 16.6): static files built from web/ and copied into
     # this nginx image. Same origin as the API, so the browser needs no CORS.
-    # The slug "app" is reserved in snip, so no short link can hide behind it.
-    location = /app {
-        absolute_redirect off;  # "Location: /app/", not a URL with nginx's own port 80
-        return 301 /app/;
-    }
-
-    location /app/ {
-        root /usr/share/nginx/html;
-        try_files $uri /app/index.html;
-        add_header Cache-Control "no-cache";   # always check for a new index.html
-        # Security headers for the page (chapter 16.10). An add_header inside a
-        # location replaces every add_header from outside it, so all of them
-        # live here together. "always" adds them to error pages too.
-        add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'" always;
-        add_header Referrer-Policy no-referrer always;
-        add_header X-Content-Type-Options nosniff always;
-        add_header Cross-Origin-Opener-Policy same-origin always;
-        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    }
-
-    location /app/assets/ {     # file names carry a content hash, so they never change
-        root /usr/share/nginx/html;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-        add_header X-Content-Type-Options nosniff always;
-    }
+    # How /app/ is served (gzip, caching, security headers) lives in the web
+    # image, in web/nginx/app.conf, so Kubernetes serves it the same way.
+    include /etc/nginx/snippets/app.conf;
 }
 ```
 
 What's specific to snip:
 
 - **`location = /metrics { deny all; }`**: snip's Prometheus metrics ([chapter 13.2](../observability/metrics.mdx)) are for monitoring inside the network. The front door refuses them with `403`; Prometheus scrapes the copies directly.
-- **The `/app/` locations** serve a different kind of thing: files from nginx's own disk, the web UI built in [chapter 16.6](../frontend/a-ui-for-snip.mdx). nginx is a web server as well as a proxy; `location /app/` is more specific than `location /`, so those paths never reach snip. snip refuses the slug `app` so no short link can hide behind them.
+- **`include /etc/nginx/snippets/app.conf`** pulls in the `/app/` locations, which serve a different kind of thing: files from nginx's own disk, the web UI built in [chapter 16.6](../frontend/a-ui-for-snip.mdx). nginx is a web server as well as a proxy; `location /app/` is more specific than `location /`, so those paths never reach snip. snip refuses the slug `app` so no short link can hide behind them. The included file ships in the web image, so Kubernetes, where the UI runs on its own behind a Gateway ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)), serves `/app/` by exactly the same rules.
+- **`listen 80` without root.** The image is nginx's unprivileged variant: it runs as user 101, so a break-in gets an ordinary user. Docker lets any user inside a container claim ports below 1024; Kubernetes doesn't promise that, so the image's own server listens on 8080 there.
 - **`proxy_read_timeout 15s`** matches snip's own `WriteTimeout` of 15 seconds (`snip/cmd/snip/main.go`, [chapter 5.4](../apis/structuring-a-real-service.mdx)): nginx waits as long as snip may take to answer, and no longer.
 - **Round robin is safe** because snip's copies are stateless: links, keys and counters live in Postgres and Redis.
 - **`/readyz` and `/healthz`** are separate in snip for exactly the reasons above: `/readyz` fails when a copy can't reach its database, so an active health checker (a cloud load balancer, Kubernetes) takes it out of rotation, while `/healthz` stays green so it isn't restarted for someone else's outage.

@@ -188,11 +188,13 @@ Static hosting covers most single-page apps, documentation and marketing sites. 
 
 ## Apply it to snip: how the web UI ships
 
-snip's UI in `web/` ([chapter 16.6](./a-ui-for-snip.mdx)) ships inside the nginx image that sits in front of the API. `web/Dockerfile` builds it in two stages, the same pattern as snip's own Go image ([chapter 9.2](../containers/writing-dockerfiles.mdx)):
+snip's UI in `web/` ([chapter 16.6](./a-ui-for-snip.mdx)) ships inside an nginx image. In the compose stack that image is the front door to the API too; on Kubernetes it runs as its own `web` Deployment behind the Gateway, which sends it `/app` ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)). `web/Dockerfile` builds it in two stages, the same pattern as snip's own Go image ([chapter 9.2](../containers/writing-dockerfiles.mdx)):
 
 ```dockerfile title="web/Dockerfile (excerpt)"
 # ---- build stage ----
-FROM node:26-slim AS build
+# The output is plain files that run in any browser, so build on the machine's
+# own platform even when the image is for another (chapter 9.4's arm64 build).
+FROM --platform=$BUILDPLATFORM node:26-slim AS build
 WORKDIR /web
 # Dependencies first, in their own layer: cached until the lockfile changes.
 COPY package.json package-lock.json ./
@@ -201,17 +203,24 @@ COPY . .
 RUN npm run build
 
 # ---- runtime stage ----
-# nginx's config is not baked in: docker-compose.yml mounts
-# snip/deploy/nginx/nginx.conf, so the routing stays in one file you can read.
-FROM nginx:1.30-alpine
+# nginx's own unprivileged image: it runs as user 101, not root, and keeps its
+# pid and temporary files in /tmp, so the rest of the filesystem can be
+# read-only (chapter 9.4).
+FROM nginxinc/nginx-unprivileged:1.30-alpine
+# How /app/ is served, shared by every front door (nginx/app.conf), and a
+# server that serves only the UI (nginx/default.conf, used on Kubernetes).
+# The compose stack mounts snip/deploy/nginx/nginx.conf over default.conf to
+# add the proxy to snip's API; it includes the same app.conf.
+COPY nginx/app.conf /etc/nginx/snippets/app.conf
+COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /web/dist /usr/share/nginx/html/app
 ```
 
-The final image has nginx and the static files, and no Node. `snip/docker-compose.yml` builds it as the `nginx` service (`build: ../web`).
+The final image has nginx, its two config files and the static files, and no Node. It runs as an ordinary user, so Kubernetes can start it with a read-only root filesystem and every Linux capability dropped, like snip's API. `snip/docker-compose.yml` builds it as the `nginx` service (`build: ../web`); CI publishes it as `ghcr.io/jawwadzafar/snip-web` with the same tags as snip ([chapter 9.4](../containers/images-in-production.mdx)).
 
 **Configuration: none needed.** The UI and the API share an origin, so `web/src/api.ts` calls relative paths (`/api/links`), and the same build works on a laptop, in staging and in production. The UI has no `VITE_` variables at all, so there's nothing in the bundle to leak. The API key the user pastes stays in memory and is never part of the build.
 
-**Caching and the SPA fallback** are already right in `snip/deploy/nginx/nginx.conf`: `/app/` answers unknown paths with `index.html` marked `no-cache`, and `/app/assets/` is a separate location with a one-year `immutable` cache and **no** fallback, so `curl -I http://localhost:8080/app/assets/nope.js` is a 404, not a page.
+**Caching and the SPA fallback** are already right in `web/nginx/app.conf`, the one file both compose and Kubernetes use to serve `/app/`: `/app/` answers unknown paths with `index.html` marked `no-cache`, and `/app/assets/` is a separate location with a one-year `immutable` cache and **no** fallback, so `curl -I http://localhost:8080/app/assets/nope.js` is a 404, not a page.
 
 **Security headers.** The first version of the `/app/` location sent a policy:
 
@@ -220,22 +229,22 @@ The final image has nginx and the static files, and no Node. `snip/docker-compos
         add_header X-Content-Type-Options nosniff always;
 ```
 
-That's a good start: scripts, styles, images and `fetch` only from the same origin, no inline scripts, no framing. Measured against this chapter, it can be tighter. Here is the tighter version of the `/app/` location in `snip/deploy/nginx/nginx.conf`, tested as described below:
+That's a good start: scripts, styles, images and `fetch` only from the same origin, no inline scripts, no framing. Measured against this chapter, it can be tighter. Here is the tighter version of the `/app/` location in `web/nginx/app.conf`, tested as described below:
 
-```nginx
-    location /app/ {
-        root /usr/share/nginx/html;
-        try_files $uri /app/index.html;
-        add_header Cache-Control "no-cache";   # always check for a new index.html
-        # Security headers for the page (chapter 16.10). An add_header inside a
-        # location replaces every add_header from outside it, so all of them
-        # live here together. "always" adds them to error pages too.
-        add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'" always;
-        add_header Referrer-Policy no-referrer always;
-        add_header X-Content-Type-Options nosniff always;
-        add_header Cross-Origin-Opener-Policy same-origin always;
-        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    }
+```nginx title="web/nginx/app.conf (excerpt)"
+location /app/ {
+    root /usr/share/nginx/html;
+    try_files $uri /app/index.html;
+    add_header Cache-Control "no-cache";   # always check for a new index.html
+    # Security headers for the page (chapter 16.10). An add_header inside a
+    # location replaces every add_header from outside it, so all of them
+    # live here together. "always" adds them to error pages too.
+    add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; require-trusted-types-for 'script'" always;
+    add_header Referrer-Policy no-referrer always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header Cross-Origin-Opener-Policy same-origin always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+}
 ```
 
 What changed, and why:
@@ -259,7 +268,7 @@ How it was tested: a container from the compose stack's own nginx image ran with
 
 To check that the test can fail, the same run was repeated with `style-src 'none'`: it failed, listing `style-src-elem blocked http://…/app/assets/index-….css`. A CSP test that has never failed proves nothing.
 
-What's not here: `Strict-Transport-Security`, because this nginx speaks plain HTTP on a laptop; in production it belongs on whatever terminates TLS. And **rollbacks**: compose builds the image from the working tree, so locally a rollback is `git checkout` of the previous commit and `docker compose up -d --build nginx`. In a real deployment you'd push the image with a version tag and roll back by deploying the previous tag, as [chapter 11.3](../shipping/delivery-and-deployment.mdx) does for the API.
+What's not here: `Strict-Transport-Security`, because this nginx speaks plain HTTP on a laptop; in production it belongs on whatever terminates TLS. And **rollbacks**: compose builds the image from the working tree, so locally a rollback is `git checkout` of the previous commit and `docker compose up -d --build nginx`. In a real deployment you roll back by deploying the previous image tag: `image.yml` publishes `snip-web` as `sha-<commit>` (and as a version on release tags), so on Kubernetes it's the same `kubectl rollout undo` or Git revert as for the API ([chapter 11.3](../shipping/delivery-and-deployment.mdx)).
 
 ---
 
@@ -347,7 +356,7 @@ On your laptop, free. You need Node 26 and Docker; ports 8081 and 8000 must be f
    cd ../web && npx playwright install chromium && npx playwright test csp   # no violations through the whole flow
    cd ../snip && docker compose down -v
    ```
-   Then try the policies side by side: copy `snip/deploy/nginx/nginx.conf`, change the `Content-Security-Policy` line to the first version shown above (or to something deliberately broken, such as `style-src 'none'`), mount your copy instead in a `docker-compose.override.yml`, and run the test again.
+   Then try the policies side by side: copy `web/nginx/app.conf`, change the `Content-Security-Policy` line to the first version shown above (or to something deliberately broken, such as `style-src 'none'`), mount your copy over `/etc/nginx/snippets/app.conf` in a `docker-compose.override.yml`, and run the test again.
 
 ## Self-check
 

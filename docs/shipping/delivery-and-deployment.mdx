@@ -215,6 +215,11 @@ snip, the link shortener you build in this handbook, deploys with every strategy
 ```yaml
 rules:
   - matches:
+      - path: { type: PathPrefix, value: /app }   # the web UI is not part of the canary
+    backendRefs:
+      - name: web
+        port: 80
+  - matches:
       - path: { type: PathPrefix, value: / }
     backendRefs:
       - name: api

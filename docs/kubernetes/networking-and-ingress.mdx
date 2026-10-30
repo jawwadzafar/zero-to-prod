@@ -245,13 +245,33 @@ stringData:
 
 Inside the `snip` namespace, `postgres` and `redis` resolve through the search domains; from another namespace you'd write `postgres.snip`.
 
-**The Gateway.** `snip/deploy/k8s/gateway/gateway.yaml` is the same three objects as `gateway.yaml` above: the `eg` GatewayClass, a Gateway named `snip` in the `snip` namespace, and an HTTPRoute sending host `snip.localhost` to Service `api` on port 80.
+**The Gateway.** `snip/deploy/k8s/gateway/gateway.yaml` is the same three objects as `gateway.yaml` above: the `eg` GatewayClass, a Gateway named `snip` in the `snip` namespace, and an HTTPRoute sending host `snip.localhost` to Service `api` on port 80, except the web UI ([chapter 16.6](../frontend/a-ui-for-snip.mdx)), which goes to Service `web`:
+
+```yaml title="snip/deploy/k8s/gateway/gateway.yaml (excerpt)"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /app
+      backendRefs:
+        - name: web                     # the web UI (chapter 16.6)
+          port: 80
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: api                     # everything else: short links and the API
+          port: 80
+```
+
+Both rules match `/app/`, so which wins? The Gateway API settles it by **specificity, not order**: an exact path beats a prefix, and a longer prefix beats a shorter one, whatever order the rules are written in. And `PathPrefix` compares whole path segments, not characters: `/app` matches `/app`, `/app/` and `/app/assets/index.js`, but not `/apple`, which stays a short link. snip refuses the slug `app`, so no link can hide behind the UI. The browser sees one origin for the page and the API, as it does through compose's nginx.
 
 :::warning[What can go wrong]
-Unlike the nginx configuration in [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx), snip's route sends **every** path to snip, including `/metrics`, so the metrics are public through the Gateway. Production setups serve metrics on a **separate port** that no Service or route exposes, and scrape that port from inside the cluster. It's a good exercise: add a `SNIP_METRICS_ADDR` setting to snip, and scrape it in `deploy/prometheus/prometheus.yml`.
+Unlike the nginx configuration in [chapter 8.3](../distributed/reverse-proxies-and-nginx.mdx), snip's route sends **every** path except `/app` to snip, including `/metrics`, so the metrics are public through the Gateway. Production setups serve metrics on a **separate port** that no Service or route exposes, and scrape that port from inside the cluster. It's a good exercise: add a `SNIP_METRICS_ADDR` setting to snip, and scrape it in `deploy/prometheus/prometheus.yml`.
 :::
 
-**NetworkPolicies.** `snip/deploy/k8s/base/networkpolicy.yaml` follows the deny-then-allow pattern: `default-deny-ingress` for the namespace, `api-from-anywhere` opening the API's port 8080 (so the Gateway and your port-forwards work), and two policies letting only snip's own Pods reach the databases:
+**NetworkPolicies.** `snip/deploy/k8s/base/networkpolicy.yaml` follows the deny-then-allow pattern: `default-deny-ingress` for the namespace, `api-from-anywhere` opening the API's port 8080 (so the Gateway and your port-forwards work), `web-from-anywhere` doing the same for the web UI's nginx, and two policies letting only snip's own Pods reach the databases:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -330,6 +350,7 @@ Free, on your kind cluster from [chapter 10.1](./why-orchestration.mdx). Steps 1
    SVC=$(kubectl -n envoy-gateway-system get svc -l gateway.envoyproxy.io/owning-gateway-name=snip -o name)
    kubectl -n envoy-gateway-system port-forward "$SVC" 8888:80 &
    curl -s -H "Host: snip.localhost" localhost:8888/healthz        # {"status":"ok"}
+   curl -sI -H "Host: snip.localhost" localhost:8888/app/ | grep -i content-security   # the web UI, from the web Pods
    kubectl -n snip run intruder --rm -it --image=alpine:3.22 --restart=Never -- \
      sh -c 'nc -z -w 3 postgres 5432 && echo "postgres: OPEN" || echo "postgres: blocked"; wget -qO- -T 3 http://api/healthz'
    ```

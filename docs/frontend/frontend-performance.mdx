@@ -239,26 +239,26 @@ How much of that is the app? Building an empty React app (one `<p>` rendered wit
 
 Two things to notice. First, **nginx was sending the 227 kB JavaScript file uncompressed**: `curl -H 'Accept-Encoding: gzip'` got no `Content-Encoding` back. Compression is off in nginx unless you switch it on. Second, LCP is the moment React draws the form, because this is a client-rendered app: nothing appears until the JavaScript has downloaded and run, so every kilobyte of it is on the critical path. CLS is 0 (nothing is inserted above existing content, and there are no images or web fonts: `web/src/styles.css` uses the system font stack). TBT is 0 because the app does very little work.
 
-**Fix 1: compress.** Five lines in `snip/deploy/nginx/nginx.conf`, inside the `server` block:
+**Fix 1: compress.** Five lines in `web/nginx/app.conf`, the file that says how `/app/` is served, which nginx includes inside its `server` block:
 
-```nginx title="snip/deploy/nginx/nginx.conf (excerpt)"
-    gzip on;
-    gzip_comp_level 6;
-    gzip_min_length 1024;
-    gzip_types text/css application/javascript application/json image/svg+xml;
-    gzip_vary on;               # "Vary: Accept-Encoding", so caches keep both versions apart
+```nginx title="web/nginx/app.conf (excerpt)"
+gzip on;
+gzip_comp_level 6;
+gzip_min_length 1024;
+gzip_types text/css application/javascript application/json image/svg+xml;
+gzip_vary on;               # "Vary: Accept-Encoding", so caches keep both versions apart
 ```
 
 `gzip_types` lists what to compress besides HTML (which nginx always includes); images such as PNG and fonts are already compressed and left out. `gzip_vary` adds the `Vary: Accept-Encoding` header, which tells caches between the server and the browser to store the compressed and uncompressed versions separately. The JavaScript drops from 227 kB to 71 kB on the wire, and LCP on a slow phone by about 0.8 s.
 
 **Caching was already right.** The same file gives hashed assets a year and `index.html` a revalidation, exactly the table above:
 
-```nginx title="snip/deploy/nginx/nginx.conf (excerpt)"
-    location /app/assets/ {     # file names carry a content hash, so they never change
-        root /usr/share/nginx/html;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-        add_header X-Content-Type-Options nosniff always;
-    }
+```nginx title="web/nginx/app.conf (excerpt)"
+location /app/assets/ {     # file names carry a content hash, so they never change
+    root /usr/share/nginx/html;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Content-Type-Options nosniff always;
+}
 ```
 
 so a returning visitor's second load transfers only `index.html`, or a `304` for it.

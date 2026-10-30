@@ -295,7 +295,7 @@ Add `-n NAMESPACE` to any of them, or set a default: `kubectl config set-context
 
 ## Apply it to snip
 
-snip's manifests live in `snip/deploy/k8s/`: a `base` directory with nine files (Postgres, Redis, the API, the worker, config, autoscaling, disruption budget, network policies) and an `overlays/kind` directory for your laptop. Every idea above appears in them. Here is the API's Deployment, trimmed to the parts this chapter taught (`snip/deploy/k8s/base/api.yaml`):
+snip's manifests live in `snip/deploy/k8s/`: a `base` directory with ten files (Postgres, Redis, the API, the worker, the web UI, config, autoscaling, disruption budget, network policies) and an `overlays/kind` directory for your laptop. Every idea above appears in them. Here is the API's Deployment, trimmed to the parts this chapter taught (`snip/deploy/k8s/base/api.yaml`):
 
 ```yaml
 apiVersion: apps/v1
@@ -358,7 +358,7 @@ Three things are worth noticing, compared with `echo`:
 - **A startup probe**, because snip runs its database migrations at start, which can take a while the first time: up to 30 × 2 seconds before liveness takes over.
 - **Configuration comes from outside the image**: `envFrom` turns every key of a ConfigMap and a Secret into environment variables, which is how snip reads its `SNIP_*` settings. [Chapter 10.4](./config-secrets-storage.mdx) is about exactly that.
 
-The other objects map onto the table above: `api`, `worker` and `redis` are Deployments; `postgres` is a StatefulSet with a `volumeClaimTemplates` entry, so `postgres-0` always gets the disk `data-postgres-0`. `snip/deploy/k8s/base/kustomization.yaml` lists the files, puts everything in the `snip` namespace, adds the label `app.kubernetes.io/part-of: snip` to every object, and sets the image to the one CI publishes. The kind overlay reuses the base and changes only the image, to one you built yourself:
+The other objects map onto the table above: `api`, `worker`, `redis` and `web` (nginx serving the web UI of [chapter 16.6](../frontend/a-ui-for-snip.mdx)) are Deployments; `postgres` is a StatefulSet with a `volumeClaimTemplates` entry, so `postgres-0` always gets the disk `data-postgres-0`. `snip/deploy/k8s/base/kustomization.yaml` lists the files, puts everything in the `snip` namespace, adds the label `app.kubernetes.io/part-of: snip` to every object, and sets the images to the ones CI publishes, `snip` and `snip-web`. The kind overlay reuses the base and changes only the images, to ones you built yourself:
 
 ```yaml title="snip/deploy/k8s/overlays/kind/kustomization.yaml"
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -368,6 +368,9 @@ resources:
 images:
   - name: ghcr.io/jawwadzafar/snip
     newName: snip
+    newTag: dev
+  - name: ghcr.io/jawwadzafar/snip-web
+    newName: snip-web
     newTag: dev
 ```
 
@@ -421,11 +424,12 @@ Free, on your kind cluster from [chapter 10.1](./why-orchestration.mdx) (`kind c
    ```
    Now delete the three-line `lifecycle:` block from `echo.yaml`, `kubectl apply -f echo.yaml`, and repeat step 2 with a new text. You may see a handful of failures: requests sent to Pods that had already stopped. Put the block back afterwards.
 
-4. **Apply it to snip: build and load the image.** kind's node can't see your local Docker images, so you copy the image in:
+4. **Apply it to snip: build and load the images.** kind's node can't see your local Docker images, so you copy them in:
    ```bash
    cd ~/code/zero-to-prod/snip
    docker build -t snip:dev .                        # build snip's image (chapter 9.2)
-   kind load docker-image snip:dev --name z2p        # copy it into the kind node
+   docker build -t snip-web:dev ../web               # and the web UI's nginx image (chapter 16.6)
+   kind load docker-image snip:dev snip-web:dev --name z2p   # copy both into the kind node
    ```
    (Or skip this and apply `deploy/k8s/base` instead of the overlay, to use the image CI published.)
 
