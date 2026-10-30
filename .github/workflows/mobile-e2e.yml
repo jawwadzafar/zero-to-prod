@@ -31,6 +31,14 @@ jobs:
         with:
           persist-credentials: false
 
+      # Android builds and emulators are large; the runner starts with tools
+      # this job never uses (.NET, Haskell, CodeQL), so make room first.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
       # The emulator needs hardware virtualisation; let the runner's user use it.
       - name: Enable KVM
         run: |
@@ -62,7 +70,9 @@ jobs:
         run: |
           npm ci
           npx expo prebuild --platform android --no-install   # generates android/ from app.json (chapter 18.8)
-          cd android && ./gradlew assembleDebug --no-daemon
+          # Only the emulator's CPU type (x86_64), not the four a store build needs.
+          cd android && ./gradlew assembleDebug --no-daemon --stacktrace -PreactNativeArchitectures=x86_64
+          df -h /
 
       # A debug build loads its JavaScript from Metro, at 10.0.2.2:8081 from
       # inside the emulator; start it now so it's ready when the app opens.
