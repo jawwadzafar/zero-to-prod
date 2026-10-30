@@ -61,6 +61,10 @@ rate limiting fails open.
 
 1. Confirm: `docker compose exec redis redis-cli ping`
    (k8s: `kubectl -n snip get pods -l app.kubernetes.io/name=redis`)
+   If Redis answers `PONG` but snip's logs say `WRONGPASS` or `NOAUTH`, Redis
+   is up and the passwords disagree: snip's `SNIP_REDIS_PASSWORD` and the one
+   Redis was started with. Usually the password changed and only one side
+   restarted; restart the other.
 2. Restart it: `docker compose restart redis`
    (k8s: `kubectl -n snip rollout restart deploy/redis`).
 3. Watch Postgres load while the cache is cold: every redirect is a query until

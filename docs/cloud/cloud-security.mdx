@@ -313,7 +313,8 @@ snip, the URL shortener this handbook builds, has a production-shaped AWS config
 | Database in private subnets, `publicly_accessible = false`, storage encrypted | `main.tf`, `aws_db_instance.postgres` |
 | Security groups reference each other: internet → load balancer → app → data, nothing else | `main.tf`, the `aws_vpc_security_group_*_rule` resources |
 | Database password generated at apply time, never stored in Terraform state, delivered through Secrets Manager | `main.tf`, `ephemeral "random_password"` and `password_wo` |
-| The execution role may read exactly one secret | `compute.tf`, `read_db_secret` |
+| The execution role may read exactly snip's two secrets (database URL, Redis token) | `compute.tf`, `read_secrets` |
+| Redis accepts only TLS connections that present an AUTH token; the token is generated like the database password and delivered through Secrets Manager | `main.tf`, `aws_elasticache_replication_group.redis` |
 | CI deploys through OIDC with no stored keys, only from `main`, only to two services | `iam-github.tf` |
 | Containers run with read-only root filesystems | `compute.tf`, `readonlyRootFilesystem = true` |
 | Malformed HTTP headers dropped at the load balancer | `compute.tf`, `drop_invalid_header_fields` |
@@ -343,9 +344,8 @@ Running Trivy with **all** severities (CI blocks only on high and critical, [cha
 ```text
 AWS-0017 (LOW): Log group is not encrypted.                 compute.tf, modules/network/main.tf
 AWS-0034 (LOW): Cluster does not have container insights enabled.
-AWS-0050 (MEDIUM): Cluster snapshot retention is not enabled.          (Redis)
 AWS-0078 (LOW): Performance Insights encryption does not use a customer-managed KMS key.
-AWS-0098 (LOW): Secret explicitly uses the default key.
+AWS-0098 (LOW): Secret explicitly uses the default key.               (2 secrets)
 AWS-0124 (LOW): Security group rule does not have a description.      (8 rules)
 AWS-0176 (MEDIUM): Instance does not have IAM Authentication enabled   (Postgres)
 AWS-0177 (MEDIUM): Instance does not have Deletion Protection enabled  (staging only)
@@ -356,7 +356,7 @@ With the chapter's decisions:
 - **AWS-managed keys, not customer-managed ones** (AWS-0017, 0078, 0098). A deliberate choice for an example: the data is still encrypted, and the only role that reads the secret is the execution role. A company handling payment or health data would add a customer-managed key per environment, with a key policy naming that role.
 - **Deletion protection is off in staging** (AWS-0177), on purpose: staging is torn down and rebuilt. Production has it (`deletion_protection = var.environment == "production"`).
 - **Postgres uses a password, not IAM authentication** (AWS-0176). The password never touches state or Git; IAM authentication would remove it entirely, but needs code in snip to fetch short-lived tokens. A reasonable next step.
-- **Redis has no TLS and no password**, and the scanner doesn't flag it for this resource type. Its security group is the only protection. Adding in-transit encryption needs snip's Redis client to speak TLS, a code change not yet made.
+- **Redis now has TLS and a password; the scanner never asked for them.** An earlier version used a bare `aws_elasticache_cluster`, and Trivy's in-transit encryption check doesn't cover that resource type, so the scan was clean while anything that reached the security group could read and rewrite the cache. That is the lesson: a clean scan means "no rule fired", not "safe". snip's threat model ranked it, and the fix took three parts: a replication group with `transit_encryption_enabled` and an AUTH token, the token in Secrets Manager, and a small code change so snip can speak TLS (`SNIP_REDIS_TLS`, with the server's certificate verified). What remains: rotating the token is a manual `auth_token_wo_version` bump, and snip uses one token for everything rather than a Redis user per service with only the commands it needs (Redis **ACLs**).
 - **No account foundation.** No organisation, no SCPs, no CloudTrail trail, no GuardDuty. That's correct for this directory, which describes one application: those belong in a separate landing-zone configuration owned by a platform team, applied once per organisation, not once per app. But a reader who applies snip to a fresh personal account gets none of them unless they turn them on.
 - **Staging and production share an account.** The example backend files put both states in one bucket, implying one account. In a real company they'd be separate accounts, as in the diagram above, with separate state buckets.
 - **HTTP only** and **HTTPS egress to anywhere** remain accepted in writing, with reasons, as [chapter 12.6](./terraform-in-real-life.mdx) described.

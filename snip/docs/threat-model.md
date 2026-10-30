@@ -52,8 +52,11 @@ flowchart LR
    paths, headers, bodies, the URLs they want shortened.
 2. **Front door → snip API.** The proxy is trusted to forward requests, but the
    API still validates every input itself.
-3. **API and worker → Redis.** Redis has no password and no TLS in the Compose
-   and Kubernetes setups; the only thing protecting it is the network.
+3. **API and worker → Redis.** Redis requires a password in every setup
+   (`SNIP_REDIS_PASSWORD`; `--requirepass` in Compose, Kubernetes, Helm and
+   `infra/local`). On AWS, ElastiCache also requires TLS (`SNIP_REDIS_TLS=true`,
+   `transit_encryption_enabled` in `infra/aws/main.tf`); inside Compose and the
+   cluster the traffic is plain, protected by the private network.
 4. **API and worker → Postgres.** Credentials from the environment
    (`SNIP_DATABASE_URL`); TLS is required on AWS (`sslmode=require` in
    `infra/aws/main.tf`) but off in the local setups.
@@ -80,8 +83,8 @@ service, Elevation of privilege) applied to each element above. **Status:**
 | T4 | SQL injection through a slug or URL | T, E | Placeholders in every query (`internal/store/postgres/postgres.go`) | mitigated |
 | T5 | Short links to `javascript:`, `data:` or `file:` URLs, or disguised `https://bank@evil` links | T | `NormalizeURL` accepts only `http`/`https` with a host and no user info (`internal/links/link.go`) | mitigated |
 | T6 | snip is used to hide phishing and malware links | T (abuse) | Creation needs an API key and is rate limited per key (`internal/ratelimit`, `createLink` in `internal/httpapi/server.go`) | **partial:** no threat-list check, report button or takedown flow |
-| T7 | Anyone who can reach Redis rewrites `snip:url:<slug>` and redirects a popular link to a site of their choosing | T | Redis reachable only from snip's pods (`deploy/k8s/base/networkpolicy.yaml`) and the private network; cache entries expire (`SNIP_CACHE_TTL`, default 1h) | **partial:** no Redis password or TLS; anything inside the network is trusted |
-| T8 | Forged events on the click stream inflate counts | T | Same network isolation as T7 | **partial:** counts are informational, so accepted |
+| T7 | Anyone who can reach Redis rewrites `snip:url:<slug>` and redirects a popular link to a site of their choosing | T | Redis reachable only from snip's pods (`deploy/k8s/base/networkpolicy.yaml`) and the private network; Redis requires a password (`SNIP_REDIS_PASSWORD`, from a Secret or Secrets Manager); on AWS only TLS with an AUTH token (`infra/aws/main.tf`, `SNIP_REDIS_TLS`); cache entries expire (`SNIP_CACHE_TTL`, default 1h) | **mitigated:** one password shared by API and worker with every command allowed (no per-service ACL users); rotation is manual; no TLS inside Compose or the cluster |
+| T8 | Forged events on the click stream inflate counts | T | Same network isolation and Redis password as T7 | mitigated (counts are informational) |
 | T9 | An owner denies deleting a link; we can't tell which key did what | R | Request logs carry `request_id`, route, status and, for authenticated calls, `owner_id` (never the key) (`observe` in `internal/httpapi/middleware.go`; added during the [13.7](https://jawwadzafar.github.io/zero-to-prod/learn/observability/security-incident-response) drill) | **partly open:** logs can be rotated away; no append-only audit table |
 | T10 | Forged `X-Request-ID` headers inject fake log lines | T, R | `validRequestID` accepts only short, plain IDs (`internal/httpapi/middleware.go`) | mitigated |
 | T11 | Error responses leak internals (SQL errors, stack traces) | I | `writeDomainError` sends a generic message for unexpected errors and logs the detail (`internal/httpapi/errors.go`); panics recovered in `observe` | mitigated |
@@ -104,11 +107,14 @@ Rated by likelihood × impact on a three-point scale (low, medium, high).
 | Rank | Risk | Likelihood | Impact | Next step |
 |---|---|---|---|---|
 | 1 | T6: phishing links on a public instance | high | high | Check new URLs against a threat list (for example Google Safe Browsing), add a report endpoint and a way to disable a link |
-| 2 | T7: cache poisoning from inside the network | low | high | Turn on Redis authentication (ACL user per service) and TLS; on AWS, `transit_encryption_enabled` on ElastiCache |
-| 3 | T12: `/metrics` public through the Kubernetes Gateway | high | low | Serve metrics on a separate port that no Service or route exposes |
-| 4 | T9: no lasting record of which key changed what | medium | low | `owner_id` is now logged on authenticated requests; still to do: an append-only audit table for key and link deletions |
-| 5 | T14: redirect floods and key guessing aren't rate limited | medium | medium | Per-IP limit at the front door (nginx `limit_req`, Gateway policies) |
+| 2 | T12: `/metrics` public through the Kubernetes Gateway | high | low | Serve metrics on a separate port that no Service or route exposes |
+| 3 | T9: no lasting record of which key changed what | medium | low | `owner_id` is now logged on authenticated requests; still to do: an append-only audit table for key and link deletions |
+| 4 | T14: redirect floods and key guessing aren't rate limited | medium | medium | Per-IP limit at the front door (nginx `limit_req`, Gateway policies) |
+| 5 | T7: what remains after the Redis password | low | medium | Rotate the password on a schedule (Secrets Manager rotation and `auth_token_wo_version` on AWS); a Redis ACL user per service (API: cache, limiter, `XADD`; worker: stream reads only) |
 | 6 | T16: stale redirect after delete during a Redis blip | low | low | Accept; the TTL bounds it |
+
+Closed: T7 cache poisoning was ranked 2. Redis now requires a password in
+every deployment and TLS on AWS; what is left of it is rank 5.
 
 ---
 

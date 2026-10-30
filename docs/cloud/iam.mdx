@@ -117,16 +117,21 @@ An application running in the cloud gets its permissions from **where it runs**,
 
 The cloud SDKs find these credentials automatically. snip's Go code never contains a secret key, and there's nothing to leak or rotate by hand. snip's tasks don't call AWS APIs at all, so they don't even have a task role: only the **execution role** ECS uses on their behalf to pull the image, write logs and inject the database URL.
 
-That execution role's permission to read the database URL is the one-secret policy from earlier, written in Terraform (`snip/infra/aws/compute.tf`):
+That execution role's permission to read snip's secrets is the narrow policy from earlier, written in Terraform (`snip/infra/aws/compute.tf`), listing each secret by name:
 
 ```hcl
-data "aws_iam_policy_document" "read_db_secret" {
+data "aws_iam_policy_document" "read_secrets" {
   statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.db_url.arn] # this secret, and no other
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = [
+      aws_secretsmanager_secret.db_url.arn,
+      aws_secretsmanager_secret.redis_auth.arn,
+    ]
   }
 }
 ```
+
+Two secrets (the database URL and Redis's token), and no others: a new secret means a deliberate change to this list.
 
 ### CI without keys: OIDC federation
 

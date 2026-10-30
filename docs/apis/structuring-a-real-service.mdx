@@ -422,12 +422,13 @@ Every setting lives in `internal/config/config.go`, with its `SNIP_*` variable, 
 ```go
 // Config holds every setting snip reads at startup.
 type Config struct {
-	HTTPAddr    string        // SNIP_HTTP_ADDR, default ":8080"
-	DatabaseURL string        // SNIP_DATABASE_URL; empty = in-memory store (data lost on restart)
-	RedisAddr   string        // SNIP_REDIS_ADDR (host:port); empty = no cache/queue
-	RateLimit   int           // SNIP_RATE_LIMIT: link creations per key per minute, default 60
-	LogLevel    slog.Level    // SNIP_LOG_LEVEL: debug|info|warn|error, default info
-	LogFormat   string        // SNIP_LOG_FORMAT: json|text, default json
+	HTTPAddr      string        // SNIP_HTTP_ADDR, default ":8080"
+	DatabaseURL   string        // SNIP_DATABASE_URL; empty = in-memory store (data lost on restart)
+	RedisAddr     string        // SNIP_REDIS_ADDR (host:port); empty = no cache/queue
+	RedisPassword string        // SNIP_REDIS_PASSWORD; empty = connect without a password (never logged)
+	RateLimit     int           // SNIP_RATE_LIMIT: link creations per key per minute, default 60
+	LogLevel      slog.Level    // SNIP_LOG_LEVEL: debug|info|warn|error, default info
+	LogFormat     string        // SNIP_LOG_FORMAT: json|text, default json
 	// …
 }
 

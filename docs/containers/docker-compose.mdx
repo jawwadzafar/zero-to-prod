@@ -279,13 +279,20 @@ services:
 
   redis:
     image: redis:7-alpine
+    # A password, so nothing else on the network can rewrite the cache or the
+    # click queue (chapter 7.6). Override it with SNIP_REDIS_PASSWORD in your shell or .env.
+    command: ["redis-server", "--requirepass", "${SNIP_REDIS_PASSWORD:-snip-dev-only}"]
+    environment:
+      REDISCLI_AUTH: ${SNIP_REDIS_PASSWORD:-snip-dev-only}   # lets redis-cli inside this container log in
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 3s
       retries: 20
 ```
 
-The official Postgres image reads those three `environment:` variables on first start to create the user and database. `pg_isready` succeeds once Postgres accepts connections. Redis has no volume here: snip uses it as a cache and a queue, and losing it on `down` is acceptable in development. ([Chapter 8.2](../distributed/queues-and-background-work.mdx) discusses what a lost queue means in production.)
+The official Postgres image reads those three `environment:` variables on first start to create the user and database. `pg_isready` succeeds once Postgres accepts connections.
+
+Redis, out of the box, answers anyone who can reach it, and the official image even switches off Redis's own safety net for that (**protected mode**). On a shared network that means any compromised container could repoint a cached link. So `command:` starts the server with `--requirepass`, and every client must log in first. **`REDISCLI_AUTH`** is the variable `redis-cli` reads its password from, so the healthcheck and your own `docker compose exec redis redis-cli …` keep working. The password comes from the same `${VAR:-default}` substitution as above, with a default whose name says it is throwaway. Redis has no volume here: snip uses it as a cache and a queue, and losing it on `down` is acceptable in development. ([Chapter 8.2](../distributed/queues-and-background-work.mdx) discusses what a lost queue means in production.)
 
 ### The API: build, shared environment, replicas
 
@@ -295,6 +302,7 @@ The official Postgres image reads those three `environment:` variables on first 
     environment: &snip-env
       SNIP_DATABASE_URL: postgres://snip:snip@postgres:5432/snip?sslmode=disable
       SNIP_REDIS_ADDR: redis:6379
+      SNIP_REDIS_PASSWORD: ${SNIP_REDIS_PASSWORD:-snip-dev-only}  # local development only
       SNIP_BASE_URL: http://localhost:8080
       # Tracing (chapter 13.3) is off unless you set it, e.g.:
       #   OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d
@@ -431,6 +439,7 @@ Steps 3 and 6 use `docker compose down -v`, which **deletes the project's volume
    ```bash
    docker compose exec postgres psql -U snip -c "SELECT slug, clicks FROM links ORDER BY slug"
    docker compose exec redis redis-cli XLEN snip:clicks        # click events in the stream
+   docker compose exec redis env -u REDISCLI_AUTH redis-cli ping   # NOAUTH: without the password, Redis refuses
    docker compose logs worker | tail -5
    ```
    After a few seconds, `counted` shows 5 clicks: the API recorded each click in Redis, and the worker added them to Postgres ([chapter 8.2](../distributed/queues-and-background-work.mdx)).

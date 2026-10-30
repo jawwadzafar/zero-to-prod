@@ -340,6 +340,7 @@ flowchart LR
   net["docker_network.snip"] --> pg["postgres"]
   net --> rd["redis"]
   pw["random_password.db"] --> pg
+  pw2["random_password.redis"] --> rd
   pg --> api["api"]
   rd --> api
   api -. "depends_on" .-> w["worker (count)"]
@@ -375,7 +376,7 @@ resource "docker_container" "postgres" {
 }
 ```
 
-`random_password` is `random_pet`'s cousin. The password is generated once, kept in state, and handed to Postgres through a reference. `wait = true` makes Terraform hold the containers that depend on Postgres until it's actually accepting connections.
+`random_password` is `random_pet`'s cousin. The password is generated once, kept in state, and handed to Postgres through a reference. Redis gets a second one, `random_password.redis`, passed to `redis-server --requirepass` and to snip as `SNIP_REDIS_PASSWORD`, so only snip's containers can use the cache ([chapter 7.6](../security/secrets-management.mdx)). `wait = true` makes Terraform hold the containers that depend on Postgres until it's actually accepting connections.
 
 The API and the worker need the same settings, so they're written once as a **local**:
 
@@ -384,6 +385,7 @@ locals {
   snip_env = [
     "SNIP_DATABASE_URL=postgres://snip:${random_password.db.result}@${docker_container.postgres.name}:5432/snip?sslmode=disable",
     "SNIP_REDIS_ADDR=${docker_container.redis.name}:6379",
+    "SNIP_REDIS_PASSWORD=${random_password.redis.result}",
     "SNIP_BASE_URL=http://localhost:${var.api_port}",
     "SNIP_LOG_LEVEL=${var.log_level}",
   ]

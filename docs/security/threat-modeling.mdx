@@ -250,7 +250,7 @@ snip is the URL shortener this handbook builds: an API where owners create short
 
 **What are we working on?** A DFD with three trust zones: the internet, the front door, and the private network holding the API, worker, Postgres and Redis. Five boundaries are named in the file. Two of them are easy to miss:
 
-- **API → Redis.** In snip's Compose and Kubernetes setups, Redis has no password and no TLS. The only thing protecting it is that it's reachable only from snip's own pods (a Kubernetes NetworkPolicy, `deploy/k8s/base/networkpolicy.yaml`).
+- **API → Redis.** When the model was first written, Redis had no password and no TLS in any of snip's setups. The only thing protecting it was that it's reachable only from snip's own pods (a Kubernetes NetworkPolicy, `deploy/k8s/base/networkpolicy.yaml`). The model ranked that, and it has since been fixed (below).
 - **Operator → the API's container.** API keys are created with the `snip keys create` command, so whoever can run commands inside the container can mint keys. That's a boundary made of shell access, and it belongs on the diagram.
 
 **What can go wrong, and what are we doing about it?** Twenty STRIDE threats, each with the defence in snip's code and a status. A few rows:
@@ -259,11 +259,11 @@ snip is the URL shortener this handbook builds: an API where owners create short
 |---|---|---|---|
 | An owner reads or deletes another owner's link | E, I | Every query scoped by owner: `DELETE … WHERE slug = $1 AND owner_id = $2` in `internal/store/postgres/postgres.go`; `Service.Get` answers not-found for others' links | mitigated |
 | Short links to `javascript:` URLs, or disguised `https://bank@evil` links | T | `NormalizeURL` in `internal/links/link.go` accepts only `http`/`https` with a host and no user info ([chapter 7.5](./web-attacks.mdx)) | mitigated |
-| Anyone who can reach Redis rewrites `snip:url:<slug>` and redirects a popular link elsewhere | T | Network isolation only; cache entries expire after `SNIP_CACHE_TTL` | **partial** |
+| Anyone who can reach Redis rewrites `snip:url:<slug>` and redirects a popular link elsewhere | T | Network isolation, plus a Redis password in every deployment (`SNIP_REDIS_PASSWORD`) and TLS on AWS (`SNIP_REDIS_TLS`); cache entries expire after `SNIP_CACHE_TTL` | **mitigated:** one shared password, rotated by hand; no TLS inside Compose or the cluster |
 | An owner denies deleting a link | R | Request logs carry a request ID, route, status and the caller's owner ID | **partly open:** logs can be rotated away; no append-only audit table |
 | `/metrics` visible to the internet | I | nginx denies it (`deploy/nginx/nginx.conf`) | **open on Kubernetes:** the Gateway forwards every path ([chapter 10.3](../kubernetes/networking-and-ingress.mdx)) |
 
-The Redis row is a good example of what the method finds. snip's code is careful about input from the internet. But the cache is a second copy of "where each slug points", and anything inside the network can write to it. An attacker who gets a foothold in *any* container that can reach Redis could repoint snip's most-clicked link to a phishing page, without touching Postgres or the API. Nobody would find that by reviewing handlers; you find it by asking STRIDE's T question about a data store.
+The Redis row is a good example of what the method finds. snip's code is careful about input from the internet. But the cache is a second copy of "where each slug points", and anything inside the network can write to it. An attacker who gets a foothold in *any* container that can reach Redis could repoint snip's most-clicked link to a phishing page, without touching Postgres or the API. Nobody would find that by reviewing handlers; you find it by asking STRIDE's T question about a data store. The model ranked it second among the open risks, which is how it got fixed: Redis now requires a password everywhere snip runs, and on AWS it accepts only TLS ([chapter 7.6](./secrets-management.mdx), [chapter 12.8](../cloud/cloud-security.mdx)).
 
 **Open risks, ranked.** The file ends with a likelihood × impact table. The top one isn't a code bug at all: on a public instance, the most likely and most damaging threat is **abuse**: people shortening phishing links to hide where they go ([chapter 7.5](./web-attacks.mdx)). snip limits it (keys, per-key rate limits) but has no threat-list check or takedown flow. That's written down as the next thing to build, not buried.
 
@@ -383,10 +383,10 @@ Scanners ([chapter 7.13](./security-testing.mdx)) find **known kinds of mistakes
 </details>
 
 <details>
-<summary>In snip's model, the Redis cache-poisoning threat is rated low likelihood but high impact, and left partial. Argue for and against fixing it now.</summary>
+<summary>In the first version of snip's model, the Redis cache-poisoning threat was rated low likelihood but high impact, and left partial. Argue for and against fixing it right away.</summary>
 
 **For fixing now:** the impact is severe and silent: an attacker repoints snip's busiest links to a phishing page, and every visitor follows them, with nothing in Postgres or the API logs to show it. The fix is known and cheap (Redis ACLs with a password per service, and TLS), and "only reachable from inside the network" relies on *every* container in that network staying uncompromised, which is the assumption zero trust ([chapter 7.11](./machine-identity-zero-trust.mdx)) asks you to drop.
 
-**Against:** reaching Redis requires a foothold inside the private network first, and an attacker with that foothold likely has worse options; the cache entries expire within an hour; and the top-ranked risk, phishing abuse, happens today on any public instance. A reasonable decision is to fix abuse first, schedule Redis authentication next, and write the decision and its owner in the file. The model's job is to make that trade-off visible, not to make it for you.
+**Against:** reaching Redis requires a foothold inside the private network first, and an attacker with that foothold likely has worse options; the cache entries expire within an hour; and the top-ranked risk, phishing abuse, happens today on any public instance. A reasonable decision is to fix abuse first, schedule Redis authentication next, and write the decision and its owner in the file. The model's job is to make that trade-off visible, not to make it for you. (snip took the "for" side once the fix proved small: a password in every deployment, TLS in the cloud, and two settings in snip's code.)
 
 </details>

@@ -380,6 +380,10 @@ The same Redis does two more jobs, each covered properly later:
 - **Rate limiting** ([chapter 8.4](../distributed/rate-limiting-and-resilience.mdx)): a counter per API key per minute, increased with atomic `INCR` and expired with a TTL, shared by every copy of snip, which a counter in one process's memory couldn't be.
 - **The click queue** ([chapter 8.2](../distributed/queues-and-background-work.mdx)): each redirect appends an event to the stream `snip:clicks` with `XADD`; a worker reads batches, updates Postgres, and acknowledges them. Redirects stay instant; counting happens in the background.
 
+:::warning[Redis trusts whoever connects]
+By default Redis has no password, and the official Docker image also turns off its **protected mode** (which refuses outside connections to a password-less server). Anything that can reach port `6379` can run any command: `SET snip:url:launch https://evil.example` repoints a link for everyone, and fake `XADD`s inflate click counts. The cache is a second copy of "where each slug points", so it needs guarding like the database. snip's deployments start Redis with a password (`--requirepass`) and snip sends it from `SNIP_REDIS_PASSWORD`; in the cloud the connection is encrypted too (`SNIP_REDIS_TLS=true`). [Chapter 7.6](../security/secrets-management.mdx) covers where that password lives. The throwaway Redis in this lab has none, which is fine on your own laptop and nowhere else.
+:::
+
 ---
 
 ## Lab

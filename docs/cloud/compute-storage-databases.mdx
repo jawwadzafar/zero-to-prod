@@ -152,7 +152,7 @@ resource "aws_db_instance" "postgres" {
 
 Each line maps to a row of the managed-database table. Staging saves money with a smaller instance and no standby; production pays for Multi-AZ.
 
-**Cache and queue: ElastiCache for Redis**, a single node. For snip, Redis holds a cache and a click-event queue that can be rebuilt, so one node is acceptable in staging. Production would use a replicated group with automatic failover.
+**Cache and queue: ElastiCache for Redis**, a single node. For snip, Redis holds a cache and a click-event queue that can be rebuilt, so one node is acceptable in staging. Production would add replicas with automatic failover. The node already sits in a **replication group** (`aws_elasticache_replication_group`), because only that resource type can require an **AUTH token** (Redis's password) and encrypt traffic in transit. snip connects with TLS (`SNIP_REDIS_TLS=true`) and reads the token from Secrets Manager, like the database URL ([chapter 12.8](./cloud-security.mdx) explains why).
 
 ---
 
