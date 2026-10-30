@@ -48,7 +48,11 @@ func run() error {
 		return err
 	}
 	defer pg.Close()
-	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	rdb := redis.NewClient(&redis.Options{
+		Addr:      cfg.RedisAddr,
+		Password:  cfg.RedisPassword,
+		TLSConfig: cfg.RedisTLSConfig(),
+	})
 	defer rdb.Close()
 
 	host, _ := os.Hostname()

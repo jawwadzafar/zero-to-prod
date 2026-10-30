@@ -3,6 +3,7 @@
 package config
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,15 +14,17 @@ import (
 
 // Config holds every setting snip reads at startup.
 type Config struct {
-	HTTPAddr    string        // SNIP_HTTP_ADDR, default ":8080"
-	BaseURL     string        // SNIP_BASE_URL, used to build short links, default "http://localhost:8080"
-	DatabaseURL string        // SNIP_DATABASE_URL; empty = in-memory store (data lost on restart)
-	RedisAddr   string        // SNIP_REDIS_ADDR (host:port); empty = no cache/queue
-	CacheTTL    time.Duration // SNIP_CACHE_TTL, default 1h
-	RateLimit   int           // SNIP_RATE_LIMIT: link creations per key per minute, default 60
-	LogLevel    slog.Level    // SNIP_LOG_LEVEL: debug|info|warn|error, default info
-	LogFormat   string        // SNIP_LOG_FORMAT: json|text, default json
-	DebugAddr   string        // SNIP_DEBUG_ADDR: pprof profiler, e.g. "localhost:6060"; empty = off (chapter 13.6)
+	HTTPAddr      string        // SNIP_HTTP_ADDR, default ":8080"
+	BaseURL       string        // SNIP_BASE_URL, used to build short links, default "http://localhost:8080"
+	DatabaseURL   string        // SNIP_DATABASE_URL; empty = in-memory store (data lost on restart)
+	RedisAddr     string        // SNIP_REDIS_ADDR (host:port); empty = no cache/queue
+	RedisPassword string        // SNIP_REDIS_PASSWORD; empty = connect without a password (never logged)
+	RedisTLS      bool          // SNIP_REDIS_TLS: "true" = encrypt and verify the server's certificate; default false
+	CacheTTL      time.Duration // SNIP_CACHE_TTL, default 1h
+	RateLimit     int           // SNIP_RATE_LIMIT: link creations per key per minute, default 60
+	LogLevel      slog.Level    // SNIP_LOG_LEVEL: debug|info|warn|error, default info
+	LogFormat     string        // SNIP_LOG_FORMAT: json|text, default json
+	DebugAddr     string        // SNIP_DEBUG_ADDR: pprof profiler, e.g. "localhost:6060"; empty = off (chapter 13.6)
 
 	WorkerMetricsAddr string // SNIP_WORKER_METRICS_ADDR: the worker's /metrics and /healthz, default ":9091"
 }
@@ -31,18 +34,22 @@ type Config struct {
 // stop the program at startup, not surprise you at 3 a.m.
 func Load() (Config, error) {
 	c := Config{
-		HTTPAddr:    env("SNIP_HTTP_ADDR", ":8080"),
-		BaseURL:     strings.TrimRight(env("SNIP_BASE_URL", "http://localhost:8080"), "/"),
-		DatabaseURL: os.Getenv("SNIP_DATABASE_URL"),
-		RedisAddr:   os.Getenv("SNIP_REDIS_ADDR"),
-		LogFormat:   env("SNIP_LOG_FORMAT", "json"),
-		DebugAddr:   os.Getenv("SNIP_DEBUG_ADDR"),
+		HTTPAddr:      env("SNIP_HTTP_ADDR", ":8080"),
+		BaseURL:       strings.TrimRight(env("SNIP_BASE_URL", "http://localhost:8080"), "/"),
+		DatabaseURL:   os.Getenv("SNIP_DATABASE_URL"),
+		RedisAddr:     os.Getenv("SNIP_REDIS_ADDR"),
+		RedisPassword: os.Getenv("SNIP_REDIS_PASSWORD"),
+		LogFormat:     env("SNIP_LOG_FORMAT", "json"),
+		DebugAddr:     os.Getenv("SNIP_DEBUG_ADDR"),
 
 		WorkerMetricsAddr: env("SNIP_WORKER_METRICS_ADDR", ":9091"),
 	}
 	var err error
 	if c.CacheTTL, err = time.ParseDuration(env("SNIP_CACHE_TTL", "1h")); err != nil {
 		return c, fmt.Errorf("SNIP_CACHE_TTL: %w", err)
+	}
+	if c.RedisTLS, err = strconv.ParseBool(env("SNIP_REDIS_TLS", "false")); err != nil {
+		return c, fmt.Errorf("SNIP_REDIS_TLS: must be true or false")
 	}
 	if c.RateLimit, err = strconv.Atoi(env("SNIP_RATE_LIMIT", "60")); err != nil || c.RateLimit < 1 {
 		return c, fmt.Errorf("SNIP_RATE_LIMIT: must be a positive integer")
@@ -61,6 +68,18 @@ func env(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// RedisTLSConfig returns the TLS settings for connecting to Redis: nil (a
+// plain connection) unless SNIP_REDIS_TLS is on. With TLS, Go checks the
+// server's certificate against the host name in SNIP_REDIS_ADDR, as a browser
+// does for a website (chapter 7.1). There is deliberately no switch to skip
+// that check.
+func (c Config) RedisTLSConfig() *tls.Config {
+	if !c.RedisTLS {
+		return nil
+	}
+	return &tls.Config{MinVersion: tls.VersionTLS12}
 }
 
 // Logger builds the structured logger described by the config.

@@ -186,6 +186,10 @@ func serve(ctx context.Context, cfg config.Config, log *slog.Logger, st store, p
 			ReadTimeout:   100 * time.Millisecond,
 			WriteTimeout:  100 * time.Millisecond,
 			PoolTimeout:   200 * time.Millisecond,
+			// Who may talk to Redis (chapter 7.6): empty password and TLS off
+			// = the open, plain Redis of a laptop lab.
+			Password:  cfg.RedisPassword,
+			TLSConfig: cfg.RedisTLSConfig(),
 		})
 		defer rdb.Close()
 		linkCache = cache.NewRedis(rdb, cfg.CacheTTL)
