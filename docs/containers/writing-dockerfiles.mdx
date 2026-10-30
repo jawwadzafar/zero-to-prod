@@ -27,7 +27,7 @@ A Dockerfile is a recipe card, and `docker build` is a cook who follows it exact
 
 | Instruction | Does | Example |
 |---|---|---|
-| `FROM` | Start from a base image | `FROM golang:1.26-alpine` |
+| `FROM` | Start from a base image | `FROM golang:1.27-alpine` |
 | `WORKDIR` | Set (and create) the directory later steps run in | `WORKDIR /app` |
 | `COPY` | Copy files from the build context into the image | `COPY go.mod ./` |
 | `RUN` | Run a command at **build** time; its file changes become a layer | `RUN go build -o server .` |
@@ -47,7 +47,7 @@ A Dockerfile is a recipe card, and `docker build` is a cook who follows it exact
 `snip/examples/dockerlab` is a tiny web server that uses only Go's standard library. It prints its hostname, a `VERSION` from the environment, and the user ID it runs as, and it shuts down gracefully on SIGTERM. Here's the obvious first Dockerfile for it (`Dockerfile.naive`):
 
 ```dockerfile
-FROM golang:1.26-alpine
+FROM golang:1.27-alpine
 WORKDIR /app
 COPY . .
 RUN go build -o server .
@@ -138,7 +138,7 @@ A **multi-stage build** uses several `FROM`s in one Dockerfile. Early stages hav
 # syntax=docker/dockerfile:1
 
 # ---- build stage: has the Go toolchain ----
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod ./
 COPY *.go ./
@@ -266,7 +266,7 @@ If a secret has ever been built into an image that was pushed anywhere, treat it
 
 ```dockerfile title="snip/Dockerfile"
 # syntax=docker/dockerfile:1
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
