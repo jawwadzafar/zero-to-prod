@@ -44,6 +44,28 @@ jobs:
       - run: npm run check:sql
       - run: npm run build
 
+  # Every push, not only pull requests: a colour or component change on main
+  # shouldn't quietly make the site unreadable for someone.
+  a11y:
+    name: Site is accessible (axe, WCAG 2.2 AA, light and dark)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Check every kind of page with axe
+        # The official image ships the browser that matches web/'s @playwright/test 1.64.1.
+        run: |
+          docker run --rm --ipc=host -v "$PWD:/w" -w /w mcr.microsoft.com/playwright:v1.64.1-noble \
+            sh -c 'cd web && npm ci --no-audit --no-fund && cd .. && node scripts/check-a11y.mjs'
+
   alerts:
     name: Alert rules are valid and their unit tests pass (chapter 13.4)
     runs-on: ubuntu-latest

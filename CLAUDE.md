@@ -79,6 +79,7 @@ chapter.** The owner should never have to repeat what is written here.
 │   ├── build-ask-vectors.mjs ← embeds Ask passages (static/ask-vectors.bin); deploy-only, skips elsewhere
 │   ├── build-quiz-bank.mjs   ← builds static/quiz-bank.json from every <Quiz> (for /review)
 │   ├── check-ips.mjs         ← fails on IP addresses that could be real (placeholders only)
+│   ├── check-a11y.mjs        ← axe (WCAG 2.2 AA) on every kind of page, light and dark; needs build/ and web/ deps
 │   ├── status.mjs            ← prints written/total chapters per part
 │   └── make-social-card.py   ← regenerates static/img/social-card.png
 ├── docs/                     ← the handbook: docs/<partId>/<chapterId>.mdx
