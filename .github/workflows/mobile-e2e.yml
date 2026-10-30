@@ -1,10 +1,10 @@
-name: Mobile app on Android (end to end)
+name: Mobile app on Android and iOS (end to end)
 
 # Chapter 18.7: Jest can't show that the app runs on a phone. This builds the
-# Android app, starts it on an emulator next to a real snip, and drives it
-# with Maestro (mobile/e2e/snip.yaml): connect with a key, create a link, see
-# it listed, delete it, forget the key. Separate from ci.yml because it takes
-# about a quarter of an hour.
+# app, starts it on an Android emulator and an iPhone simulator next to a real
+# snip, and drives it with Maestro (mobile/e2e/snip.yaml): connect with a key,
+# create a link, see it listed, delete it, forget the key. Separate from
+# ci.yml because each job takes about a quarter of an hour.
 on:
   push:
     branches: [main]
@@ -98,13 +98,13 @@ jobs:
           disable-animations: true
           script: |
             adb install mobile/android/app/build/outputs/apk/debug/app-debug.apk
-            maestro test -e KEY="$SNIP_KEY" --format junit --output maestro-report.xml mobile/e2e/snip.yaml
+            maestro test -e APP_ID="$(grep -o 'applicationId "[^"]*"' mobile/android/app/build.gradle | cut -d'"' -f2)" -e KEY="$SNIP_KEY" --format junit --output maestro-report.xml mobile/e2e/snip.yaml
 
       - name: Keep the evidence
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: mobile-e2e
+          name: mobile-e2e-android
           path: |
             mobile/metro.log
             maestro-report.xml
@@ -115,3 +115,89 @@ jobs:
         if: always()
         working-directory: snip
         run: docker compose down -v
+
+  # The same flow on an iPhone simulator. macOS runners have no Docker, so snip
+  # runs straight from Go with its in-memory store, which prints a development
+  # key at startup; the simulator shares the Mac's network, so the app's
+  # default address, localhost:8080, reaches it.
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      MAESTRO_VERSION: 2.12.0
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6     # Maestro runs on Java
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: snip/go.mod
+          cache-dependency-path: snip/go.sum
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Start snip (in memory) and read its key
+        working-directory: snip
+        run: |
+          go build -o "$RUNNER_TEMP/snip" ./cmd/snip
+          nohup "$RUNNER_TEMP/snip" serve > "$RUNNER_TEMP/snip.log" 2>&1 &
+          timeout 60 sh -c 'until curl -fs localhost:8080/healthz; do sleep 1; done'
+          echo "SNIP_KEY=$(grep -o 'snip_[A-Za-z0-9]*' "$RUNNER_TEMP/snip.log" | head -1)" >> "$GITHUB_ENV"
+
+      - name: Build the iOS app (debug, for the simulator)
+        working-directory: mobile
+        env:
+          CI: "1"
+        run: |
+          npm ci
+          npx expo prebuild --platform ios       # generates ios/ and runs pod install (chapter 18.8)
+          workspace=$(find ios -maxdepth 1 -name '*.xcworkspace' | head -1)
+          scheme=$(basename "$workspace" .xcworkspace)
+          xcodebuild -workspace "$workspace" -scheme "$scheme" -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO -quiet
+          app=$(find build/Build/Products/Debug-iphonesimulator -maxdepth 1 -name '*.app' | head -1)
+          echo "APP_PATH=$PWD/$app" >> "$GITHUB_ENV"
+          echo "APP_ID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")" >> "$GITHUB_ENV"
+
+      - name: Start Metro
+        working-directory: mobile
+        env:
+          CI: "1"
+        run: |
+          nohup npx expo start --port 8081 > metro.log 2>&1 &
+          timeout 120 sh -c 'until curl -s localhost:8081/status | grep -q running; do sleep 2; done'
+
+      - name: Boot an iPhone simulator and install the app
+        run: |
+          udid=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name | startswith("iPhone"))][0].udid')
+          echo "Using $(xcrun simctl list devices available | grep "$udid")"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          xcrun simctl install "$udid" "$APP_PATH"
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Drive it
+        run: maestro test -e APP_ID="$APP_ID" -e KEY="$SNIP_KEY" --format junit --output maestro-report.xml mobile/e2e/snip.yaml
+
+      - name: Keep the evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mobile-e2e-ios
+          path: |
+            mobile/metro.log
+            maestro-report.xml
+            ~/.maestro/tests/
+          retention-days: 7

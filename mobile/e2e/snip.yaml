@@ -1,13 +1,14 @@
-# End to end, on a real Android emulator against a real snip
-# (.github/workflows/mobile-e2e.yml). Maestro finds things the way a screen
+# End to end, on an Android emulator and an iPhone simulator, against a real
+# snip (.github/workflows/mobile-e2e.yml). Maestro finds things the way a screen
 # reader does, by their text and accessibility labels, so this also checks
 # that the labels are there.
 #
-#   maestro test -e KEY=snip_… e2e/snip.yaml
+#   maestro test -e APP_ID=com.anonymous.snipmobile -e KEY=snip_… e2e/snip.yaml
 #
-# The package name is the one `npx expo prebuild` picks while app.json sets
-# none (chapter 18.8 explains why a store build needs its own).
-appId: com.anonymous.snipmobile
+# APP_ID is the package name (Android) or bundle identifier (iOS) that
+# `npx expo prebuild` picks while app.json sets none; chapter 18.8 explains
+# why a store build needs its own. The workflow reads it from the build.
+appId: ${APP_ID}
 ---
 - launchApp:
     clearState: true # no saved key: start on the setup screen
@@ -15,8 +16,9 @@ appId: com.anonymous.snipmobile
     visible: "Connect to snip"
     timeout: 180000 # the first launch waits for Metro to bundle the app
 
-# The address field already holds http://10.0.2.2:8080, the emulator's name
-# for the computer running it, where snip listens.
+# The address field already holds where snip listens: http://10.0.2.2:8080
+# on the Android emulator (its name for the computer running it), and
+# http://localhost:8080 on the iOS simulator (which shares the computer's network).
 - tapOn: "API key"
 - inputText: ${KEY}
 - hideKeyboard
@@ -37,10 +39,19 @@ appId: com.anonymous.snipmobile
     visible: "e2e-godoc"
     timeout: 30000
 
-# Delete it, through the confirmation dialog (Android's positive button).
+# Delete it, through the platform's own confirmation dialog.
 - tapOn: "Delete e2e-godoc"
-- tapOn:
-    id: "android:id/button1"
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - tapOn:
+          id: "android:id/button1" # the dialog's positive button
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - tapOn: "Delete" # the alert's button; the row's is labelled "Delete e2e-godoc"
 - extendedWaitUntil:
     notVisible: "e2e-godoc"
     timeout: 15000
