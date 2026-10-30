@@ -792,9 +792,19 @@ jobs:
           cluster_name: gitops
       - name: Install Argo CD and metrics-server (chapter 11.4 lab)
         run: |
+          manifest=https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+          # Argo CD's Redis image comes from public.ecr.aws, which rate-limits CI
+          # runners (429 Too Many Requests) and left the pod in ImagePullBackOff.
+          # Load the same official image from Docker Hub into the cluster first,
+          # and let that one Deployment use it instead of pulling again.
+          ecr_image=$(curl -fsSL "$manifest" | grep -m1 -o 'public.ecr.aws/docker/library/redis:[^" ]*')
+          for _ in 1 2 3; do docker pull "${ecr_image#public.ecr.aws/docker/library/}" && break; sleep 15; done
+          docker tag "${ecr_image#public.ecr.aws/docker/library/}" "$ecr_image"
+          kind load docker-image "$ecr_image" --name gitops
           kubectl create namespace argocd
-          kubectl apply -n argocd --server-side --force-conflicts \
-            -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+          kubectl apply -n argocd --server-side --force-conflicts -f "$manifest"
+          kubectl -n argocd patch deployment argocd-redis --type=json \
+            -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/imagePullPolicy", "value": "IfNotPresent"}]'
           helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
           helm install metrics-server metrics-server/metrics-server -n kube-system \
             --set 'args={--kubelet-insecure-tls}' --wait --timeout 5m
