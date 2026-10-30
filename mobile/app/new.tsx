@@ -61,6 +61,7 @@ export default function NewLinkScreen() {
         <TextInput
           style={[shared.input, error?.field === 'url' && shared.inputInvalid]}
           accessibilityLabel="Long URL"
+          testID="long-url" // for the end-to-end test (e2e/snip.yaml); screen readers don't see it
           value={url}
           onChangeText={setUrl}
           keyboardType="url" // a keyboard with "/" and ".com" on it
@@ -74,6 +75,7 @@ export default function NewLinkScreen() {
         <TextInput
           style={[shared.input, error?.field === 'slug' && shared.inputInvalid]}
           accessibilityLabel="Custom slug (optional)"
+          testID="slug"
           value={slug}
           onChangeText={setSlug}
           autoCapitalize="none"

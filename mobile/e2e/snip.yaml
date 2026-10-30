@@ -1,7 +1,8 @@
 # End to end, on an Android emulator and an iPhone simulator, against a real
-# snip (.github/workflows/mobile-e2e.yml). Maestro finds things the way a screen
-# reader does, by their text and accessibility labels, so this also checks
-# that the labels are there.
+# snip (.github/workflows/mobile-e2e.yml). Maestro finds buttons and screens
+# the way a screen reader does, by their text and accessibility labels, so this
+# also checks that the labels are there. Text fields are found by testID,
+# because a field's label and the text above it say the same words.
 #
 #   maestro test -e APP_ID=com.anonymous.snipmobile -e KEY=snip_… e2e/snip.yaml
 #
@@ -19,7 +20,8 @@ appId: ${APP_ID}
 # The address field already holds where snip listens: http://10.0.2.2:8080
 # on the Android emulator (its name for the computer running it), and
 # http://localhost:8080 on the iOS simulator (which shares the computer's network).
-- tapOn: "API key"
+- tapOn:
+    id: "api-key" # by testID: on iOS the label above the field also says "API key"
 - inputText: ${KEY}
 - hideKeyboard
 - tapOn: "Save and continue"
@@ -29,9 +31,11 @@ appId: ${APP_ID}
 
 # Create a link with a known slug.
 - tapOn: "New short link"
-- tapOn: "Long URL"
+- tapOn:
+    id: "long-url"
 - inputText: "https://go.dev/doc/"
-- tapOn: "Custom slug (optional)"
+- tapOn:
+    id: "slug"
 - inputText: "e2e-godoc"
 - hideKeyboard
 - tapOn: "Create short link"

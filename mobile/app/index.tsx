@@ -49,6 +49,7 @@ export default function SetupScreen() {
         <TextInput
           style={shared.input}
           accessibilityLabel="snip address"
+          testID="base-url" // for the end-to-end test (e2e/snip.yaml); screen readers don't see it
           value={baseUrl}
           onChangeText={setBaseUrl}
           keyboardType="url"
@@ -63,6 +64,7 @@ export default function SetupScreen() {
         <TextInput
           style={shared.input}
           accessibilityLabel="API key"
+          testID="api-key"
           value={apiKey}
           onChangeText={setApiKey}
           secureTextEntry // shows dots, and keeps the key out of the keyboard's suggestions
