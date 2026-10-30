@@ -148,7 +148,8 @@ jobs:
         run: |
           go build -o "$RUNNER_TEMP/snip" ./cmd/snip
           nohup "$RUNNER_TEMP/snip" serve > "$RUNNER_TEMP/snip.log" 2>&1 &
-          timeout 60 sh -c 'until curl -fs localhost:8080/healthz; do sleep 1; done'
+          for _ in $(seq 60); do curl -fs localhost:8080/healthz && break; sleep 1; done   # macOS has no timeout(1)
+          curl -fs localhost:8080/healthz
           echo "SNIP_KEY=$(grep -o 'snip_[A-Za-z0-9]*' "$RUNNER_TEMP/snip.log" | head -1)" >> "$GITHUB_ENV"
 
       - name: Build the iOS app (debug, for the simulator)
@@ -173,7 +174,8 @@ jobs:
           CI: "1"
         run: |
           nohup npx expo start --port 8081 > metro.log 2>&1 &
-          timeout 120 sh -c 'until curl -s localhost:8081/status | grep -q running; do sleep 2; done'
+          for _ in $(seq 60); do curl -s localhost:8081/status | grep -q running && break; sleep 2; done
+          curl -s localhost:8081/status | grep -q running
 
       - name: Boot an iPhone simulator and install the app
         run: |
