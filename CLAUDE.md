@@ -78,6 +78,7 @@ chapter.** The owner should never have to repeat what is written here.
 │   ├── build-ask-index.mjs   ← builds static/ask-index.json (runs before start/build)
 │   ├── build-ask-vectors.mjs ← embeds Ask passages (static/ask-vectors.bin); deploy-only, skips elsewhere
 │   ├── build-quiz-bank.mjs   ← builds static/quiz-bank.json from every <Quiz> (for /review)
+│   ├── check-ips.mjs         ← fails on IP addresses that could be real (placeholders only)
 │   ├── status.mjs            ← prints written/total chapters per part
 │   └── make-social-card.py   ← regenerates static/img/social-card.png
 ├── docs/                     ← the handbook: docs/<partId>/<chapterId>.mdx
@@ -106,7 +107,7 @@ chapter.** The owner should never have to repeat what is written here.
 4. Add new terms to `src/data/glossary.json` (`{"term", "def", "doc": "<partId>/<chapterId>"}`); the Glossary page and Ask index pick them up.
 5. Link only to chapters that exist (the build fails otherwise). When a later
    chapter is written, go back and add forward links if useful.
-6. Verify: `npm run check:refs && npm run check:diagrams && npm run build` (and `npm run check:sql` if the chapter has SQL playgrounds — it runs every playground against real Postgres). `npm run link:refs` turns bare "chapter N.N" mentions into links. Commit (`docs: add 6.2 SQL from zero`) and push.
+6. Verify: `npm run check:refs && npm run check:diagrams && npm run check:ips && npm run build` (and `npm run check:sql` if the chapter has SQL playgrounds — it runs every playground against real Postgres). `npm run link:refs` turns bare "chapter N.N" mentions into links. Commit (`docs: add 6.2 SQL from zero`) and push.
 7. Run `node scripts/status.mjs` to see what's left.
 
 ## 5. The snip project (what readers build)
