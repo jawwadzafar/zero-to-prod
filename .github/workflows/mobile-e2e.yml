@@ -1,0 +1,107 @@
+name: Mobile app on Android (end to end)
+
+# Chapter 18.7: Jest can't show that the app runs on a phone. This builds the
+# Android app, starts it on an emulator next to a real snip, and drives it
+# with Maestro (mobile/e2e/snip.yaml): connect with a key, create a link, see
+# it listed, delete it, forget the key. Separate from ci.yml because it takes
+# about half an hour.
+on:
+  push:
+    branches: [main]
+    paths: ["mobile/**", "snip/**", ".github/workflows/mobile-e2e.yml"]
+  schedule:
+    - cron: "23 4 * * 1"   # weekly, Monday 04:23 UTC: catches drift in the emulator image and tools
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-e2e
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    env:
+      MAESTRO_VERSION: 2.12.0
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The emulator needs hardware virtualisation; let the runner's user use it.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Start snip and make a key
+        working-directory: snip
+        run: |
+          docker compose up -d --build --wait
+          echo "SNIP_KEY=$(docker compose exec -T api snip keys create e2e --operator ci | grep -o 'snip_[A-Za-z0-9]*')" >> "$GITHUB_ENV"
+
+      - name: Build the Android app (debug)
+        working-directory: mobile
+        env:
+          CI: "1"
+        run: |
+          npm ci
+          npx expo prebuild --platform android --no-install   # generates android/ from app.json (chapter 18.8)
+          cd android && ./gradlew assembleDebug --no-daemon
+
+      # A debug build loads its JavaScript from Metro, at 10.0.2.2:8081 from
+      # inside the emulator; start it now so it's ready when the app opens.
+      - name: Start Metro
+        working-directory: mobile
+        env:
+          CI: "1"
+        run: |
+          nohup npx expo start --port 8081 > metro.log 2>&1 &
+          timeout 120 sh -c 'until curl -s localhost:8081/status | grep -q running; do sleep 2; done'
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Run the app on an emulator and drive it
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: |
+            adb install mobile/android/app/build/outputs/apk/debug/app-debug.apk
+            maestro test -e KEY="$SNIP_KEY" --format junit --output maestro-report.xml mobile/e2e/snip.yaml
+
+      - name: Keep the evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mobile-e2e
+          path: |
+            mobile/metro.log
+            maestro-report.xml
+            ~/.maestro/tests/
+          retention-days: 7
+
+      - name: Stop snip
+        if: always()
+        working-directory: snip
+        run: docker compose down -v

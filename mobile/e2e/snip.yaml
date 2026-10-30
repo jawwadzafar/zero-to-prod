@@ -1,0 +1,52 @@
+# End to end, on a real Android emulator against a real snip
+# (.github/workflows/mobile-e2e.yml). Maestro finds things the way a screen
+# reader does, by their text and accessibility labels, so this also checks
+# that the labels are there.
+#
+#   maestro test -e KEY=snip_… e2e/snip.yaml
+#
+# The package name is the one `npx expo prebuild` picks while app.json sets
+# none (chapter 18.8 explains why a store build needs its own).
+appId: com.anonymous.snipmobile
+---
+- launchApp:
+    clearState: true # no saved key: start on the setup screen
+- extendedWaitUntil:
+    visible: "Connect to snip"
+    timeout: 180000 # the first launch waits for Metro to bundle the app
+
+# The address field already holds http://10.0.2.2:8080, the emulator's name
+# for the computer running it, where snip listens.
+- tapOn: "API key"
+- inputText: ${KEY}
+- hideKeyboard
+- tapOn: "Save and continue"
+- extendedWaitUntil:
+    visible: "Your links"
+    timeout: 30000
+
+# Create a link with a known slug.
+- tapOn: "New short link"
+- tapOn: "Long URL"
+- inputText: "https://go.dev/doc/"
+- tapOn: "Custom slug (optional)"
+- inputText: "e2e-godoc"
+- hideKeyboard
+- tapOn: "Create short link"
+- extendedWaitUntil:
+    visible: "e2e-godoc"
+    timeout: 30000
+
+# Delete it, through the confirmation dialog (Android's positive button).
+- tapOn: "Delete e2e-godoc"
+- tapOn:
+    id: "android:id/button1"
+- extendedWaitUntil:
+    notVisible: "e2e-godoc"
+    timeout: 15000
+
+# Forget the key: back to setup.
+- tapOn: "Forget key"
+- extendedWaitUntil:
+    visible: "Connect to snip"
+    timeout: 15000
