@@ -119,19 +119,27 @@ TCP is a phone call: you dial, the other person answers, you confirm you can hea
 
 Humans remember names; networks need numbers. **DNS** (Domain Name System) translates a **domain name** like `github.com` into an IP address.
 
-When you visit a site, your computer asks a **DNS resolver** (usually run by your internet provider, or a public one like `1.1.1.1` or `8.8.8.8`): "what's the address for github.com?". If the resolver doesn't know, it asks up a hierarchy: the root servers, then the servers for `.com`, then GitHub's own name servers — and caches the answer for next time.
+When you visit a site, your computer asks a **DNS resolver** (usually run by your internet provider, or a public one like `1.1.1.1` or `8.8.8.8`): "what's the address for example.com?". If the resolver doesn't know, it asks up a hierarchy: the root servers, then the servers for `.com`, then example.com's own name servers, and caches the answer for next time. Step through a lookup with nothing cached yet:
 
-```mermaid
-sequenceDiagram
-    participant B as Your computer
-    participant R as DNS resolver
-    participant A as github.com's name servers
-    B->>R: Where is github.com?
-    R->>A: (asks up the chain if not cached)
-    A->>R: 140.82.121.4 — remember it for 60s
-    R->>B: 140.82.121.4
-    B->>B: Now connect via TCP to 140.82.121.4:443
-```
+<StepThrough
+  title="Looking up example.com, with nothing cached"
+  nodes={[
+    {id: "you", label: "Your computer"},
+    {id: "res", label: "Resolver", sub: "your ISP, or 1.1.1.1"},
+    {id: "root", label: "Root servers", sub: "know every TLD"},
+    {id: "tld", label: ".com servers", sub: "know every .com"},
+    {id: "auth", label: "Authoritative", sub: "example.com's own servers"},
+  ]}
+  steps={[
+    {title: "Ask the resolver", text: "Your computer checks its own cache first. Nothing there, so it asks its resolver: \"what's the A record for example.com?\"", from: "you", to: "res"},
+    {title: "Check the resolver's cache", text: "The resolver serves many people, so it often has the answer already, and the lookup ends here. This time it doesn't.", active: ["res"]},
+    {title: "Ask a root server", text: "Every resolver has the addresses of the 13 named root servers built in. The root doesn't know example.com, but replies with a referral: \"ask the servers for `.com`, here they are\".", from: "res", to: "root"},
+    {title: "Ask the .com servers", text: "They don't know the address either, but they know who does. Another referral: the name servers that example.com's owner chose, from the domain's registration.", from: "res", to: "tld"},
+    {title: "Ask the authoritative servers", text: "example.com's own name servers hold its records. They answer for real: `203.0.113.10`, and a TTL of 3600 seconds (cache this for an hour).", from: "res", to: "auth"},
+    {title: "Answer, and remember", text: "The resolver caches the answer (and the referrals, so its next `.com` lookup skips the root) and replies to your computer, which caches it too.", from: "res", to: "you"},
+    {title: "Now connect", text: "With the address, your computer opens a TCP connection to `203.0.113.10` on port 443. For the next hour, anyone using this resolver gets the answer at step 2.", active: ["you"]},
+  ]}
+/>
 
 A few terms you'll see:
 
