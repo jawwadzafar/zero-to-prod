@@ -130,10 +130,10 @@ implementation lives in `snip/` and is the source of every snip snippet.
 
 ## 6. Curriculum (source of truth: `src/data/curriculum.json`)
 
-17 parts, 118 chapters: 0 Start Here · 1 Computers & the Internet · 2 Command
+18 parts, 126 chapters: 0 Start Here · 1 Computers & the Internet · 2 Command
 Line & Linux · 3 Git · 4 Go · 5 APIs · 6 Data · 7 Security · 8 Distributed
 Systems · 9 Containers · 10 Kubernetes · 11 Shipping · 12 Cloud & IaC ·
-13 Observability · 14 AI Engineering · 15 Architecture & Career · 16 Frontend.
+13 Observability · 14 AI Engineering · 15 Architecture & Career · 16 Frontend · 17 Data Engineering.
 
 Order of work: write parts in order (0 → 15), so every chapter can link back
 to what came before. Build the matching `snip/` code alongside the chapter
